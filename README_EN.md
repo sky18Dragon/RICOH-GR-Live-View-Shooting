@@ -93,3 +93,12 @@ Serial baud rate: `115200`.
 - Fixed `GR_WIFI_SSID` / `GR_WIFI_PASSWORD` build flags are not needed.
 - Camera guard state is RAM-only; rebooting the StickS3 starts from BLE scan and reconnects automatically.
 - If the shutter command logs a BLE write failure but the camera actually takes the photo, the failure is usually from the release/follow-up write after the camera has already accepted the shot.
+
+## License
+
+This project is licensed under the GNU General Public License v3.0.
+
+You may use, modify, and distribute this project under the terms of the GPL-3.0 license.  
+If you distribute modified versions or derivative works, you must also release the corresponding source code under the same license.
+
+See the [LICENSE](LICENSE) file for details.
