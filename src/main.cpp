@@ -27,6 +27,7 @@ RicohBleClient ricohBle;
 
 enum class CameraFlowState {
   BleScan,
+  CameraSleepGuard,
   BleReady,
   WifiConnecting,
   HttpProbe,
@@ -43,6 +44,9 @@ uint32_t lastFrameAt = 0;
 uint32_t lastStatusAt = 0;
 uint32_t lastCameraRecoveryAt = 0;
 bool cameraRecoveryInProgress = false;
+bool cameraAutoWakeBlocked = false;
+uint32_t cameraAutoWakeCooldownUntil = 0;
+int cameraAutoWakeDisconnectReason = 0;
 uint32_t lastPropsAt = 0;
 uint32_t decodedFrames = 0;
 uint32_t fpsWindowStart = 0;
@@ -61,6 +65,8 @@ const char* cameraFlowStateName(CameraFlowState state) {
   switch (state) {
     case CameraFlowState::BleScan:
       return "BLE_SCAN";
+    case CameraFlowState::CameraSleepGuard:
+      return "CAMERA_SLEEP_GUARD";
     case CameraFlowState::BleReady:
       return "BLE_READY";
     case CameraFlowState::WifiConnecting:
@@ -161,6 +167,80 @@ String preferredBleName() {
   return deriveBleNameFromWifiSsid(cameraProfile.wifi.ssid);
 }
 
+bool timeReached(uint32_t deadlineMs) {
+  return static_cast<int32_t>(millis() - deadlineMs) >= 0;
+}
+
+bool isCameraPowerOffDisconnectReason(int reason) {
+  return reason == RICOH_BLE_DISCONNECT_REMOTE_USER ||
+         reason == RICOH_BLE_DISCONNECT_REMOTE_POWER_OFF;
+}
+
+bool cameraSleepGuardActive() {
+  return cameraAutoWakeBlocked;
+}
+
+bool cameraSleepGuardCooldownActive() {
+  return cameraAutoWakeBlocked && cameraAutoWakeCooldownUntil != 0 && !timeReached(cameraAutoWakeCooldownUntil);
+}
+
+void showCameraSleepGuardStatus(bool force = false) {
+  String line2 = "Auto wake paused";
+  if (cameraSleepGuardCooldownActive()) {
+    const uint32_t remainingSeconds = (cameraAutoWakeCooldownUntil - millis() + 999) / 1000;
+    line2 = String("Cooldown ") + remainingSeconds + "s";
+  }
+  showStatusIfChanged("Camera standby", line2, "Press G11 or B", preferredBleName(), force);
+}
+
+void enterCameraSleepGuard(const char* source, int reason) {
+  cameraAutoWakeBlocked = true;
+  cameraAutoWakeDisconnectReason = reason;
+  cameraAutoWakeCooldownUntil = millis() + CAMERA_POWER_OFF_COOLDOWN_MS;
+
+  closeLiveView(source != nullptr ? source : "camera standby");
+  grWifi.disconnect();
+  setCameraFlowState(CameraFlowState::CameraSleepGuard, source != nullptr ? source : "camera standby");
+  Serial.printf("BLE guard: remote disconnect reason=%d; auto wake paused for %lus, then manual wake required\n",
+                reason,
+                static_cast<unsigned long>(CAMERA_POWER_OFF_COOLDOWN_MS / 1000));
+  showCameraSleepGuardStatus(true);
+  lastFrameAt = millis();
+  lastCameraRecoveryAt = millis();
+}
+
+bool consumeCameraPowerOffDisconnect(const char* source) {
+  const int reason = ricohBle.consumeDisconnectReason();
+  if (!isCameraPowerOffDisconnectReason(reason)) {
+    return false;
+  }
+
+  enterCameraSleepGuard(source, reason);
+  return true;
+}
+
+void clearCameraSleepGuard(const char* source) {
+  if (cameraAutoWakeBlocked) {
+    Serial.printf("BLE guard: manual wake requested (%s), previous disconnect reason=%d\n",
+                  source != nullptr ? source : "manual",
+                  cameraAutoWakeDisconnectReason);
+  }
+  cameraAutoWakeBlocked = false;
+  cameraAutoWakeCooldownUntil = 0;
+  cameraAutoWakeDisconnectReason = 0;
+  ricohBle.clearDisconnectReason();
+}
+
+bool cameraSleepGuardBlocksFlow(const char* action) {
+  (void)action;
+  if (!cameraAutoWakeBlocked) {
+    return false;
+  }
+
+  showCameraSleepGuardStatus(false);
+  return true;
+}
+
 void applyDefaultProfile() {
   if (!profileStore.load(cameraProfile)) {
     Serial.println("Profile: NVS open failed; using runtime defaults");
@@ -185,6 +265,9 @@ bool activateCameraWifiOverBle() {
   if (!RICOH_BLE_AUTO_WLAN_ON_BOOT) {
     return true;
   }
+  if (cameraSleepGuardBlocksFlow("WiFi open")) {
+    return false;
+  }
   if (!ricohBle.isConnected()) {
     showStatusIfChanged("BLE not ready", "Cannot open WiFi", "", "", true);
     return false;
@@ -207,6 +290,9 @@ bool hasStoredBleIdentity() {
 }
 
 bool runBleDiscoveryAtBoot() {
+  if (cameraSleepGuardBlocksFlow("BLE discovery")) {
+    return false;
+  }
   const bool firstBootPairing = !hasStoredBleIdentity();
   const uint8_t configuredAttempts = firstBootPairing ? FIRST_BOOT_BLE_PAIRING_ATTEMPTS : BLE_CONNECT_ATTEMPTS;
   const uint8_t attempts = configuredAttempts == 0 ? 1 : configuredAttempts;
@@ -247,6 +333,9 @@ bool runBleDiscoveryAtBoot() {
                     static_cast<unsigned>(attempt),
                     static_cast<unsigned>(attempts),
                     ricohBle.lastError().c_str());
+      if (consumeCameraPowerOffDisconnect("BLE connect failed")) {
+        return false;
+      }
       showStatusIfChanged("BLE connect failed", ricohBle.lastError(), "Retrying...", "", true);
       ricohBle.disconnect();
       consecutiveConnectFailures++;
@@ -301,7 +390,13 @@ bool connectWifiFromProfile(bool forceStatus, bool requireBleAnchor = false) {
 }
 
 bool connectWifiAfterBleReady() {
+  if (cameraSleepGuardBlocksFlow("connect WiFi")) {
+    return false;
+  }
   if (!ricohBle.isConnected()) {
+    if (consumeCameraPowerOffDisconnect("BLE lost before WiFi open")) {
+      return false;
+    }
     setCameraFlowState(CameraFlowState::BleScan, "BLE lost before WiFi open");
     return false;
   }
@@ -313,6 +408,10 @@ bool connectWifiAfterBleReady() {
 
   if (!ricohBle.isConnected()) {
     grWifi.disconnect();
+    if (consumeCameraPowerOffDisconnect("BLE lost after WiFi open")) {
+      return false;
+    }
+    ricohBle.clearDisconnectReason();
     setCameraFlowState(CameraFlowState::BleScan, "BLE lost after WiFi open");
     return false;
   }
@@ -322,6 +421,10 @@ bool connectWifiAfterBleReady() {
     showStatusIfChanged("BLE WiFi params", ricohBle.lastError(), "Back to BLE_READY", "", true);
     grWifi.disconnect();
     if (!ricohBle.isConnected()) {
+      if (consumeCameraPowerOffDisconnect("BLE lost waiting WiFi params")) {
+        return false;
+      }
+      ricohBle.clearDisconnectReason();
       setCameraFlowState(CameraFlowState::BleScan, "BLE lost waiting WiFi params");
       return false;
     }
@@ -337,6 +440,10 @@ bool connectWifiAfterBleReady() {
   if (!connectWifiFromProfile(true, true)) {
     grWifi.disconnect();
     if (!ricohBle.isConnected()) {
+      if (consumeCameraPowerOffDisconnect("BLE lost during WiFi connect")) {
+        return false;
+      }
+      ricohBle.clearDisconnectReason();
       setCameraFlowState(CameraFlowState::BleScan, "BLE lost during WiFi connect");
       return false;
     }
@@ -409,14 +516,26 @@ void disconnectWifiLiveViewToBleReady(const char* reason) {
 }
 
 bool resumeFromBleReady(const char* reason) {
+  if (cameraSleepGuardBlocksFlow("BLE_READY resume")) {
+    return false;
+  }
   if (!ricohBle.isConnected()) {
+    if (consumeCameraPowerOffDisconnect("BLE lost before BLE_READY resume")) {
+      return false;
+    }
     setCameraFlowState(CameraFlowState::BleScan, "BLE lost before BLE_READY resume");
     return false;
   }
 
   disconnectWifiLiveViewToBleReady(reason);
   for (uint8_t attempt = 0; attempt < WIFI_OPEN_ATTEMPTS; ++attempt) {
+    if (cameraSleepGuardActive()) {
+      return false;
+    }
     if (!ricohBle.isConnected()) {
+      if (consumeCameraPowerOffDisconnect("BLE lost during WiFi retry")) {
+        return false;
+      }
       setCameraFlowState(CameraFlowState::BleScan, "BLE lost during WiFi retry");
       return false;
     }
@@ -425,6 +544,8 @@ bool resumeFromBleReady(const char* reason) {
         return true;
       }
       disconnectWifiLiveViewToBleReady("HTTP/LiveView retry from BLE_READY");
+    } else if (cameraSleepGuardActive()) {
+      return false;
     }
     delay(BLE_CONNECT_RETRY_DELAY_MS);
     yield();
@@ -448,12 +569,18 @@ void resetBleStackBeforeScanAfterLinkLoss(const char* reason) {
 }
 
 bool runCameraFlowOnce() {
+  if (cameraSleepGuardBlocksFlow("camera flow")) {
+    return false;
+  }
   setCameraFlowState(CameraFlowState::BleScan, "enter BLE scan mode");
   if (!runBleDiscoveryAtBoot()) {
     return false;
   }
 
   for (uint8_t attempt = 0; attempt < WIFI_OPEN_ATTEMPTS; ++attempt) {
+    if (cameraSleepGuardActive()) {
+      return false;
+    }
     if (connectWifiAfterBleReady()) {
       if (httpProbeCamera() && startLiveViewFromProbe()) {
         return true;
@@ -466,6 +593,9 @@ bool runCameraFlowOnce() {
       return false;
     }
 
+    if (cameraSleepGuardActive()) {
+      return false;
+    }
     delay(BLE_CONNECT_RETRY_DELAY_MS);
     yield();
   }
@@ -536,10 +666,26 @@ void recoverCameraConnection(const char* reason) {
   cameraRecoveryInProgress = true;
   Serial.printf("Camera recovery: %s\n", reason != nullptr ? reason : "manual");
 
+  if (!ricohBle.isConnected() && consumeCameraPowerOffDisconnect(reason != nullptr ? reason : "camera recovery")) {
+    cameraRecoveryInProgress = false;
+    return;
+  }
+  if (cameraSleepGuardBlocksFlow(reason != nullptr ? reason : "camera recovery")) {
+    cameraRecoveryInProgress = false;
+    return;
+  }
+
   bool recovered = false;
   if (!reasonRequiresBleRescan(reason)) {
     showStatusIfChanged("Camera recovery", reason != nullptr ? reason : "reconnect", "BLE_READY retry", "", true);
     recovered = resumeFromBleReady(reason != nullptr ? reason : "camera recovery");
+  }
+
+  if (!recovered && cameraSleepGuardActive()) {
+    lastFrameAt = millis();
+    lastCameraRecoveryAt = millis();
+    cameraRecoveryInProgress = false;
+    return;
   }
 
   if (!recovered) {
@@ -570,6 +716,9 @@ void ensureLiveView() {
     return;
   }
   if (!ricohBle.isConnected()) {
+    if (consumeCameraPowerOffDisconnect("BLE disconnected")) {
+      return;
+    }
     recoverCameraConnection("BLE disconnected");
     return;
   }
@@ -577,6 +726,11 @@ void ensureLiveView() {
     recoverCameraConnection("WiFi disconnected");
     return;
   }
+  if (cameraSleepGuardActive()) {
+    showCameraSleepGuardStatus(false);
+    return;
+  }
+
   if (!grApi.isLiveViewOpen()) {
     recoverCameraConnection("LiveView closed");
     return;
@@ -597,7 +751,40 @@ void ensureLiveView() {
   }
 }
 
+void requestManualCameraWake(const char* source) {
+  if (cameraSleepGuardCooldownActive()) {
+    Serial.printf("BLE guard: manual wake deferred until cooldown completes (%s)\n",
+                  source != nullptr ? source : "manual");
+    showCameraSleepGuardStatus(true);
+    return;
+  }
+
+  const char* wakeSource = source != nullptr ? source : "manual wake";
+  clearCameraSleepGuard(wakeSource);
+  liveviewEnabled = true;
+  closeLiveView(wakeSource);
+  grWifi.disconnect();
+  ricohBle.disconnect();
+  setCameraFlowState(CameraFlowState::BleScan, wakeSource);
+  showStatusIfChanged("Manual wake", "Resetting BLE...", preferredBleName(), "", true);
+
+  Serial.printf("BLE guard: manual wake BLE stack rebuild (%s)\n", wakeSource);
+  ricohBle.resetStack(true);
+  delay(BLE_MANUAL_WAKE_REINIT_SETTLE_MS);
+  yield();
+
+  showStatusIfChanged("Manual wake", "Reconnecting...", preferredBleName(), "", true);
+  const bool online = runCameraFlowOnce();
+  lastFrameAt = millis();
+  lastCameraRecoveryAt = online ? millis() : 0;
+}
+
 void triggerShutterFromG11() {
+  if (cameraSleepGuardActive()) {
+    requestManualCameraWake("G11 manual wake");
+    return;
+  }
+
   if (!ricohBle.shutterReady()) {
     showStatusIfChanged("G11 shutter", "BLE not ready", "Back to BLE scan", "", true);
     recoverCameraConnection("G11 shutter BLE not ready");
@@ -627,6 +814,10 @@ void handleButtons() {
   }
 
   if (events.buttonB) {
+    if (cameraSleepGuardActive()) {
+      requestManualCameraWake("Button B manual wake");
+      return;
+    }
     liveviewEnabled = !liveviewEnabled;
     if (!liveviewEnabled) {
       closeLiveView("button B pause");
@@ -645,6 +836,13 @@ void handleButtons() {
 
 void serviceCameraFlowIfNeeded() {
   if (cameraRecoveryInProgress || cameraFlowState == CameraFlowState::LiveViewRunning) {
+    return;
+  }
+
+  if (!ricohBle.isConnected() && consumeCameraPowerOffDisconnect("scheduled service")) {
+    return;
+  }
+  if (cameraSleepGuardBlocksFlow("scheduled service")) {
     return;
   }
 
@@ -667,6 +865,11 @@ void updateStatusUiIfDue() {
     return;
   }
   lastStatusAt = now;
+
+  if (cameraSleepGuardActive()) {
+    showCameraSleepGuardStatus(false);
+    return;
+  }
 
   if (!grApi.isLiveViewOpen()) {
     showStatusIfChanged(grWifi.statusText(),

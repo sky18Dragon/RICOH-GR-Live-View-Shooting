@@ -35,7 +35,9 @@ public:
   bool openWifi();
   bool waitForWifiCredentials(RicohBleWifiCredentials& credentials, uint32_t timeoutMs);
   void disconnect();
-  void resetStack();
+  int consumeDisconnectReason();
+  void clearDisconnectReason();
+  void resetStack(bool clearObjects = false);
 
   String statusText() const;
   const String& lastError() const;

@@ -1,6 +1,7 @@
 #include "ricoh_ble_client.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cstring>
 #include <new>
@@ -29,6 +30,13 @@ extern "C" {
 namespace {
 constexpr uint32_t HANDLE_WRITE_TIMEOUT_MS = 3000;
 constexpr uint32_t HANDLE_READ_TIMEOUT_MS = 800;
+std::atomic<int> g_lastDisconnectReason{0};
+std::atomic<int> g_powerOffDisconnectReason{0};
+
+bool isPowerOffDisconnectReason(int reason) {
+  return reason == RICOH_BLE_DISCONNECT_REMOTE_USER ||
+         reason == RICOH_BLE_DISCONNECT_REMOTE_POWER_OFF;
+}
 
 struct WlanParamHandle {
   uint16_t handle;
@@ -357,6 +365,10 @@ public:
   }
 
   void onDisconnect(NimBLEClient*, int reason) override {
+    g_lastDisconnectReason.store(reason);
+    if (isPowerOffDisconnectReason(reason)) {
+      g_powerOffDisconnectReason.store(reason);
+    }
     Serial.printf("BLE: disconnected reason=%d\n", reason);
   }
 
@@ -670,7 +682,6 @@ RicohBleDeviceInfo RicohBleClient::scanForCamera(const String& preferredAddress,
 bool RicohBleClient::connect(const RicohBleDeviceInfo& info, uint32_t timeoutMs) {
   begin();
   disconnect();
-
   if (!info.found || info.address.length() == 0) {
     _lastError = "No BLE device selected";
     return false;
@@ -867,10 +878,24 @@ void RicohBleClient::disconnect() {
   _connected = false;
 }
 
-void RicohBleClient::resetStack() {
-  Serial.println("BLE: resetting stack");
+int RicohBleClient::consumeDisconnectReason() {
+  const int powerOffReason = g_powerOffDisconnectReason.exchange(0);
+  if (powerOffReason != 0) {
+    g_lastDisconnectReason.exchange(0);
+    return powerOffReason;
+  }
+  return g_lastDisconnectReason.exchange(0);
+}
+
+void RicohBleClient::clearDisconnectReason() {
+  g_lastDisconnectReason.store(0);
+  g_powerOffDisconnectReason.store(0);
+}
+
+void RicohBleClient::resetStack(bool clearObjects) {
+  Serial.printf("BLE: resetting stack%s\n", clearObjects ? " (clear objects)" : "");
   disconnect();
-  NimBLEDevice::deinit(false);
+  NimBLEDevice::deinit(clearObjects);
   _begun = false;
   _lastError = "BLE stack reset";
   delay(BLE_STACK_RESET_DELAY_MS);

@@ -1,144 +1,95 @@
 # RICOH GR StickS3 Remote Viewfinder
 
-[![PlatformIO](https://img.shields.io/badge/PlatformIO-v6.12.0-blue.svg)](https://platformio.org/)
-[![Board](https://img.shields.io/badge/Board-ESP32--S3-orange.svg)](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/hw-reference/index.html)
-[![Hardware](https://img.shields.io/badge/Hardware-M5Stack--StickS3-red.svg)](https://docs.m5stack.com/en/core/m5stamp_s3)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+Firmware for using an M5Stack StickS3 as a wireless live-view monitor and shutter remote for RICOH GR cameras.
 
-[中文版](README.md)
+The firmware treats **BLE as the only camera-presence entry point**. It connects to the camera over BLE, asks the camera to temporarily enable Wi-Fi, reads the dynamic Wi-Fi credentials returned by the camera, then opens the HTTP LiveView stream.
 
-An intelligent, wireless electronic viewfinder (EVF) and shutter remote control firmware running on the **M5Stack StickS3** for RICOH GR cameras.
+[中文 README](README.md)
 
 ---
 
-## 📸 Showcase / Field Demo
+## Stable Features
 
-> 💡 **Tip**: Replace or add photos of your hardware assembly and working setup here. We recommend saving them under the `docs/images/` directory in your repository.
-
-| 📸 Remote Monitor & Shutter | 🎬 Waist-Level Viewfinder In Action |
-| :---: | :---: |
-| ![RICOH GR StickS3 Remote Monitor & Shutter](docs/images/hardware_setup.jpg) | ![Waist Level Viewfinder Action](docs/images/liveview_action.jpg) |
-
----
-
-## 🎯 Purpose & Primary Use Cases
-
-This firmware is designed to turn your M5Stack StickS3 into a **mini wireless field monitor** for RICOH GR cameras, catering to street photography and creative perspectives:
-
-1. **Waist-Level Viewfinder (Waist-Level EVF)**: Mount the StickS3 on the camera's hot shoe or hold it in your hand. Frame low-angle, street stealth, or waist-level shots perfectly using the handheld display without needing to bend down or lie on the ground.
-2. **Remote Monitor & Controller**: Mount the camera on a tripod and monitor the frame from up to 10 meters away. Wirelessly trigger the shutter, making it perfect for group photos, self-portraits, or complex tripod placements.
+- BLE-first camera discovery and secure connection.
+- Dynamic Wi-Fi credentials read from the camera over BLE; no fixed SSID/password is required in `platformio.ini`.
+- HTTP MJPEG LiveView preview on the StickS3 display.
+- GPIO11 external shutter button.
+- Camera power-off guard to avoid waking the camera while it is shutting down.
+- Manual wake from guard state via G11 or Button B.
+- StickS3 reboot starts fresh and automatically reconnects from BLE scan.
 
 ---
 
-## 🚀 Core Automatic Workflow
-
-The firmware handles connection bootstrapping with **zero manual configuration required**:
+## Workflow
 
 ```text
-[Power On] 
-   │
-   ▼
-[Auto BLE Scan] ────────► Discovers preferred RICOH camera
-   │
-   ▼
-[Auto BLE Secure Link] ──► Authenticates using Ricoh validation Passkey 123456
-   │
-   ▼
-[Auto Activate Camera Wi-Fi] ──► Sends WLAN power ON command & reads dynamic SSID/passphrase
-   │
-   ▼
-[Auto Connect Wi-Fi] ────► Switches ESP32 to STA mode and connects to camera AP
-   │
-   ▼
-[Enter LiveView EVF] ────► Decodes HTTP /v1/liveview stream & enables interrupt shutter (GPIO11)
+StickS3 boot
+  -> initialize display, buttons, NVS, BLE, Wi-Fi
+  -> load camera profile
+  -> scan for GR / RICOH BLE device
+  -> connect and secure BLE
+  -> write WLAN ON over BLE (handle 0x0135, value 0x01)
+  -> read Wi-Fi SSID / passphrase / BSSID from BLE
+  -> connect to camera Wi-Fi AP
+  -> probe camera HTTP API
+  -> open LiveView and render MJPEG frames
 ```
 
----
+### Camera Power-Off Guard
 
-## ✨ Features
+```text
+LiveView running
+  -> camera powers off / remote BLE disconnect
+  -> BLE disconnect reason 531 or 533
+  -> enter CAMERA_SLEEP_GUARD
+  -> block BLE scan, reconnect, and Wi-Fi ON for 15 seconds
+  -> remain idle after cooldown
+  -> user presses G11 or Button B
+  -> rebuild NimBLE stack and reconnect
+```
 
-- **Zero-Configuration Dynamic Credentials**: Since the camera rotates its Wi-Fi passwords, the firmware reads SSID, password, and BSSID credentials dynamically via BLE on every boot for a seamless **turn-on-and-connect** experience.
-- **Hardware Interrupt Shutter (GPIO11)**: Configures GPIO11 with an internal pull-up and a falling-edge interrupt. Pressing the external shutter button latches the trigger instantly, ensuring zero shutter lag even during heavy JPEG decoding.
-- **Flicker-Free Double Buffering**: Uses the highly optimized `JPEGDEC` library to decode RGB565 big-endian frames into PSRAM. LovyanGFX draws a transparent HUD overlay (FPS, battery icon, Wi-Fi RSSI bars, frame stats) and flushes to the screen buffer to eliminate flicker.
-- **RF Coexistence & Lockup Watchdogs**:
-  - Explicitly toggles Wi-Fi modem sleep (`WiFi.setSleep(true)`) to maintain connection stability while sharing the single-antenna radio on the ESP32-S3.
-  - Automatically resets the BLE stack (`resetStack`) to recover from hardware stack locks if consecutive BLE connection attempts fail.
-- **Persistent Profile Storage**: Automatically saves the matched camera's BLE address and name to the ESP32 NVS using the Preferences library. Connects automatically on boot.
-
----
-
-## 🛠️ Hardware Requirements
-
-1. **Microcontroller**: [M5Stack StickS3](https://docs.m5stack.com/en/core/m5stamp_s3)
-2. **Camera**: RICOH GR III / GR IIIx / GR IV or compatible BLE-controlled Ricoh cameras.
-3. **External Shutter Button**: A tactile button connected between **GPIO11 (G11)** and **GND** (internal `INPUT_PULLUP` configured in firmware). Can be built into custom handles or grips.
+This prevents the StickS3 from sending a Wi-Fi wake command while the camera is still shutting down or advertising in low-power standby.
 
 ---
 
-## 💻 Building & Flashing
+## Controls
 
-Developed under the PlatformIO environment. Configuration is located in [platformio.ini](platformio.ini).
+| Control | Function |
+| --- | --- |
+| G11 external button | BLE shutter while LiveView is running; manual wake/reconnect while in guard state |
+| Button B | Pause/resume LiveView; manual wake/reconnect while in guard state |
+| Button A | Reserved |
+
+G11 wiring: connect a button between **GPIO11 (G11)** and **GND**. The firmware uses `INPUT_PULLUP` and a falling-edge interrupt.
+
+---
+
+## BLE Handles
+
+| Feature | Handle | Operation | Description |
+| --- | ---: | --- | --- |
+| Wi-Fi enable | `0x0135` | Write | Write `0x01` to enable the camera AP |
+| Wi-Fi SSID | `0x0138` | Read | Read camera AP SSID |
+| Wi-Fi passphrase | `0x013A` | Read | Read camera AP password |
+| Wi-Fi BSSID | `0x0140` | Read | Read camera AP MAC address |
+| Shutter control | `0x0099` | Write | `0x01` focus, `0x02` shoot, `0x00` release |
+
+---
+
+## Build and Flash
 
 ```bash
-# 1. Compile project
 platformio run
-
-# 2. Upload to StickS3 board
 platformio run -t upload
-
-# 3. Monitor serial output (Baudrate: 115200)
 platformio device monitor
 ```
 
----
-
-## ⚙️ Development Environment & Dependencies
-
-This project is developed and compiled using **PlatformIO IDE** (either via VS Code extension or the command-line interface). Config files can be found in [platformio.ini](platformio.ini).
-
-### 1. Hardware Specifications
-* **SoC**: ESP32-S3-PICO-1-N8R8 (Dual-core Xtensa LX7, clocked at 240MHz)
-* **Memory**: 8MB QSPI Flash + 8MB OPI PSRAM (`qio_opi` memory type config)
-* **Partition Table**: 8MB Default Layout (`default_8MB.csv`)
-
-### 2. Software Frameworks & Platform
-* **Platform**: Espressif32 BSP v6.12.0
-* **Framework**: Arduino Core for ESP32
-
-### 3. Core Library Dependencies
-* **[M5Unified](https://github.com/m5stack/M5Unified)**: Unified hardware abstraction wrapper for screen display, backlight, and built-in button interactions.
-* **[M5PM1](https://github.com/m5stack/M5PM1)**: Power management controller library for M5Stack StickS3.
-* **[NimBLE-Arduino](https://github.com/h2zero/NimBLE-Arduino) (v2.5.0)**: Lightweight BLE stack replacement for enhanced stability and lower RAM footprint, preventing stack lockups.
-* **[JPEGDEC](https://github.com/bitbank2/JPEGDEC) (v1.8.2+)**: Highly optimized JPEG decoder yielding high-speed pixel output directly to PSRAM.
-* **[ArduinoJson](https://github.com/bblanchon/ArduinoJson) (v7.0.0+)**: Used to serialize and deserialize HTTP JSON API payloads from RICOH GR cameras.
+Serial baud rate: `115200`.
 
 ---
 
-## 🕹️ Controls & Interactions
+## Notes
 
-- **G11 External Button**: Executes the BLE shutter sequence (Focus $\rightarrow$ Expose $\rightarrow$ Release). If pressed while disconnected, it initiates the camera connection recovery workflow.
-- **Button B (Side)**: Toggles/Pauses LiveView. Pausing teardowns Wi-Fi and HTTP client to maximize battery life. Pressing B again issues a BLE Wi-Fi wake command and connects.
-- **Button A (Front)**: Reserved for future UI/menu expansions.
-
----
-
-## 🔗 RICOH BLE GATT Protocol Specs
-
-The firmware reads and writes characteristics from the following services (tailored for the RICOH GR3/GR4 protocol):
-
-| Feature | GATT Handle | Operation | Payload |
-| :--- | :---: | :---: | :--- |
-| **WLAN Power Toggle** | `0x0135` | Write | Write `0x01` to enable camera AP |
-| **WLAN SSID** | `0x0138` | Read | Read dynamic Wi-Fi SSID |
-| **WLAN Passphrase** | `0x013A` | Read | Read dynamic Wi-Fi Password |
-| **WLAN BSSID** | `0x0140` | Read | Read AP physical address (BSSID) |
-| **Shutter Control** | `0x0099` | Write | Sequence: Focus `0x01` $\rightarrow$ Shoot `0x02` $\rightarrow$ Release `0x00` |
-
----
-
-## 🛡️ Fault Tolerance & Recovery
-
-1. **LiveView Stall Watchdog**: If no valid JPEG is successfully parsed within `LIVEVIEW_STALL_TIMEOUT_MS` (5 seconds), the orchestrator triggers a connection teardown and warm recovery.
-2. **Warm Reconnection**: If the Wi-Fi link drops but BLE is still alive, the system skips scanning, issues a Wi-Fi ON command, and attempts to re-associate Wi-Fi up to `WIFI_OPEN_ATTEMPTS = 3` times.
-3. **Cold Reset**: If BLE is disconnected, all connections are torn down, the BLE stack is re-initialized, and the system falls back to `BleScan` to perform a full reconnect.
-4. **First-Boot Pairing**: If no previous profile exists in NVS, the device conducts up to `FIRST_BOOT_BLE_PAIRING_ATTEMPTS = 12` rounds of scans, injecting Passkey `123456` to establish encryption.
+- Fixed `GR_WIFI_SSID` / `GR_WIFI_PASSWORD` build flags are not needed.
+- Camera guard state is RAM-only; rebooting the StickS3 starts from BLE scan and reconnects automatically.
+- If the shutter command logs a BLE write failure but the camera actually takes the photo, the failure is usually from the release/follow-up write after the camera has already accepted the shot.
