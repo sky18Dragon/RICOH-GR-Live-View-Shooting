@@ -1,7 +1,6 @@
 #pragma once
 
 #include <Arduino.h>
-#include <driver/gpio.h>
 
 #ifndef GR_HOST
 #define GR_HOST "192.168.0.1"
@@ -44,6 +43,9 @@ constexpr uint32_t CAMERA_POWER_OFF_COOLDOWN_MS = 15000;
 constexpr uint32_t BLE_MANUAL_WAKE_REINIT_SETTLE_MS = 3000;
 constexpr int RICOH_BLE_DISCONNECT_REMOTE_USER = 0x213;
 constexpr int RICOH_BLE_DISCONNECT_REMOTE_POWER_OFF = 0x215;
+constexpr uint8_t RICOH_BLE_POWER_READ_RETRIES = 2;
+constexpr bool RICOH_BLE_REQUIRE_POWER_ON_BEFORE_WIFI = true;
+constexpr bool RICOH_BLE_ALLOW_WIFI_WHEN_POWER_UNKNOWN = false;
 
 constexpr bool RICOH_BLE_AUTO_WLAN_ON_BOOT = true;
 constexpr uint32_t RICOH_BLE_POST_WLAN_ON_WAIT_MS = 2000;
@@ -61,8 +63,13 @@ constexpr uint16_t RICOH_BLE_GR4_WLAN_FREQUENCY_HANDLE = 0x013E;
 constexpr uint16_t RICOH_BLE_GR4_WLAN_BSSID_HANDLE = 0x0140;
 constexpr uint16_t RICOH_BLE_GR4_SHUTTER_HANDLE = 0x0099;
 
-constexpr gpio_num_t G11_BUTTON_GPIO = GPIO_NUM_11;
-constexpr uint32_t G11_RETRIGGER_GUARD_MS = 250;
+// Verified from Android HCI logs captured on 2026-06-28.
+// 0x01: camera powered on / controllable, 0x00: power-off or shutting down.
+constexpr uint16_t RICOH_BLE_GR4_POWER_STATE_HANDLE = 0x00EB;
+constexpr uint16_t RICOH_BLE_GR4_POWER_STATE_CCCD_HANDLE = 0x00EC;
+constexpr uint8_t RICOH_BLE_GR4_POWER_STATE_ON_VALUE = 0x01;
+constexpr uint8_t RICOH_BLE_GR4_POWER_STATE_OFF_VALUE = 0x00;
+
 
 #ifndef RICOH_BLE_INFO_SERVICE_UUID
 #define RICOH_BLE_INFO_SERVICE_UUID "9A5ED1C5-74CC-4C50-B5B6-66A48E7CCFF1"

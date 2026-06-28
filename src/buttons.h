@@ -5,8 +5,6 @@
 
 struct ButtonEvents {
   bool buttonA = false;
-  bool buttonB = false;
-  bool liveviewToggle = false;
   bool any = false;
 };
 

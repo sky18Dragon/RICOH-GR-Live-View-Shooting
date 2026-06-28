@@ -12,10 +12,5 @@ ButtonEvents Buttons::poll() {
     events.buttonA = true;
     events.any = true;
   }
-  if (M5.BtnB.wasPressed()) {
-    events.buttonB = true;
-    events.liveviewToggle = true;
-    events.any = true;
-  }
   return events;
 }

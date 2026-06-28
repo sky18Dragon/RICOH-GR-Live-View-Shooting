@@ -24,6 +24,12 @@ struct RicohBleWifiCredentials {
   String bssid;
 };
 
+enum class RicohCameraPowerState {
+  Unknown,
+  On,
+  OffOrShuttingDown,
+};
+
 class RicohBleClient {
 public:
   void begin();
@@ -33,6 +39,9 @@ public:
   bool shutterReady() const;
   bool shoot(bool autofocus = true);
   bool openWifi();
+  bool readPowerState(RicohCameraPowerState& state);
+  bool enablePowerStateNotify();
+  bool consumePowerOffNotification();
   bool waitForWifiCredentials(RicohBleWifiCredentials& credentials, uint32_t timeoutMs);
   void disconnect();
   int consumeDisconnectReason();

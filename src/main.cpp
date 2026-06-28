@@ -5,7 +5,6 @@
 #include "camera_profile_store.h"
 #include "config.h"
 #include "display.h"
-#include "g11_button.h"
 #include "gr_api.h"
 #include "gr_wifi.h"
 #include "jpeg_decoder.h"
@@ -19,7 +18,6 @@ GrApi grApi;
 MjpegStream mjpeg;
 DisplayUi ui;
 Buttons buttons;
-G11Button g11Button;
 JpegDecoder decoder;
 CameraProfileStore profileStore;
 CameraProfile cameraProfile;
@@ -47,6 +45,8 @@ bool cameraRecoveryInProgress = false;
 bool cameraAutoWakeBlocked = false;
 uint32_t cameraAutoWakeCooldownUntil = 0;
 int cameraAutoWakeDisconnectReason = 0;
+RicohCameraPowerState cameraPowerState = RicohCameraPowerState::Unknown;
+bool cameraManualWakeOverride = false;
 uint32_t lastPropsAt = 0;
 uint32_t decodedFrames = 0;
 uint32_t fpsWindowStart = 0;
@@ -60,6 +60,18 @@ String lastStatusLine4;
 
 constexpr uint32_t STATUS_MIN_REDRAW_MS = 1500;
 constexpr bool DRAW_LIVE_OVERLAY = true;
+
+const char* cameraPowerStateName(RicohCameraPowerState state) {
+  switch (state) {
+    case RicohCameraPowerState::On:
+      return "ON";
+    case RicohCameraPowerState::OffOrShuttingDown:
+      return "OFF";
+    case RicohCameraPowerState::Unknown:
+      return "UNKNOWN";
+  }
+  return "UNKNOWN";
+}
 
 const char* cameraFlowStateName(CameraFlowState state) {
   switch (state) {
@@ -190,16 +202,18 @@ void showCameraSleepGuardStatus(bool force = false) {
     const uint32_t remainingSeconds = (cameraAutoWakeCooldownUntil - millis() + 999) / 1000;
     line2 = String("Cooldown ") + remainingSeconds + "s";
   }
-  showStatusIfChanged("Camera standby", line2, "Press G11 or B", preferredBleName(), force);
+  showStatusIfChanged("Camera standby", line2, "Press Button A", preferredBleName(), force);
 }
 
 void enterCameraSleepGuard(const char* source, int reason) {
+  cameraPowerState = RicohCameraPowerState::OffOrShuttingDown;
   cameraAutoWakeBlocked = true;
   cameraAutoWakeDisconnectReason = reason;
   cameraAutoWakeCooldownUntil = millis() + CAMERA_POWER_OFF_COOLDOWN_MS;
 
   closeLiveView(source != nullptr ? source : "camera standby");
   grWifi.disconnect();
+  ricohBle.disconnect();
   setCameraFlowState(CameraFlowState::CameraSleepGuard, source != nullptr ? source : "camera standby");
   Serial.printf("BLE guard: remote disconnect reason=%d; auto wake paused for %lus, then manual wake required\n",
                 reason,
@@ -207,6 +221,15 @@ void enterCameraSleepGuard(const char* source, int reason) {
   showCameraSleepGuardStatus(true);
   lastFrameAt = millis();
   lastCameraRecoveryAt = millis();
+}
+
+bool consumeCameraPowerOffNotification(const char* source) {
+  if (!ricohBle.consumePowerOffNotification()) {
+    return false;
+  }
+
+  enterCameraSleepGuard(source != nullptr ? source : "BLE power notify 0x00", RICOH_BLE_DISCONNECT_REMOTE_POWER_OFF);
+  return true;
 }
 
 bool consumeCameraPowerOffDisconnect(const char* source) {
@@ -225,6 +248,7 @@ void clearCameraSleepGuard(const char* source) {
                   source != nullptr ? source : "manual",
                   cameraAutoWakeDisconnectReason);
   }
+  cameraPowerState = RicohCameraPowerState::Unknown;
   cameraAutoWakeBlocked = false;
   cameraAutoWakeCooldownUntil = 0;
   cameraAutoWakeDisconnectReason = 0;
@@ -261,6 +285,72 @@ void applyDefaultProfile() {
                 cameraProfile.wifi.cameraIp.c_str());
 }
 
+bool ensureCameraPowerReadyForWifi(const char* source) {
+  if (!RICOH_BLE_REQUIRE_POWER_ON_BEFORE_WIFI) {
+    return true;
+  }
+  if (cameraSleepGuardBlocksFlow(source != nullptr ? source : "power guard")) {
+    return false;
+  }
+  if (!ricohBle.isConnected()) {
+    cameraPowerState = RicohCameraPowerState::Unknown;
+    return false;
+  }
+
+  showStatusIfChanged("BLE_READY", "Checking power", cameraProfile.cameraName, "", true);
+  RicohCameraPowerState nextState = RicohCameraPowerState::Unknown;
+  bool readOk = false;
+  const uint8_t retries = RICOH_BLE_POWER_READ_RETRIES == 0 ? 1 : RICOH_BLE_POWER_READ_RETRIES;
+  for (uint8_t attempt = 0; attempt < retries; ++attempt) {
+    if (ricohBle.readPowerState(nextState)) {
+      readOk = true;
+      break;
+    }
+    Serial.printf("BLE: power read attempt %u/%u failed: %s\n",
+                  static_cast<unsigned>(attempt + 1),
+                  static_cast<unsigned>(retries),
+                  ricohBle.lastError().c_str());
+    delay(120);
+    yield();
+  }
+
+  cameraPowerState = readOk ? nextState : RicohCameraPowerState::Unknown;
+  if (readOk && cameraPowerState == RicohCameraPowerState::On) {
+    if (!ricohBle.enablePowerStateNotify()) {
+      Serial.printf("BLE: power notify subscribe failed: %s\n", ricohBle.lastError().c_str());
+    }
+    return true;
+  }
+
+  if (cameraManualWakeOverride) {
+    Serial.printf("BLE: power state %s; manual wake override allows WiFi\n", cameraPowerStateName(cameraPowerState));
+    if (ricohBle.isConnected() && !ricohBle.enablePowerStateNotify()) {
+      Serial.printf("BLE: power notify subscribe failed: %s\n", ricohBle.lastError().c_str());
+    }
+    return true;
+  }
+
+  if (!readOk && RICOH_BLE_ALLOW_WIFI_WHEN_POWER_UNKNOWN) {
+    Serial.println("BLE: power state unknown; config allows WiFi open");
+    return true;
+  }
+
+  const char* reason = (readOk && cameraPowerState == RicohCameraPowerState::OffOrShuttingDown)
+                         ? "BLE power state off"
+                         : "BLE power state unknown";
+  Serial.printf("WiFi blocked: camera power state=%s readOk=%d source=%s\n",
+                cameraPowerStateName(cameraPowerState),
+                readOk ? 1 : 0,
+                source != nullptr ? source : "");
+  showStatusIfChanged("Camera standby",
+                      readOk ? "Power OFF" : "Power unknown",
+                      "Auto WiFi blocked",
+                      "Press Button A",
+                      true);
+  enterCameraSleepGuard(reason, RICOH_BLE_DISCONNECT_REMOTE_POWER_OFF);
+  return false;
+}
+
 bool activateCameraWifiOverBle() {
   if (!RICOH_BLE_AUTO_WLAN_ON_BOOT) {
     return true;
@@ -270,6 +360,9 @@ bool activateCameraWifiOverBle() {
   }
   if (!ricohBle.isConnected()) {
     showStatusIfChanged("BLE not ready", "Cannot open WiFi", "", "", true);
+    return false;
+  }
+  if (!ensureCameraPowerReadyForWifi("WiFi open")) {
     return false;
   }
 
@@ -712,6 +805,9 @@ void ensureWiFi() {
 }
 
 void ensureLiveView() {
+  if (consumeCameraPowerOffNotification("BLE power notify 0x00")) {
+    return;
+  }
   if (cameraFlowState != CameraFlowState::LiveViewRunning || !liveviewEnabled) {
     return;
   }
@@ -761,6 +857,7 @@ void requestManualCameraWake(const char* source) {
 
   const char* wakeSource = source != nullptr ? source : "manual wake";
   clearCameraSleepGuard(wakeSource);
+  cameraManualWakeOverride = true;
   liveviewEnabled = true;
   closeLiveView(wakeSource);
   grWifi.disconnect();
@@ -775,66 +872,50 @@ void requestManualCameraWake(const char* source) {
 
   showStatusIfChanged("Manual wake", "Reconnecting...", preferredBleName(), "", true);
   const bool online = runCameraFlowOnce();
+  cameraManualWakeOverride = false;
   lastFrameAt = millis();
   lastCameraRecoveryAt = online ? millis() : 0;
 }
 
-void triggerShutterFromG11() {
+void triggerShutterFromButtonA() {
   if (cameraSleepGuardActive()) {
-    requestManualCameraWake("G11 manual wake");
+    requestManualCameraWake("Button A manual wake");
     return;
   }
 
   if (!ricohBle.shutterReady()) {
-    showStatusIfChanged("G11 shutter", "BLE not ready", "Back to BLE scan", "", true);
-    recoverCameraConnection("G11 shutter BLE not ready");
+    showStatusIfChanged("Button A shutter", "BLE not ready", "Back to BLE scan", "", true);
+    recoverCameraConnection("Button A shutter BLE not ready");
     return;
   }
 
-  showStatusIfChanged("G11 shutter", "BLE shooting...", cameraProps.model, cameraProps.battery, true);
+  showStatusIfChanged("Button A shutter", "BLE shooting...", cameraProps.model, cameraProps.battery, true);
   if (ricohBle.shoot(true)) {
-    showStatusIfChanged("G11 shutter", "BLE SHOT OK", cameraProps.model, cameraProps.battery, true);
+    showStatusIfChanged("Button A shutter", "BLE SHOT OK", cameraProps.model, cameraProps.battery, true);
     return;
   }
 
-  Serial.printf("G11: BLE shutter failed: %s\n", ricohBle.lastError().c_str());
-  showStatusIfChanged("G11 BLE failed", ricohBle.lastError(), "Preview kept", "", true);
+  Serial.printf("Button A: BLE shutter failed: %s\n", ricohBle.lastError().c_str());
+  showStatusIfChanged("Button A BLE failed", ricohBle.lastError(), "Preview kept", "", true);
 
   if (cameraFlowState == CameraFlowState::LiveViewRunning && grWifi.isConnected() && grApi.isLiveViewOpen()) {
     return;
   }
 
-  recoverCameraConnection("G11 BLE shutter failed");
+  recoverCameraConnection("Button A BLE shutter failed");
 }
 
 void handleButtons() {
   const ButtonEvents events = buttons.poll();
   if (events.buttonA) {
-    showStatusIfChanged("Button A", "Reserved", cameraProps.model, cameraProps.battery, true);
-  }
-
-  if (events.buttonB) {
-    if (cameraSleepGuardActive()) {
-      requestManualCameraWake("Button B manual wake");
-      return;
-    }
-    liveviewEnabled = !liveviewEnabled;
-    if (!liveviewEnabled) {
-      closeLiveView("button B pause");
-      showStatusIfChanged("LiveView paused", "Press B to resume", cameraProps.model, cameraProps.battery, true);
-    } else {
-      closeLiveView("button B reconnect");
-      showStatusIfChanged("LiveView enabled", "Reconnecting...", cameraProps.model, cameraProps.battery, true);
-    }
-  }
-
-  const G11ButtonEvents g11 = g11Button.poll();
-  if (g11.pressed) {
-    triggerShutterFromG11();
+    triggerShutterFromButtonA();
   }
 }
 
 void serviceCameraFlowIfNeeded() {
+  if (consumeCameraPowerOffNotification("BLE power notify 0x00")) {
+    return;
+  }
   if (cameraRecoveryInProgress || cameraFlowState == CameraFlowState::LiveViewRunning) {
     return;
   }
@@ -889,7 +970,6 @@ void setup() {
   waitForSerialConsole();
 
   buttons.begin();
-  g11Button.begin();
   decoder.begin();
   grWifi.begin();
 

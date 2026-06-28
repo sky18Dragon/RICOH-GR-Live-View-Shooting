@@ -17,9 +17,11 @@
 
 extern "C" {
 #ifdef USING_NIMBLE_ARDUINO_HEADERS
+#include "nimble/nimble/host/include/host/ble_gap.h"
 #include "nimble/nimble/host/include/host/ble_gatt.h"
 #include "nimble/nimble/host/include/host/ble_hs.h"
 #else
+#include "host/ble_gap.h"
 #include "host/ble_gatt.h"
 #include "host/ble_hs.h"
 #endif
@@ -32,10 +34,36 @@ constexpr uint32_t HANDLE_WRITE_TIMEOUT_MS = 3000;
 constexpr uint32_t HANDLE_READ_TIMEOUT_MS = 800;
 std::atomic<int> g_lastDisconnectReason{0};
 std::atomic<int> g_powerOffDisconnectReason{0};
+std::atomic<int> g_powerStateNotifyValue{-1};
+std::atomic<bool> g_powerOffNotifyPending{false};
 
 bool isPowerOffDisconnectReason(int reason) {
   return reason == RICOH_BLE_DISCONNECT_REMOTE_USER ||
          reason == RICOH_BLE_DISCONNECT_REMOTE_POWER_OFF;
+}
+
+int ricohGapEventHandler(ble_gap_event* event, void*) {
+  if (event == nullptr || event->type != BLE_GAP_EVENT_NOTIFY_RX ||
+      event->notify_rx.attr_handle != RICOH_BLE_GR4_POWER_STATE_HANDLE ||
+      event->notify_rx.om == nullptr || OS_MBUF_PKTLEN(event->notify_rx.om) < 1) {
+    return 0;
+  }
+
+  uint8_t value = 0xFF;
+  if (os_mbuf_copydata(event->notify_rx.om, 0, sizeof(value), &value) != 0) {
+    return 0;
+  }
+
+  g_powerStateNotifyValue.store(value);
+  Serial.printf("BLE: power notify handle=0x%04X value=0x%02X\n",
+                RICOH_BLE_GR4_POWER_STATE_HANDLE,
+                value);
+  if (value == RICOH_BLE_GR4_POWER_STATE_OFF_VALUE) {
+    g_powerOffNotifyPending.store(true);
+  } else if (value == RICOH_BLE_GR4_POWER_STATE_ON_VALUE) {
+    g_powerOffNotifyPending.store(false);
+  }
+  return 0;
 }
 
 struct WlanParamHandle {
@@ -615,6 +643,7 @@ void RicohBleClient::begin() {
   NimBLEDevice::init("RICOH-StickS3");
   NimBLEDevice::setPowerLevel(ESP_PWR_LVL_P9);
   configureRicohSecurity();
+  NimBLEDevice::setCustomGapHandler(ricohGapEventHandler);
   _begun = true;
   _lastError = "";
   Serial.printf("BLE: NimBLE initialized (%s)\n", NimBLEDevice::getVersion());
@@ -766,6 +795,67 @@ bool RicohBleClient::openWifi() {
   return true;
 }
 
+bool RicohBleClient::readPowerState(RicohCameraPowerState& state) {
+  NimBLEClient* client = static_cast<NimBLEClient*>(_client);
+  state = RicohCameraPowerState::Unknown;
+  if (!isConnected() || client == nullptr) {
+    _lastError = "BLE not connected";
+    return false;
+  }
+
+  std::vector<uint8_t> value;
+  String err;
+  if (!readHandleWithResponse(client, RICOH_BLE_GR4_POWER_STATE_HANDLE, value, err)) {
+    _lastError = String("BLE power read failed: ") + err;
+    return false;
+  }
+  if (value.empty()) {
+    _lastError = "BLE power read empty";
+    return false;
+  }
+
+  const uint8_t code = value[0];
+  Serial.printf("BLE: power handle=0x%04X read value=0x%02X\n",
+                RICOH_BLE_GR4_POWER_STATE_HANDLE,
+                code);
+  if (code == RICOH_BLE_GR4_POWER_STATE_ON_VALUE) {
+    state = RicohCameraPowerState::On;
+    _lastError = "";
+    return true;
+  }
+  if (code == RICOH_BLE_GR4_POWER_STATE_OFF_VALUE) {
+    state = RicohCameraPowerState::OffOrShuttingDown;
+    _lastError = "";
+    return true;
+  }
+
+  _lastError = String("BLE power unknown value=0x") + String(code, HEX);
+  return true;
+}
+
+bool RicohBleClient::enablePowerStateNotify() {
+  NimBLEClient* client = static_cast<NimBLEClient*>(_client);
+  if (!isConnected() || client == nullptr) {
+    _lastError = "BLE not connected";
+    return false;
+  }
+
+  const uint8_t payload[] = {0x01, 0x00};
+  String err;
+  if (!writeHandleWithResponse(client, RICOH_BLE_GR4_POWER_STATE_CCCD_HANDLE, payload, sizeof(payload), err)) {
+    _lastError = String("BLE power notify enable failed: ") + err;
+    return false;
+  }
+
+  _lastError = "";
+  Serial.printf("BLE: power notify enabled cccd=0x%04X\n", RICOH_BLE_GR4_POWER_STATE_CCCD_HANDLE);
+  return true;
+}
+
+bool RicohBleClient::consumePowerOffNotification() {
+  return g_powerOffNotifyPending.exchange(false);
+}
+
 bool RicohBleClient::waitForWifiCredentials(RicohBleWifiCredentials& credentials, uint32_t timeoutMs) {
   NimBLEClient* client = static_cast<NimBLEClient*>(_client);
   credentials = RicohBleWifiCredentials{};
@@ -890,6 +980,8 @@ int RicohBleClient::consumeDisconnectReason() {
 void RicohBleClient::clearDisconnectReason() {
   g_lastDisconnectReason.store(0);
   g_powerOffDisconnectReason.store(0);
+  g_powerStateNotifyValue.store(-1);
+  g_powerOffNotifyPending.store(false);
 }
 
 void RicohBleClient::resetStack(bool clearObjects) {

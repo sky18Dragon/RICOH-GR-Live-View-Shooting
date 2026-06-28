@@ -76,7 +76,7 @@ void DisplayUi::showBoot(const char* message) {
     // Footer divider and hotkeys
     _canvas.drawFastHLine(20, _height - 24, 200, COLOR_SLATE);
     _canvas.setCursor(33, _height - 16);
-    _canvas.print("G11: shutter   BtnB: liveview");
+    _canvas.print("BtnA: shutter / wake");
 
     pushCanvas();
 }
@@ -134,7 +134,7 @@ void DisplayUi::showError(const char* message, const char* detail) {
     _canvas.drawFastHLine(10, _height - 20, _width - 20, COLOR_SLATE);
     _canvas.setTextColor(COLOR_WHITE, COLOR_BG);
     _canvas.setCursor(50, _height - 14);
-    _canvas.print("Press BtnB to reconnect");
+    _canvas.print("Press BtnA to reconnect");
 
     pushCanvas();
 }
