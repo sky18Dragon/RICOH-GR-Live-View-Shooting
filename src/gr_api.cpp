@@ -90,26 +90,6 @@ bool extractJsonInt(const String& json, const char* key, int& out) {
   return true;
 }
 
-bool extractJsonBool(const String& json, const char* key, bool& out) {
-  int colon = findJsonKey(json, key);
-  if (colon < 0) {
-    return false;
-  }
-
-  int begin = colon + 1;
-  while (begin < json.length() && isspace(static_cast<unsigned char>(json[begin]))) {
-    ++begin;
-  }
-  if (json.substring(begin, begin + 4) == "true") {
-    out = true;
-    return true;
-  }
-  if (json.substring(begin, begin + 5) == "false") {
-    out = false;
-    return true;
-  }
-  return false;
-}
 }  // namespace
 
 void GrApi::setEndpoint(const char* host, uint16_t port) {
@@ -181,95 +161,6 @@ bool GrApi::fetchProps(CameraProps& props, uint32_t timeoutMs) {
 }
 
 
-bool GrApi::fetchStatusDevice(String& body, uint32_t timeoutMs) {
-  int status = 0;
-  body = "";
-  return request("GET", "/v1/status/device", "", "", timeoutMs, &status, &body) && status == 200;
-}
-
-bool GrApi::request(const String& method,
-                    const String& path,
-                    const String& contentType,
-                    const String& body,
-                    uint32_t timeoutMs,
-                    int* httpStatus,
-                    String* responseBody) {
-  if (path.length() == 0 || path[0] != '/') {
-    setError("Invalid HTTP path");
-    return false;
-  }
-
-  WiFiClient client;
-  if (!connectClient(client, timeoutMs)) {
-    return false;
-  }
-
-  const String host = _host.length() ? _host : String(GR_HOST);
-  client.print(method + " " + path + " HTTP/1.1\r\n");
-  client.print(String("Host: ") + host + "\r\n");
-  client.print("Connection: close\r\n");
-  if (body.length() > 0) {
-    client.print(String("Content-Length: ") + body.length() + "\r\n");
-    if (contentType.length() > 0) {
-      client.print(String("Content-Type: ") + contentType + "\r\n");
-    }
-  }
-  client.print("\r\n");
-  if (body.length() > 0) {
-    client.print(body);
-  }
-
-  String headers;
-  if (!readHttpHeaders(client, timeoutMs, headers)) {
-    client.stop();
-    return false;
-  }
-
-  const int status = parseHttpStatus(headers);
-  if (httpStatus != nullptr) {
-    *httpStatus = status;
-  }
-
-  const int contentLength = parseContentLength(headers);
-  String response;
-  if (contentLength > 0) {
-    response.reserve(contentLength + 1);
-  }
-
-  const uint32_t startMs = millis();
-  while (client.connected() || client.available()) {
-    while (client.available()) {
-      response += static_cast<char>(client.read());
-      if (response.length() > kPropsBodyMaxBytes) {
-        client.stop();
-        setError("HTTP response body too large");
-        return false;
-      }
-      if (contentLength > 0 && response.length() >= contentLength) {
-        client.stop();
-        if (responseBody != nullptr) {
-          *responseBody = response;
-        }
-        _lastError = "";
-        return status >= 200 && status < 300;
-      }
-    }
-    if (millis() - startMs > timeoutMs) {
-      client.stop();
-      setError(String("Timed out reading HTTP response for ") + path);
-      return false;
-    }
-    yield();
-    delay(1);
-  }
-
-  client.stop();
-  if (responseBody != nullptr) {
-    *responseBody = response;
-  }
-  _lastError = "";
-  return status >= 200 && status < 300;
-}
 bool GrApi::openLiveView() {
   closeLiveView();
 
@@ -411,7 +302,6 @@ int GrApi::parseContentLength(const String& headers) const {
 }
 
 void GrApi::parsePropsJson(const String& json, CameraProps& props) const {
-  props.rawJson = json;
   props.ok = json.length() > 0;
 
   String stringValue;
@@ -421,46 +311,29 @@ void GrApi::parsePropsJson(const String& json, CameraProps& props) const {
     props.model = stringValue;
   }
 
-  int intValue = -1;
-  if (extractJsonInt(json, "batteryLevel", intValue) ||
-      extractJsonInt(json, "battery_level", intValue) ||
-      extractJsonInt(json, "battery", intValue)) {
-    props.batteryLevel = intValue;
+  int batteryLevel = -1;
+  if (!extractJsonInt(json, "batteryLevel", batteryLevel) &&
+      !extractJsonInt(json, "battery_level", batteryLevel) &&
+      !extractJsonInt(json, "battery", batteryLevel)) {
+    batteryLevel = -1;
   }
 
+  String batteryState;
   if (extractJsonString(json, "batteryState", stringValue) ||
       extractJsonString(json, "battery_state", stringValue) ||
       extractJsonString(json, "battery", stringValue)) {
-    props.batteryState = stringValue;
-  }
-  if (extractJsonString(json, "captureStatus", stringValue) ||
-      extractJsonString(json, "capture_status", stringValue) ||
-      extractJsonString(json, "status", stringValue)) {
-    props.captureStatus = stringValue;
-  }
-  if (extractJsonString(json, "storageStatus", stringValue) ||
-      extractJsonString(json, "storage_status", stringValue)) {
-    props.storageStatus = stringValue;
-  }
-
-  bool boolValue = false;
-  if (extractJsonBool(json, "liveViewAvailable", boolValue) ||
-      extractJsonBool(json, "liveview", boolValue) ||
-      extractJsonBool(json, "live_view", boolValue)) {
-    props.liveViewAvailable = boolValue;
-  } else {
-    props.liveViewAvailable = json.indexOf("liveview") >= 0 || json.indexOf("liveView") >= 0;
+    batteryState = stringValue;
   }
 
   if (props.model.isEmpty()) {
     props.model = "RICOH GR";
   }
-  if (props.batteryLevel >= 0 && props.batteryState.length() > 0) {
-    props.battery = String(props.batteryLevel) + "% " + props.batteryState;
-  } else if (props.batteryLevel >= 0) {
-    props.battery = String(props.batteryLevel) + "%";
+  if (batteryLevel >= 0 && batteryState.length() > 0) {
+    props.battery = String(batteryLevel) + "% " + batteryState;
+  } else if (batteryLevel >= 0) {
+    props.battery = String(batteryLevel) + "%";
   } else {
-    props.battery = props.batteryState;
+    props.battery = batteryState;
   }
 }
 

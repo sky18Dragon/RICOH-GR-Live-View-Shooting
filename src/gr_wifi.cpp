@@ -1,10 +1,8 @@
 #include "gr_wifi.h"
 
-#include "config.h"
+#include <cstring>
 
 namespace {
-constexpr uint32_t kReconnectIntervalMs = 5000;
-
 String wifiStatusToString(wl_status_t status) {
   switch (status) {
     case WL_IDLE_STATUS:
@@ -25,54 +23,90 @@ String wifiStatusToString(wl_status_t status) {
       return String("UNKNOWN(") + static_cast<int>(status) + ")";
   }
 }
+
+int hexNibble(char c) {
+  if (c >= '0' && c <= '9') {
+    return c - '0';
+  }
+  if (c >= 'a' && c <= 'f') {
+    return 10 + (c - 'a');
+  }
+  if (c >= 'A' && c <= 'F') {
+    return 10 + (c - 'A');
+  }
+  return -1;
+}
+
+bool parseBssid(const char* text, uint8_t out[6]) {
+  if (text == nullptr || text[0] == '\0') {
+    return false;
+  }
+
+  uint8_t bytes[6] = {0};
+  size_t byteIndex = 0;
+  const char* p = text;
+  while (*p != '\0' && byteIndex < 6) {
+    while (*p == ':' || *p == '-' || *p == ' ') {
+      ++p;
+    }
+    const int high = hexNibble(*p++);
+    const int low = hexNibble(*p++);
+    if (high < 0 || low < 0) {
+      return false;
+    }
+    bytes[byteIndex++] = static_cast<uint8_t>((high << 4) | low);
+    if (*p == ':' || *p == '-') {
+      ++p;
+    }
+  }
+
+  if (byteIndex != 6) {
+    return false;
+  }
+  while (*p == ' ') {
+    ++p;
+  }
+  if (*p != '\0') {
+    return false;
+  }
+
+  memcpy(out, bytes, sizeof(bytes));
+  return true;
+}
 }  // namespace
 
 void GrWifi::begin() {
   WiFi.mode(WIFI_STA);
-  WiFi.setSleep(false);
+  // BLE + Wi-Fi coexistence on ESP32-S3 requires modem sleep. Disabling it
+  // after BLE has been started can abort inside the Wi-Fi stack.
+  WiFi.setSleep(true);
   WiFi.setAutoReconnect(true);
   _lastStatus = WiFi.status();
 }
 
-bool GrWifi::connect(uint32_t timeoutMs) {
-  if (isConnected()) {
-    return true;
-  }
-
-  return connect(GR_WIFI_SSID, GR_WIFI_PASSWORD, timeoutMs);
+bool GrWifi::connect(const char* ssid, const char* password, uint32_t timeoutMs) {
+  return connect(ssid, password, nullptr, timeoutMs, nullptr);
 }
 
-bool GrWifi::connect(const char* ssid, const char* password, uint32_t timeoutMs) {
+bool GrWifi::connect(const char* ssid, const char* password, const char* bssid, uint32_t timeoutMs) {
+  return connect(ssid, password, bssid, timeoutMs, nullptr);
+}
+
+bool GrWifi::connect(const char* ssid, const char* password, uint32_t timeoutMs, ConnectGuard guard) {
+  return connect(ssid, password, nullptr, timeoutMs, guard);
+}
+
+bool GrWifi::connect(const char* ssid, const char* password, const char* bssid, uint32_t timeoutMs, ConnectGuard guard) {
+  if (guard != nullptr && !guard()) {
+    _lastStatus = WiFi.status();
+    return false;
+  }
+
   if (isConnected() && ssid != nullptr && WiFi.SSID() == ssid) {
     return true;
   }
 
-  if (connectTo(ssid, password, timeoutMs)) {
-    return true;
-  }
-
-  // Some GR bodies are configured to use the SSID itself as the WPA password.
-  // Keep this as a fallback only, so an intentionally empty password still gets
-  // tried first for cameras running an open AP.
-  if ((password == nullptr || password[0] == '\0') && ssid != nullptr && ssid[0] != '\0') {
-    return connectTo(ssid, ssid, timeoutMs);
-  }
-
-  return false;
-}
-void GrWifi::loop() {
-  const wl_status_t status = WiFi.status();
-  _lastStatus = status;
-
-  if (status == WL_CONNECTED) {
-    return;
-  }
-
-  const uint32_t now = millis();
-  if (now - _lastReconnectAttemptMs >= kReconnectIntervalMs) {
-    _lastReconnectAttemptMs = now;
-    WiFi.reconnect();
-  }
+  return connectTo(ssid, password, bssid, timeoutMs, guard);
 }
 
 bool GrWifi::isConnected() const {
@@ -85,7 +119,7 @@ void GrWifi::disconnect() {
 }
 
 String GrWifi::ssid() const {
-  return isConnected() ? WiFi.SSID() : String(GR_WIFI_SSID);
+  return isConnected() ? WiFi.SSID() : String();
 }
 
 int32_t GrWifi::rssi() const {
@@ -100,27 +134,47 @@ String GrWifi::statusText() const {
   return wifiStatusToString(WiFi.status());
 }
 
-bool GrWifi::connectWithPassword(const char* password, uint32_t timeoutMs) {
-  return connectTo(GR_WIFI_SSID, password, timeoutMs);
+bool GrWifi::connectTo(const char* ssid, const char* password, const char* bssid, uint32_t timeoutMs) {
+  return connectTo(ssid, password, bssid, timeoutMs, nullptr);
 }
 
-bool GrWifi::connectTo(const char* ssid, const char* password, uint32_t timeoutMs) {
+bool GrWifi::connectTo(const char* ssid, const char* password, const char* bssid, uint32_t timeoutMs, ConnectGuard guard) {
   if (ssid == nullptr || ssid[0] == '\0') {
     _lastStatus = WL_NO_SSID_AVAIL;
+    return false;
+  }
+
+  if (guard != nullptr && !guard()) {
+    _lastStatus = WiFi.status();
     return false;
   }
 
   WiFi.disconnect(false, false);
   delay(100);
 
+  if (guard != nullptr && !guard()) {
+    _lastStatus = WiFi.status();
+    return false;
+  }
+
+  uint8_t parsedBssid[6] = {0};
+  const bool hasBssid = parseBssid(bssid, parsedBssid);
+  const uint8_t* bssidPtr = hasBssid ? parsedBssid : nullptr;
+
   if (password != nullptr && password[0] != '\0') {
-    WiFi.begin(ssid, password);
+    WiFi.begin(ssid, password, 0, bssidPtr);
   } else {
-    WiFi.begin(ssid);
+    WiFi.begin(ssid, nullptr, 0, bssidPtr);
   }
 
   const uint32_t startMs = millis();
   while (millis() - startMs < timeoutMs) {
+    if (guard != nullptr && !guard()) {
+      WiFi.disconnect(false, false);
+      _lastStatus = WiFi.status();
+      return false;
+    }
+
     const wl_status_t status = WiFi.status();
     _lastStatus = status;
     if (status == WL_CONNECTED) {

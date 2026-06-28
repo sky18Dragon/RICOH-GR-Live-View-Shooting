@@ -3,8 +3,7 @@
 #include <Arduino.h>
 
 struct G11ButtonEvents {
-  bool shortPress = false;
-  bool longPress = false;
+  bool pressed = false;
   bool any = false;
 };
 
@@ -14,9 +13,6 @@ public:
   G11ButtonEvents poll();
 
 private:
-  bool _stablePressed = false;
   bool _lastRawPressed = false;
-  bool _longPressSent = false;
-  uint32_t _lastRawChangeMs = 0;
-  uint32_t _pressedAtMs = 0;
+  uint32_t _lastTriggerMs = 0;
 };

@@ -6,32 +6,15 @@
 struct WifiCredential {
   String ssid;
   String passphrase;
+  String bssid;
   String cameraIp;
-};
-
-struct ShutterCommandConfig {
-  String method;
-  String path;
-  String contentType;
-  String body;
-  uint32_t timeoutMs = 5000;
-  bool closeLiveviewBeforeShoot = false;
-
-  bool isValid() const {
-    return method.length() > 0 && path.startsWith("/");
-  }
 };
 
 struct CameraProfile {
   String cameraName;
   String bleAddress;
   WifiCredential wifi;
-  ShutterCommandConfig shutter;
-  uint32_t profileVersion = 2;
-
-  bool hasWifi() const {
-    return wifi.ssid.length() > 0;
-  }
+  uint32_t profileVersion = 3;
 };
 
 class CameraProfileStore {

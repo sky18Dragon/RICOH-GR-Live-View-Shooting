@@ -2,10 +2,6 @@
 
 namespace {
 constexpr uint16_t COLOR_BLACK = 0x0000;
-constexpr uint16_t COLOR_WHITE = 0xFFFF;
-constexpr uint16_t COLOR_GREEN = 0x07E0;
-constexpr uint16_t COLOR_RED = 0xF800;
-constexpr uint16_t COLOR_DARK = 0x18E3;
 
 JpegDecoder* activeDecoder = nullptr;
 
@@ -39,7 +35,7 @@ bool JpegDecoder::begin() {
     return true;
 }
 
-bool JpegDecoder::drawFrame(const uint8_t* data, size_t length, float fps) {
+bool JpegDecoder::drawFrame(LovyanGFX* dst, const uint8_t* data, size_t length) {
     if (data == nullptr || length < 4) {
         return setError("empty jpeg frame");
     }
@@ -47,6 +43,7 @@ bool JpegDecoder::drawFrame(const uint8_t* data, size_t length, float fps) {
         return setError("jpeg frame too large");
     }
 
+    _dst = dst != nullptr ? dst : &M5.Display;
     const uint32_t started = millis();
     activeDecoder = this;
 
@@ -77,21 +74,21 @@ bool JpegDecoder::drawFrame(const uint8_t* data, size_t length, float fps) {
     const int16_t visibleW = min<int16_t>(_displayW, max<int16_t>(0, scaledW + min<int16_t>(_drawX, 0)));
     const int16_t visibleH = min<int16_t>(_displayH, max<int16_t>(0, scaledH + min<int16_t>(_drawY, 0)));
     if (visibleY > 0) {
-        M5.Display.fillRect(0, 0, _displayW, visibleY, COLOR_BLACK);
+        _dst->fillRect(0, 0, _displayW, visibleY, COLOR_BLACK);
     }
     if (visibleY + visibleH < _displayH) {
-        M5.Display.fillRect(0, visibleY + visibleH, _displayW, _displayH - (visibleY + visibleH), COLOR_BLACK);
+        _dst->fillRect(0, visibleY + visibleH, _displayW, _displayH - (visibleY + visibleH), COLOR_BLACK);
     }
     if (visibleX > 0) {
-        M5.Display.fillRect(0, visibleY, visibleX, visibleH, COLOR_BLACK);
+        _dst->fillRect(0, visibleY, visibleX, visibleH, COLOR_BLACK);
     }
     if (visibleX + visibleW < _displayW) {
-        M5.Display.fillRect(visibleX + visibleW, visibleY, _displayW - (visibleX + visibleW), visibleH, COLOR_BLACK);
+        _dst->fillRect(visibleX + visibleW, visibleY, _displayW - (visibleX + visibleW), visibleH, COLOR_BLACK);
     }
 
-    M5.Display.startWrite();
+    _dst->startWrite();
     const int rc = _jpeg.decode(_drawX, _drawY, scale);
-    M5.Display.endWrite();
+    _dst->endWrite();
     _jpeg.close();
     activeDecoder = nullptr;
 
@@ -118,17 +115,6 @@ int JpegDecoder::lastHeight() const {
 
 const String& JpegDecoder::lastError() const {
     return _lastError;
-}
-
-bool JpegDecoder::drawOverlay(float fps) {
-    char text[40];
-    snprintf(text, sizeof(text), "LV %.1f fps %lums", static_cast<double>(fps), static_cast<unsigned long>(_lastDecodeMs));
-    M5.Display.fillRect(0, 0, _displayW, 16, COLOR_DARK);
-    M5.Display.setTextSize(1);
-    M5.Display.setTextColor(COLOR_GREEN, COLOR_DARK);
-    M5.Display.setCursor(4, 4);
-    M5.Display.print(text);
-    return true;
 }
 
 bool JpegDecoder::setError(const char* error) {
@@ -177,10 +163,10 @@ int JpegDecoder::drawBlock(JPEGDRAW* draw) {
     const int stride = draw->iWidth;
 
     if (srcX == 0 && drawW == draw->iWidth) {
-        M5.Display.pushImage(dstX, dstY, drawW, drawH, pixels + (srcY * stride));
+        _dst->pushImage(dstX, dstY, drawW, drawH, pixels + (srcY * stride));
     } else {
         for (int16_t row = 0; row < drawH; ++row) {
-            M5.Display.pushImage(dstX, dstY + row, drawW, 1, pixels + ((srcY + row) * stride) + srcX);
+            _dst->pushImage(dstX, dstY + row, drawW, 1, pixels + ((srcY + row) * stride) + srcX);
         }
     }
     return 1;

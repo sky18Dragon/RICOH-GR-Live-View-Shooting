@@ -23,7 +23,7 @@
 class JpegDecoder {
 public:
     bool begin();
-    bool drawFrame(const uint8_t* data, size_t length, float fps);
+    bool drawFrame(LovyanGFX* dst, const uint8_t* data, size_t length);
 
     uint32_t lastDecodeMs() const;
     int lastWidth() const;
@@ -32,6 +32,7 @@ public:
 
 private:
     JPEGDEC _jpeg;
+    LovyanGFX* _dst = nullptr;
     uint32_t _lastDecodeMs = 0;
     int _lastWidth = 0;
     int _lastHeight = 0;
@@ -42,7 +43,6 @@ private:
     int _displayW = DISPLAY_WIDTH;
     int _displayH = DISPLAY_HEIGHT;
 
-    bool drawOverlay(float fps);
     bool setError(const char* error);
 
     static int jpegDrawCallback(JPEGDRAW* draw);

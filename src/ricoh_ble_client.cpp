@@ -1,13 +1,48 @@
 #include "ricoh_ble_client.h"
 
-#include <BLEAdvertisedDevice.h>
-#include <BLEClient.h>
-#include <BLEDevice.h>
-#include <BLEScan.h>
+#include <algorithm>
+#include <cctype>
+#include <cstring>
+#include <new>
+#include <string>
+#include <vector>
+
+#include <NimBLEAdvertisedDevice.h>
+#include <NimBLEClient.h>
+#include <NimBLEConnInfo.h>
+#include <NimBLEDevice.h>
+#include <NimBLEScan.h>
+#include <NimBLEUUID.h>
+
+extern "C" {
+#ifdef USING_NIMBLE_ARDUINO_HEADERS
+#include "nimble/nimble/host/include/host/ble_gatt.h"
+#include "nimble/nimble/host/include/host/ble_hs.h"
+#else
+#include "host/ble_gatt.h"
+#include "host/ble_hs.h"
+#endif
+}
 
 #include "config.h"
 
 namespace {
+constexpr uint32_t HANDLE_WRITE_TIMEOUT_MS = 3000;
+constexpr uint32_t HANDLE_READ_TIMEOUT_MS = 800;
+
+struct WlanParamHandle {
+  uint16_t handle;
+  const char* label;
+};
+
+const WlanParamHandle kWlanParamHandles[] = {
+    {RICOH_BLE_GR4_WLAN_SSID_HANDLE, "ssid"},
+    {RICOH_BLE_GR4_WLAN_PASSPHRASE_HANDLE, "passphrase"},
+    {RICOH_BLE_GR4_WLAN_BSSID_HANDLE, "bssid"},
+    {RICOH_BLE_GR4_WLAN_SECURITY_HANDLE, "security"},
+    {RICOH_BLE_GR4_WLAN_FREQUENCY_HANDLE, "frequency"},
+};
+
 String toUpperCopy(String value) {
   value.toUpperCase();
   return value;
@@ -15,37 +50,70 @@ String toUpperCopy(String value) {
 
 bool nameLooksLikeRicoh(const String& name) {
   const String upper = toUpperCopy(name);
-  return upper.indexOf("RICOH") >= 0 || upper.indexOf("GR") >= 0;
+  return upper == "GR" || upper.startsWith("GR_") || upper.indexOf("RICOH") >= 0 ||
+         upper.indexOf("PENTAX") >= 0 || upper.indexOf("GR ") >= 0 ||
+         upper.indexOf("GRIII") >= 0 || upper.indexOf("GR III") >= 0;
 }
 
 bool addressMatches(const String& candidate, const String& preferred) {
   return preferred.length() > 0 && candidate.equalsIgnoreCase(preferred);
 }
 
-RicohBleDeviceInfo infoFromAdvertisedDevice(BLEAdvertisedDevice& device) {
+bool nameMatchesPreferred(const String& candidate, const String& preferredName) {
+  return preferredName.length() > 0 && candidate.length() > 0 && candidate.equalsIgnoreCase(preferredName);
+}
+
+bool advertisesAnyRicohService(const NimBLEAdvertisedDevice* device) {
+  if (device == nullptr) {
+    return false;
+  }
+  return device->isAdvertisingService(NimBLEUUID(RICOH_BLE_INFO_SERVICE_UUID)) ||
+         device->isAdvertisingService(NimBLEUUID(RICOH_BLE_CAMERA_SERVICE_UUID)) ||
+         device->isAdvertisingService(NimBLEUUID(RICOH_BLE_SHOOTING_SERVICE_UUID)) ||
+         device->isAdvertisingService(NimBLEUUID(RICOH_BLE_CONTROL_SERVICE_UUID));
+}
+
+RicohBleDeviceInfo infoFromAdvertisedDevice(const NimBLEAdvertisedDevice* device) {
   RicohBleDeviceInfo info;
+  if (device == nullptr) {
+    return info;
+  }
+
   info.found = true;
-  info.address = device.getAddress().toString().c_str();
-  info.rssi = device.getRSSI();
-  if (device.haveName()) {
-    info.name = device.getName().c_str();
+  info.address = device->getAddress().toString().c_str();
+  info.addressType = device->getAddressType();
+  info.rssi = device->getRSSI();
+  info.connectable = device->isConnectable();
+  if (device->haveName()) {
+    info.name = device->getName().c_str();
   }
-  if (device.haveServiceUUID()) {
-    info.hasPrimaryService = device.isAdvertisingService(BLEUUID(RICOH_BLE_SERVICE_UUID_PRIMARY));
-    info.hasAltService = device.isAdvertisingService(BLEUUID(RICOH_BLE_SERVICE_UUID_ALT));
-  }
+  info.hasInfoService = device->isAdvertisingService(NimBLEUUID(RICOH_BLE_INFO_SERVICE_UUID));
+  info.hasCameraService = device->isAdvertisingService(NimBLEUUID(RICOH_BLE_CAMERA_SERVICE_UUID));
+  info.hasShootingService = device->isAdvertisingService(NimBLEUUID(RICOH_BLE_SHOOTING_SERVICE_UUID));
+  info.hasControlService = device->isAdvertisingService(NimBLEUUID(RICOH_BLE_CONTROL_SERVICE_UUID));
   return info;
 }
 
-int candidateScore(const RicohBleDeviceInfo& info, const String& preferredAddress) {
+int candidateScore(const RicohBleDeviceInfo& info, const String& preferredAddress, const String& preferredName) {
   int score = 0;
-  if (addressMatches(info.address, preferredAddress)) {
-    score += 1000;
+  if (info.connectable) {
+    score += 2000;
   }
-  if (info.hasPrimaryService) {
+  if (nameMatchesPreferred(info.name, preferredName)) {
+    score += 1200;
+  } else if (addressMatches(info.address, preferredAddress)) {
+    score += 500;
+  }
+  if (info.hasShootingService) {
+    score += 300;
+  }
+  if (info.hasCameraService) {
+    score += 250;
+  }
+  if (info.hasInfoService) {
     score += 200;
   }
-  if (info.hasAltService) {
+  if (info.hasControlService) {
     score += 150;
   }
   if (nameLooksLikeRicoh(info.name)) {
@@ -54,72 +122,552 @@ int candidateScore(const RicohBleDeviceInfo& info, const String& preferredAddres
   score += info.rssi;
   return score;
 }
+
+bool isRicohCandidate(const NimBLEAdvertisedDevice* device,
+                      const RicohBleDeviceInfo& info,
+                      const String& preferredAddress,
+                      const String& preferredName) {
+  const bool serviceMatch = advertisesAnyRicohService(device);
+  const bool nameMatch = nameLooksLikeRicoh(info.name);
+  const bool preferredMatch = addressMatches(info.address, preferredAddress) || nameMatchesPreferred(info.name, preferredName);
+  return serviceMatch || nameMatch || preferredMatch;
 }
+
+class RicohScanCallbacks : public NimBLEScanCallbacks {
+public:
+  RicohScanCallbacks(const String& preferredAddress, const String& preferredName)
+      : _preferredAddress(preferredAddress), _preferredName(preferredName) {}
+
+  void onDiscovered(const NimBLEAdvertisedDevice* device) override {
+    RicohBleDeviceInfo info = infoFromAdvertisedDevice(device);
+    if (addressMatches(info.address, _preferredAddress)) {
+      updateBest(info, device);
+    }
+  }
+
+  void onResult(const NimBLEAdvertisedDevice* device) override {
+    RicohBleDeviceInfo info = infoFromAdvertisedDevice(device);
+    if (!isRicohCandidate(device, info, _preferredAddress, _preferredName)) {
+      return;
+    }
+
+    updateBest(info, device);
+    if (info.connectable && (addressMatches(info.address, _preferredAddress) || nameMatchesPreferred(info.name, _preferredName))) {
+      _foundPreferred = true;
+    }
+  }
+
+  const RicohBleDeviceInfo& best() const { return _best; }
+  bool hasBest() const { return _best.found; }
+  bool foundPreferred() const { return _foundPreferred; }
+
+private:
+  void updateBest(const RicohBleDeviceInfo& info, const NimBLEAdvertisedDevice* device) {
+    const int score = candidateScore(info, _preferredAddress, _preferredName);
+    if (!_best.found || score > _bestScore) {
+      _best = info;
+      _bestScore = score;
+    }
+  }
+
+  const String& _preferredAddress;
+  const String& _preferredName;
+  RicohBleDeviceInfo _best;
+  int _bestScore = -100000;
+  bool _foundPreferred = false;
+};
+
+String printableText(const std::vector<uint8_t>& data) {
+  String text;
+  for (uint8_t b : data) {
+    if (b == 0) {
+      continue;
+    }
+    if (b == '\r' || b == '\n' || b == '\t') {
+      text += ' ';
+      continue;
+    }
+    if (b < 0x20 || b > 0x7E) {
+      return String();
+    }
+    text += static_cast<char>(b);
+  }
+  text.trim();
+  return text;
+}
+
+String maybeQuotedValue(const String& text, const char* key) {
+  String lowerText = text;
+  lowerText.toLowerCase();
+  String lowerKey = key;
+  lowerKey.toLowerCase();
+
+  const int keyPos = lowerText.indexOf(lowerKey);
+  if (keyPos < 0) {
+    return String();
+  }
+
+  int sep = -1;
+  for (int i = keyPos + lowerKey.length(); i < text.length(); ++i) {
+    const char c = text[i];
+    if (c == ':' || c == '=') {
+      sep = i;
+      break;
+    }
+    if (!(c == ' ' || c == '\t' || c == '"' || c == '\'')) {
+      break;
+    }
+  }
+  if (sep < 0) {
+    return String();
+  }
+
+  int start = sep + 1;
+  while (start < text.length() && (text[start] == ' ' || text[start] == '\t' || text[start] == '"' || text[start] == '\'')) {
+    ++start;
+  }
+
+  int end = start;
+  while (end < text.length()) {
+    const char c = text[end];
+    if (c == '"' || c == '\'' || c == ',' || c == ';' || c == '}' || c == '\r' || c == '\n') {
+      break;
+    }
+    ++end;
+  }
+
+  String value = text.substring(start, end);
+  value.trim();
+  return value;
+}
+
+bool looksLikeSsid(const String& text) {
+  if (text.length() == 0 || text.length() > 32) {
+    return false;
+  }
+  String upper = text;
+  upper.toUpperCase();
+  return upper.startsWith("GR_") || upper.startsWith("RICOH_GR") ||
+         upper.startsWith("GR4_") || upper.startsWith("GR_4_");
+}
+
+bool isHexPair(char a, char b) {
+  return std::isxdigit(static_cast<unsigned char>(a)) && std::isxdigit(static_cast<unsigned char>(b));
+}
+
+String macFromText(const String& text) {
+  for (int i = 0; i + 16 < text.length(); ++i) {
+    if (isHexPair(text[i], text[i + 1]) &&
+        (text[i + 2] == ':' || text[i + 2] == '-') &&
+        isHexPair(text[i + 3], text[i + 4]) &&
+        text[i + 5] == text[i + 2] &&
+        isHexPair(text[i + 6], text[i + 7]) &&
+        text[i + 8] == text[i + 2] &&
+        isHexPair(text[i + 9], text[i + 10]) &&
+        text[i + 11] == text[i + 2] &&
+        isHexPair(text[i + 12], text[i + 13]) &&
+        text[i + 14] == text[i + 2] &&
+        isHexPair(text[i + 15], text[i + 16])) {
+      String mac = text.substring(i, i + 17);
+      mac.replace('-', ':');
+      mac.toUpperCase();
+      return mac;
+    }
+  }
+  return String();
+}
+
+String macFromRaw6(const std::vector<uint8_t>& data) {
+  if (data.size() != 6) {
+    return String();
+  }
+  char mac[18];
+  snprintf(mac,
+           sizeof(mac),
+           "%02X:%02X:%02X:%02X:%02X:%02X",
+           data[0],
+           data[1],
+           data[2],
+           data[3],
+           data[4],
+           data[5]);
+  return String(mac);
+}
+
+void mergeCredentialValue(RicohBleWifiCredentials& out, const char* label, const std::vector<uint8_t>& data) {
+  if (data.empty()) {
+    return;
+  }
+
+  const String text = printableText(data);
+  if (text.length() > 0) {
+    String value = maybeQuotedValue(text, "ssid");
+    if (looksLikeSsid(value)) {
+      out.ssid = value;
+    }
+
+    value = maybeQuotedValue(text, "passphrase");
+    if (value.length() == 0) {
+      value = maybeQuotedValue(text, "password");
+    }
+    if (value.length() > 0) {
+      out.passphrase = value;
+      out.encryptedPassphrase = false;
+    }
+
+    value = maybeQuotedValue(text, "bssid");
+    if (value.length() == 0) {
+      value = macFromText(text);
+    }
+    if (value.length() > 0) {
+      out.bssid = value;
+    }
+  }
+
+  if (strcmp(label, "ssid") == 0 && out.ssid.length() == 0 && looksLikeSsid(text)) {
+    out.ssid = text;
+  } else if (strcmp(label, "passphrase") == 0 && out.passphrase.length() == 0) {
+    if (text.length() > 0) {
+      out.passphrase = text;
+      out.encryptedPassphrase = false;
+    } else {
+      out.encryptedPassphrase = true;
+    }
+  } else if (strcmp(label, "bssid") == 0 && out.bssid.length() == 0) {
+    String mac = text.length() > 0 ? macFromText(text) : String();
+    if (mac.length() == 0) {
+      mac = macFromRaw6(data);
+    }
+    if (mac.length() > 0) {
+      out.bssid = mac;
+    }
+  } else if (strcmp(label, "security") == 0 && data.size() == 1) {
+    out.securityType = data[0];
+  }
+
+  out.valid = out.ssid.length() > 0 &&
+              !out.encryptedPassphrase &&
+              (out.passphrase.length() > 0 || out.securityType == 0);
+}
+
+class RicohNimBleCallbacks : public NimBLEClientCallbacks {
+public:
+  void onConnectFail(NimBLEClient*, int reason) override {
+    Serial.printf("BLE: connect failed reason=%d\n", reason);
+  }
+
+  void onDisconnect(NimBLEClient*, int reason) override {
+    Serial.printf("BLE: disconnected reason=%d\n", reason);
+  }
+
+  void onPassKeyEntry(NimBLEConnInfo& connInfo) override {
+    Serial.printf("BLE security: passkey requested by %s\n", connInfo.getAddress().toString().c_str());
+    NimBLEDevice::injectPassKey(connInfo, 123456);
+  }
+
+  uint32_t onPassKeyDisplay(NimBLEConnInfo&) override {
+    return 123456;
+  }
+
+  void onConfirmPasskey(NimBLEConnInfo& connInfo, uint32_t pin) override {
+    Serial.printf("BLE security: confirming passkey %06lu\n", static_cast<unsigned long>(pin));
+    NimBLEDevice::injectConfirmPasskey(connInfo, true);
+  }
+
+  void onAuthenticationComplete(NimBLEConnInfo& connInfo) override {
+    if (!connInfo.isEncrypted()) {
+      Serial.println("BLE security: authentication completed without encryption");
+    }
+  }
+
+};
+
+RicohNimBleCallbacks g_callbacks;
+
+void configureRicohSecurity() {
+  NimBLEDevice::setSecurityAuth(true, true, true);
+  NimBLEDevice::setSecurityIOCap(BLE_HS_IO_DISPLAY_YESNO);
+  NimBLEDevice::setSecurityInitKey(BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID);
+  NimBLEDevice::setSecurityRespKey(BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID);
+  NimBLEDevice::setSecurityPasskey(123456);
+  NimBLEDevice::setOwnAddrType(BLE_OWN_ADDR_RPA_PUBLIC_DEFAULT);
+}
+
+struct WriteContext {
+  volatile bool done = false;
+  volatile int status = BLE_HS_EUNKNOWN;
+  volatile bool abandoned = false;
+};
+
+void finishWriteContext(WriteContext* ctx, int status) {
+  if (ctx == nullptr) {
+    return;
+  }
+  ctx->status = status;
+  ctx->done = true;
+  if (ctx->abandoned) {
+    delete ctx;
+  }
+}
+
+int handleWriteCallback(uint16_t, const ble_gatt_error* error, ble_gatt_attr*, void* arg) {
+  finishWriteContext(static_cast<WriteContext*>(arg), error != nullptr ? error->status : BLE_HS_EUNKNOWN);
+  return 0;
+}
+
+bool writeHandleWithResponse(NimBLEClient* client, uint16_t handle, const uint8_t* data, size_t length, String& errorOut) {
+  if (client == nullptr || !client->isConnected()) {
+    errorOut = "BLE not connected";
+    return false;
+  }
+  if (data == nullptr || length == 0 || length > UINT16_MAX) {
+    errorOut = "Invalid BLE write payload";
+    return false;
+  }
+
+  WriteContext* ctx = new (std::nothrow) WriteContext();
+  if (ctx == nullptr) {
+    errorOut = "No memory for BLE write";
+    return false;
+  }
+
+  const int rc = ble_gattc_write_flat(client->getConnHandle(),
+                                      handle,
+                                      data,
+                                      static_cast<uint16_t>(length),
+                                      handleWriteCallback,
+                                      ctx);
+  if (rc != 0) {
+    delete ctx;
+    errorOut = String("NimBLE write start failed rc=") + String(rc);
+    return false;
+  }
+
+  const uint32_t startMs = millis();
+  while (!ctx->done && (millis() - startMs) < HANDLE_WRITE_TIMEOUT_MS) {
+    delay(10);
+    yield();
+  }
+  if (!ctx->done) {
+    ctx->abandoned = true;
+    if (client->isConnected()) {
+      client->disconnect();
+    }
+    errorOut = "NimBLE write timeout";
+    return false;
+  }
+
+  const int status = ctx->status;
+  delete ctx;
+  if (status != 0) {
+    errorOut = String("NimBLE write failed status=") + String(static_cast<int>(status));
+    return false;
+  }
+  errorOut = "";
+  return true;
+}
+
+struct ReadContext {
+  volatile bool done = false;
+  volatile int status = BLE_HS_EUNKNOWN;
+  volatile bool abandoned = false;
+  bool longRead = false;
+  std::vector<uint8_t> value;
+};
+
+void finishReadContext(ReadContext* ctx, int status) {
+  if (ctx == nullptr) {
+    return;
+  }
+  ctx->status = status;
+  ctx->done = true;
+  if (ctx->abandoned) {
+    delete ctx;
+  }
+}
+
+int handleReadCallback(uint16_t, const ble_gatt_error* error, ble_gatt_attr* attr, void* arg) {
+  ReadContext* ctx = static_cast<ReadContext*>(arg);
+  if (ctx == nullptr) {
+    return 0;
+  }
+
+  const int status = error != nullptr ? error->status : BLE_HS_EUNKNOWN;
+  if (status == 0 && attr != nullptr && attr->om != nullptr) {
+    const uint16_t len = OS_MBUF_PKTLEN(attr->om);
+    const size_t oldSize = ctx->value.size();
+    ctx->value.resize(oldSize + len);
+    if (len > 0) {
+      os_mbuf_copydata(attr->om, 0, len, ctx->value.data() + oldSize);
+    }
+    if (!ctx->longRead) {
+      finishReadContext(ctx, 0);
+    }
+    return 0;
+  }
+
+  finishReadContext(ctx, status);
+  return 0;
+}
+
+bool readHandleOnce(NimBLEClient* client, uint16_t handle, bool longRead, std::vector<uint8_t>& value, String& errorOut) {
+  if (client == nullptr || !client->isConnected()) {
+    errorOut = "BLE not connected";
+    return false;
+  }
+
+  value.clear();
+  ReadContext* ctx = new (std::nothrow) ReadContext();
+  if (ctx == nullptr) {
+    errorOut = "No memory for BLE read";
+    return false;
+  }
+
+  ctx->longRead = longRead;
+  const int rc = longRead
+                   ? ble_gattc_read_long(client->getConnHandle(), handle, 0, handleReadCallback, ctx)
+                   : ble_gattc_read(client->getConnHandle(), handle, handleReadCallback, ctx);
+  if (rc != 0) {
+    delete ctx;
+    errorOut = String("NimBLE read start failed rc=") + String(rc);
+    return false;
+  }
+
+  const uint32_t startMs = millis();
+  while (!ctx->done && (millis() - startMs) < HANDLE_READ_TIMEOUT_MS) {
+    delay(10);
+    yield();
+  }
+  if (!ctx->done) {
+    ctx->abandoned = true;
+    if (client->isConnected()) {
+      client->disconnect();
+    }
+    errorOut = "NimBLE read timeout";
+    return false;
+  }
+
+  const int status = ctx->status;
+  if (status == 0 || status == BLE_HS_EDONE) {
+    value = ctx->value;
+    delete ctx;
+    errorOut = "";
+    return true;
+  }
+
+  delete ctx;
+  errorOut = String("NimBLE read failed status=") + String(static_cast<int>(status));
+  return false;
+}
+
+bool readHandleWithResponse(NimBLEClient* client, uint16_t handle, std::vector<uint8_t>& value, String& errorOut) {
+  if (readHandleOnce(client, handle, true, value, errorOut)) {
+    return true;
+  }
+
+  const bool attrNotLong = errorOut.indexOf(String(static_cast<int>(BLE_HS_ATT_ERR(BLE_ATT_ERR_ATTR_NOT_LONG)))) >= 0;
+  if (!attrNotLong) {
+    return false;
+  }
+
+  return readHandleOnce(client, handle, false, value, errorOut);
+}
+
+bool waitForEncryptedConnection(NimBLEClient* client, uint32_t timeoutMs, String& errorOut) {
+  if (client == nullptr || !client->isConnected()) {
+    errorOut = "BLE not connected";
+    return false;
+  }
+
+  const uint32_t startMs = millis();
+  while (client->isConnected() && (millis() - startMs) < timeoutMs) {
+    NimBLEConnInfo info = client->getConnInfo();
+    if (info.isEncrypted()) {
+      errorOut = "";
+      return true;
+    }
+    delay(50);
+    yield();
+  }
+
+  errorOut = client->isConnected() ? "BLE security timeout" : "BLE lost during security";
+  return false;
+}
+}  // namespace
 
 void RicohBleClient::begin() {
   if (_begun) {
     return;
   }
-  BLEDevice::init("RICOH-StickS3");
+
+  NimBLEDevice::init("RICOH-StickS3");
+  NimBLEDevice::setPowerLevel(ESP_PWR_LVL_P9);
+  configureRicohSecurity();
   _begun = true;
   _lastError = "";
+  Serial.printf("BLE: NimBLE initialized (%s)\n", NimBLEDevice::getVersion());
 }
 
-RicohBleDeviceInfo RicohBleClient::scanForCamera(const String& preferredAddress, uint32_t scanSeconds) {
+RicohBleDeviceInfo RicohBleClient::scanForCamera(const String& preferredAddress,
+                                                 const String& preferredName,
+                                                 uint32_t scanSeconds) {
   begin();
 
-  RicohBleDeviceInfo best;
-  int bestScore = -100000;
-
-  BLEScan* scan = BLEDevice::getScan();
+  NimBLEScan* scan = NimBLEDevice::getScan();
+  RicohScanCallbacks callbacks(preferredAddress, preferredName);
+  scan->setScanCallbacks(&callbacks, false);
   scan->setActiveScan(true);
-  scan->setInterval(100);
-  scan->setWindow(99);
+  scan->setInterval(80);
+  scan->setWindow(79);
+  scan->setScanResponseTimeout(150);
+  scan->setMaxResults(0);
 
-  Serial.printf("BLE: scanning %lu seconds, preferred='%s'\n",
-                static_cast<unsigned long>(scanSeconds),
-                preferredAddress.c_str());
-  BLEScanResults results = scan->start(scanSeconds, false);
-  const int count = results.getCount();
-  Serial.printf("BLE: scan found %d devices\n", count);
-
-  for (int i = 0; i < count; ++i) {
-    BLEAdvertisedDevice device = results.getDevice(i);
-    RicohBleDeviceInfo info = infoFromAdvertisedDevice(device);
-    const bool serviceMatch = info.hasPrimaryService || info.hasAltService;
-    const bool nameMatch = nameLooksLikeRicoh(info.name);
-    const bool preferredMatch = addressMatches(info.address, preferredAddress);
-    if (!serviceMatch && !nameMatch && !preferredMatch) {
-      continue;
-    }
-
-    Serial.printf("BLE: candidate addr=%s rssi=%d name='%s' primary=%d alt=%d\n",
-                  info.address.c_str(),
-                  info.rssi,
-                  info.name.c_str(),
-                  info.hasPrimaryService ? 1 : 0,
-                  info.hasAltService ? 1 : 0);
-
-    const int score = candidateScore(info, preferredAddress);
-    if (!best.found || score > bestScore) {
-      best = info;
-      bestScore = score;
-    }
+  const uint32_t durationMs = scanSeconds * 1000;
+  Serial.printf("BLE: scanning for GR camera (%lus max)\n", static_cast<unsigned long>(scanSeconds));
+  if (!scan->start(durationMs, false, true)) {
+    scan->setScanCallbacks(nullptr, false);
+    scan->clearResults();
+    _lastError = "BLE scan start failed";
+    return RicohBleDeviceInfo{};
   }
 
+  const uint32_t startMs = millis();
+  while (scan->isScanning() && (millis() - startMs) < durationMs + 200) {
+    if (callbacks.foundPreferred()) {
+      scan->stop();
+      break;
+    }
+    delay(20);
+    yield();
+  }
+  while (scan->isScanning() && (millis() - startMs) < durationMs + 1000) {
+    delay(10);
+    yield();
+  }
+  if (scan->isScanning()) {
+    scan->stop();
+    delay(20);
+    yield();
+  }
+
+  RicohBleDeviceInfo best = callbacks.best();
+  scan->setScanCallbacks(nullptr, false);
   scan->clearResults();
 
   if (!best.found) {
     _lastError = "RICOH BLE not found";
-    Serial.println("BLE: RICOH camera not found");
   } else {
     _lastError = "";
-    Serial.printf("BLE: selected addr=%s name='%s'\n", best.address.c_str(), best.name.c_str());
+    Serial.printf("BLE: selected camera name='%s' addr=%s rssi=%d%s\n",
+                  best.name.c_str(),
+                  best.address.c_str(),
+                  best.rssi,
+                  callbacks.foundPreferred() ? " preferred" : "");
   }
   return best;
 }
 
-bool RicohBleClient::connectAndDiscover(const RicohBleDeviceInfo& info, uint32_t timeoutMs) {
+bool RicohBleClient::connect(const RicohBleDeviceInfo& info, uint32_t timeoutMs) {
   begin();
   disconnect();
 
@@ -128,32 +676,173 @@ bool RicohBleClient::connectAndDiscover(const RicohBleDeviceInfo& info, uint32_t
     return false;
   }
 
-  BLEClient* client = BLEDevice::createClient();
+  delay(BLE_SCAN_TO_CONNECT_DELAY_MS);
+  yield();
+
+  NimBLEAddress peer(std::string(info.address.c_str()), info.addressType);
+  NimBLEClient* client = NimBLEDevice::createClient();
+  if (client == nullptr) {
+    _lastError = "NimBLE create client failed";
+    return false;
+  }
+
   _client = client;
-  Serial.printf("BLE: connecting %s\n", info.address.c_str());
-  if (!client->connect(BLEAddress(info.address.c_str()))) {
-    _lastError = "BLE connect failed";
-    disconnect();
+  client->setClientCallbacks(&g_callbacks, false);
+  client->setConnectTimeout(timeoutMs);
+  client->setConnectRetries(1);
+  client->setConnectionParams(BLE_GAP_INITIAL_CONN_ITVL_MIN,
+                              BLE_GAP_INITIAL_CONN_ITVL_MAX,
+                              1,
+                              2 * BLE_GAP_INITIAL_SUPERVISION_TIMEOUT);
+
+  if (!client->connect(peer, true, false, true)) {
+    const int err = client->getLastError();
+    _lastError = String("NimBLE connect failed err=") + String(err);
+    NimBLEDevice::deleteClient(client);
+    _client = nullptr;
+    _connected = false;
     return false;
   }
 
   _connected = true;
-  const uint32_t startMs = millis();
-  bool primaryFound = false;
-  bool altFound = false;
-  while (millis() - startMs < timeoutMs) {
-    primaryFound = client->getService(BLEUUID(RICOH_BLE_SERVICE_UUID_PRIMARY)) != nullptr;
-    altFound = client->getService(BLEUUID(RICOH_BLE_SERVICE_UUID_ALT)) != nullptr;
-    if (primaryFound || altFound) {
-      break;
-    }
-    delay(50);
+  NimBLEDevice::setPowerLevel(ESP_PWR_LVL_P9);
+
+  bool securityStarted = client->secureConnection(true);
+  const int securityErr = client->getLastError();
+  if (!securityStarted && securityErr != BLE_HS_EALREADY) {
+    _lastError = String("NimBLE security start failed err=") + String(securityErr);
+    disconnect();
+    return false;
   }
 
-  Serial.printf("BLE: services primary=%d alt=%d\n", primaryFound ? 1 : 0, altFound ? 1 : 0);
-  if (!primaryFound && !altFound) {
-    _lastError = "RICOH BLE services not found";
+  String securityWaitError;
+  if (!waitForEncryptedConnection(client, RICOH_BLE_SECURITY_WAIT_MS, securityWaitError)) {
+    _lastError = securityWaitError;
     disconnect();
+    return false;
+  }
+
+  _lastError = "";
+  Serial.println("BLE: connected secure");
+  return true;
+}
+
+bool RicohBleClient::isConnected() const {
+  NimBLEClient* client = static_cast<NimBLEClient*>(_client);
+  return _connected && client != nullptr && client->isConnected();
+}
+
+bool RicohBleClient::shutterReady() const {
+  return isConnected();
+}
+
+bool RicohBleClient::openWifi() {
+  NimBLEClient* client = static_cast<NimBLEClient*>(_client);
+  if (!isConnected() || client == nullptr) {
+    _lastError = "BLE not connected";
+    return false;
+  }
+
+  const uint8_t payload[] = {RICOH_BLE_GR4_WLAN_ON_VALUE};
+  String err;
+  if (!writeHandleWithResponse(client, RICOH_BLE_GR4_WLAN_POWER_HANDLE, payload, sizeof(payload), err)) {
+    _lastError = err;
+    return false;
+  }
+
+  _lastError = "";
+  Serial.println("BLE: Wi-Fi open requested");
+  return true;
+}
+
+bool RicohBleClient::waitForWifiCredentials(RicohBleWifiCredentials& credentials, uint32_t timeoutMs) {
+  NimBLEClient* client = static_cast<NimBLEClient*>(_client);
+  credentials = RicohBleWifiCredentials{};
+  if (!isConnected() || client == nullptr) {
+    _lastError = "BLE not connected";
+    return false;
+  }
+
+  const uint32_t startMs = millis();
+  while (millis() - startMs < timeoutMs) {
+    if (!isConnected() || !client->isConnected()) {
+      _lastError = "BLE lost while waiting WiFi params";
+      return false;
+    }
+
+    RicohBleWifiCredentials current = credentials;
+    for (const WlanParamHandle& item : kWlanParamHandles) {
+      std::vector<uint8_t> value;
+      String err;
+      if (readHandleWithResponse(client, item.handle, value, err)) {
+        mergeCredentialValue(current, item.label, value);
+      }
+      delay(20);
+      yield();
+    }
+
+    credentials = current;
+    if (credentials.valid) {
+      _lastError = "";
+      Serial.printf("BLE: Wi-Fi parameters received ssid='%s' bssid='%s'\n", credentials.ssid.c_str(), credentials.bssid.c_str());
+      return true;
+    }
+
+    delay(RICOH_BLE_WIFI_CREDENTIAL_POLL_MS);
+    yield();
+  }
+
+  if (credentials.ssid.length() == 0) {
+    _lastError = "BLE WiFi params missing SSID";
+  } else if (credentials.encryptedPassphrase) {
+    _lastError = "BLE WiFi passphrase encrypted/unparsed";
+  } else {
+    _lastError = "BLE WiFi params missing passphrase";
+  }
+  return false;
+}
+
+bool RicohBleClient::shoot(bool autofocus) {
+  NimBLEClient* client = static_cast<NimBLEClient*>(_client);
+  if (!isConnected() || client == nullptr) {
+    _lastError = "BLE not connected";
+    return false;
+  }
+
+  const uint8_t focusPayload[] = {0x01};
+  const uint8_t releasePayload[] = {0x00};
+  const uint8_t shootPayload[] = {static_cast<uint8_t>(autofocus ? 0x02 : 0x01)};
+  bool needsRelease = false;
+
+  auto writeShutter = [&](const uint8_t* payload, size_t length, String& err) -> bool {
+    return writeHandleWithResponse(client, RICOH_BLE_GR4_SHUTTER_HANDLE, payload, length, err);
+  };
+
+  String err;
+  if (!writeShutter(focusPayload, sizeof(focusPayload), err)) {
+    _lastError = String("BLE shutter focus failed: ") + err;
+    return false;
+  }
+  needsRelease = true;
+  delay(80);
+  yield();
+
+  if (!writeShutter(shootPayload, sizeof(shootPayload), err)) {
+    String releaseErr;
+    if (needsRelease && isConnected()) {
+      writeShutter(releasePayload, sizeof(releasePayload), releaseErr);
+    }
+    _lastError = String("BLE shutter shoot failed: ") + err;
+    if (releaseErr.length() > 0) {
+      _lastError += String("; release failed: ") + releaseErr;
+    }
+    return false;
+  }
+  delay(80);
+  yield();
+
+  if (!writeShutter(releasePayload, sizeof(releasePayload), err)) {
+    _lastError = String("BLE shutter release failed: ") + err;
     return false;
   }
 
@@ -162,19 +851,34 @@ bool RicohBleClient::connectAndDiscover(const RicohBleDeviceInfo& info, uint32_t
 }
 
 void RicohBleClient::disconnect() {
-  BLEClient* client = static_cast<BLEClient*>(_client);
+  NimBLEClient* client = static_cast<NimBLEClient*>(_client);
   if (client != nullptr) {
     if (client->isConnected()) {
       client->disconnect();
+      const uint32_t startMs = millis();
+      while (client->isConnected() && (millis() - startMs) < BLE_DISCONNECT_WAIT_MS) {
+        delay(20);
+        yield();
+      }
     }
-    delete client;
+    NimBLEDevice::deleteClient(client);
   }
   _client = nullptr;
   _connected = false;
 }
 
+void RicohBleClient::resetStack() {
+  Serial.println("BLE: resetting stack");
+  disconnect();
+  NimBLEDevice::deinit(false);
+  _begun = false;
+  _lastError = "BLE stack reset";
+  delay(BLE_STACK_RESET_DELAY_MS);
+  begin();
+}
+
 String RicohBleClient::statusText() const {
-  if (_connected) {
+  if (isConnected()) {
     return "BLE_CONNECTED";
   }
   if (_lastError.length() > 0) {

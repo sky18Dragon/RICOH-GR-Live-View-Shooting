@@ -7,26 +7,12 @@ struct CameraProps {
   bool ok = false;
   String model;
   String battery;
-  int batteryLevel = -1;
-  String batteryState;
-  String captureStatus;
-  String storageStatus;
-  bool liveViewAvailable = false;
-  String rawJson;
 };
 
 class GrApi {
 public:
   void setEndpoint(const char* host, uint16_t port = 80);
   bool fetchProps(CameraProps& props, uint32_t timeoutMs);
-  bool fetchStatusDevice(String& body, uint32_t timeoutMs);
-  bool request(const String& method,
-               const String& path,
-               const String& contentType,
-               const String& body,
-               uint32_t timeoutMs,
-               int* httpStatus = nullptr,
-               String* responseBody = nullptr);
   bool openLiveView();
   void closeLiveView();
   bool isLiveViewOpen();
