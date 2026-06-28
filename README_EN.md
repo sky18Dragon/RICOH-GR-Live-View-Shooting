@@ -92,6 +92,28 @@ platformio device monitor
 
 ---
 
+## ⚙️ Development Environment & Dependencies
+
+This project is developed and compiled using **PlatformIO IDE** (either via VS Code extension or the command-line interface). Config files can be found in [platformio.ini](platformio.ini).
+
+### 1. Hardware Specifications
+* **SoC**: ESP32-S3-PICO-1-N8R8 (Dual-core Xtensa LX7, clocked at 240MHz)
+* **Memory**: 8MB QSPI Flash + 8MB OPI PSRAM (`qio_opi` memory type config)
+* **Partition Table**: 8MB Default Layout (`default_8MB.csv`)
+
+### 2. Software Frameworks & Platform
+* **Platform**: Espressif32 BSP v6.12.0
+* **Framework**: Arduino Core for ESP32
+
+### 3. Core Library Dependencies
+* **[M5Unified](https://github.com/m5stack/M5Unified)**: Unified hardware abstraction wrapper for screen display, backlight, and built-in button interactions.
+* **[M5PM1](https://github.com/m5stack/M5PM1)**: Power management controller library for M5Stack StickS3.
+* **[NimBLE-Arduino](https://github.com/h2zero/NimBLE-Arduino) (v2.5.0)**: Lightweight BLE stack replacement for enhanced stability and lower RAM footprint, preventing stack lockups.
+* **[JPEGDEC](https://github.com/bitbank2/JPEGDEC) (v1.8.2+)**: Highly optimized JPEG decoder yielding high-speed pixel output directly to PSRAM.
+* **[ArduinoJson](https://github.com/bblanchon/ArduinoJson) (v7.0.0+)**: Used to serialize and deserialize HTTP JSON API payloads from RICOH GR cameras.
+
+---
+
 ## 🕹️ Controls & Interactions
 
 - **G11 External Button**: Executes the BLE shutter sequence (Focus $\rightarrow$ Expose $\rightarrow$ Release). If pressed while disconnected, it initiates the camera connection recovery workflow.

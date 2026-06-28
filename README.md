@@ -92,6 +92,28 @@ platformio device monitor
 
 ---
 
+## ⚙️ 开发环境与依赖
+
+本固件基于 **PlatformIO IDE** (VS Code 插件版或 CLI 版) 进行开发和构建，配置位于 [platformio.ini](platformio.ini)。
+
+### 1. 硬件配置
+* **芯片**：ESP32-S3-PICO-1-N8R8 (双核 Xtensa LX7，主频 240MHz)
+* **存储**：8MB QSPI Flash + 8MB OPI PSRAM (`qio_opi` 内存模式)
+* **分区表**：8MB Default 分区 (`default_8MB.csv`)
+
+### 2. 工具链与框架
+* **编译平台**：PlatformIO `espressif32@6.12.0` (ESP-IDF 依赖的底层工具链)
+* **核心框架**：Arduino Core for ESP32
+
+### 3. 核心库依赖
+* **[M5Unified](https://github.com/m5stack/M5Unified)**：M5Stack 统一驱动库，用于管理 LCD 显示屏、背光、电量及按键输入。
+* **[M5PM1](https://github.com/m5stack/M5PM1)**：用于 StickS3 内部电源管理。
+* **[NimBLE-Arduino](https://github.com/h2zero/NimBLE-Arduino) (v2.5.0)**：轻量级 BLE 协议栈，提供高连接可靠性与低内存消耗，解决原版 BLE 协议栈易锁死的问题。
+* **[JPEGDEC](https://github.com/bitbank2/JPEGDEC) (v1.8.2+)**：超轻量级 JPEG 高性能解码器，支持在 PSRAM 中进行流式分块解码。
+* **[ArduinoJson](https://github.com/bblanchon/ArduinoJson) (v7.0.0+)**：用于快速解析理光相机的 HTTP JSON 数据。
+
+---
+
 ## 🕹️ 按键与交互控制
 
 - **G11 快门按键 (外接)**：按下即执行 BLE 快门序列（半按对焦 $\rightarrow$ 全按曝光 $\rightarrow$ 释放快门）。如果当前处于断开状态，按下 G11 会自动拉起相机连接恢复流程。
