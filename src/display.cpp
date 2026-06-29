@@ -88,14 +88,9 @@ void DisplayUi::showStatus(const char* line1, const char* line2, const char* lin
     _canvas.setTextSize(1);
     _canvas.setTextColor(COLOR_AMBER, COLOR_BG);
     _canvas.setCursor(10, 8);
-    _canvas.print("RICOH GR VIEWFINDER");
+    _canvas.print("GR VIEWFINDER");
 
     drawStatusLines(line1, line2, line3, line4);
-
-    _canvas.drawFastHLine(10, _height - 20, _width - 20, COLOR_SLATE);
-    _canvas.setTextColor(COLOR_GRAY, COLOR_BG);
-    _canvas.setCursor(10, _height - 14);
-    _canvas.print("SYSTEM STATUS OK");
 
     pushCanvas();
 }
@@ -242,51 +237,225 @@ void DisplayUi::clear(uint16_t color) {
     _canvas.fillScreen(color);
 }
 
-// Redesigned structured card layout for status display
 void DisplayUi::drawStatusLines(const char* line1, const char* line2, const char* line3, const char* line4) {
-    // Left Card: NETWORK
-    _canvas.drawRoundRect(10, 32, 105, 78, 4, COLOR_SLATE);
-    _canvas.setTextColor(COLOR_AMBER, COLOR_BG);
-    _canvas.setCursor(16, 38);
-    _canvas.print("NETWORK");
+    String s1 = safeText(line1);
+    String s2 = safeText(line2);
+    String s3 = safeText(line3);
+    String s4 = safeText(line4);
 
-    _canvas.setTextSize(1);
-    _canvas.setTextColor(COLOR_WHITE, COLOR_BG);
-    if (line1 != nullptr && line1[0] != '\0') {
-        _canvas.setCursor(16, 52);
-        String s1 = line1;
-        _canvas.print(s1.substring(0, 15));
-    }
-    _canvas.setTextColor(COLOR_GRAY, COLOR_BG);
-    if (line2 != nullptr && line2[0] != '\0') {
-        _canvas.setCursor(16, 68);
-        String s2 = line2;
-        _canvas.print(s2.substring(0, 15));
-    }
+    String all = s1 + " " + s2 + " " + s3 + " " + s4;
+    all.reserve(all.length() + 16);
+    String upper = all;
+    upper.toUpperCase();
 
-    // Right Card: CAMERA / DEVICE
-    _canvas.drawRoundRect(125, 32, 105, 78, 4, COLOR_SLATE);
-    _canvas.setTextColor(COLOR_AMBER, COLOR_BG);
-    _canvas.setCursor(131, 38);
-    _canvas.print("CAMERA");
+    enum StepState { STEP_PENDING, STEP_RUNNING, STEP_OK, STEP_ERROR };
 
-    _canvas.setTextColor(COLOR_WHITE, COLOR_BG);
-    if (line3 != nullptr && line3[0] != '\0') {
-        _canvas.setCursor(131, 52);
-        String s3 = line3;
-        _canvas.print(s3.substring(0, 15));
-    }
-    _canvas.setTextColor(COLOR_GRAY, COLOR_BG);
-    if (line4 != nullptr && line4[0] != '\0') {
-        _canvas.setCursor(131, 68);
-        String s4 = line4;
-        _canvas.print(s4.substring(0, 15));
+    StepState bleState = STEP_PENDING;
+    StepState wifiState = STEP_PENDING;
+    StepState httpState = STEP_PENDING;
+    StepState liveState = STEP_PENDING;
 
-        // Auto draw battery icon if battery status exists
-        if (s4.indexOf("%") >= 0 || s4.indexOf("BAT") >= 0 || s4.indexOf("charge") >= 0) {
-            drawBatteryIcon(131, 84, s4);
+    bool hasError = upper.indexOf("FAILED") >= 0 ||
+                    upper.indexOf("ERROR") >= 0 ||
+                    upper.indexOf("UNAVAILABLE") >= 0 ||
+                    upper.indexOf("NOT FOUND") >= 0 ||
+                    upper.indexOf("LINK LOST") >= 0 ||
+                    upper.indexOf("CONNECTION_LOST") >= 0 ||
+                    upper.indexOf("NOT READY") >= 0 ||
+                    upper.indexOf("NO_SSID") >= 0;
+
+    bool isStandby = upper.indexOf("STANDBY") >= 0 ||
+                     upper.indexOf("COOLDOWN") >= 0 ||
+                     upper.indexOf("AUTO WAKE") >= 0;
+    bool isRecovery = upper.indexOf("CAMERA RECOVERY") >= 0;
+    bool isManualWake = upper.indexOf("MANUAL WAKE") >= 0;
+    bool isBleReset = upper.indexOf("BLE STACK RESET") >= 0;
+    bool isButtonShutter = upper.indexOf("BUTTON A") >= 0;
+
+    bool mentionsBle = upper.indexOf("BLE") >= 0 ||
+                       upper.indexOf("PAIRING") >= 0 ||
+                       upper.indexOf("SCANNING") >= 0;
+    bool mentionsWifi = upper.indexOf("WIFI") >= 0 ||
+                        upper.indexOf("CONNECTED") >= 0 ||
+                        upper.indexOf("IDLE") >= 0 ||
+                        upper.indexOf("DISCONNECTED") >= 0 ||
+                        upper.indexOf("CONNECT_FAILED") >= 0;
+    bool mentionsHttp = upper.indexOf("HTTP") >= 0 ||
+                        upper.indexOf("PROBE") >= 0;
+    bool mentionsLive = upper.indexOf("LIVEVIEW") >= 0 ||
+                        upper.indexOf("LIVE VIEW") >= 0 ||
+                        upper.indexOf("STARTING LIVEVIEW") >= 0;
+
+    String topStatus = "BOOT";
+
+    if (isStandby) {
+        topStatus = "STANDBY";
+        bleState = STEP_OK;
+    } else if (isRecovery) {
+        topStatus = "RECOVERY";
+        if (upper.indexOf("BLE_READY") >= 0) {
+            bleState = STEP_OK;
+            wifiState = STEP_RUNNING;
+        } else {
+            bleState = STEP_RUNNING;
         }
+    } else if (isManualWake) {
+        topStatus = "WAKE";
+        bleState = STEP_RUNNING;
+    } else if (isBleReset) {
+        topStatus = "RESET";
+        bleState = hasError ? STEP_ERROR : STEP_RUNNING;
+    } else if (isButtonShutter) {
+        topStatus = "SHOT";
+        if (upper.indexOf("BLE NOT READY") >= 0 || hasError) {
+            bleState = STEP_ERROR;
+        } else if (upper.indexOf("BLE SHOT OK") >= 0) {
+            bleState = STEP_OK;
+        } else {
+            bleState = STEP_RUNNING;
+        }
+    } else if (mentionsLive) {
+        topStatus = "LIVE";
+        bleState = STEP_OK;
+        wifiState = STEP_OK;
+        httpState = STEP_OK;
+        liveState = hasError ? STEP_ERROR : STEP_RUNNING;
+    } else if (mentionsHttp) {
+        topStatus = "HTTP";
+        bleState = STEP_OK;
+        wifiState = STEP_OK;
+        httpState = hasError ? STEP_ERROR : STEP_RUNNING;
+        if (upper.indexOf("HTTP PROBE OK") >= 0) {
+            httpState = STEP_OK;
+            liveState = STEP_RUNNING;
+        }
+    } else if (mentionsWifi) {
+        topStatus = "WIFI";
+        bleState = STEP_OK;
+        wifiState = hasError ? STEP_ERROR : STEP_RUNNING;
+        if (upper.indexOf("WIFI CONNECTED") >= 0 ||
+            upper.indexOf("WIFI SENT") >= 0 ||
+            upper.indexOf("WIFI PARAMS") >= 0) {
+            wifiState = STEP_OK;
+            httpState = STEP_RUNNING;
+        } else if (upper.indexOf("BLE WIFI FAILED") >= 0) {
+            wifiState = STEP_ERROR;
+        }
+    } else if (mentionsBle) {
+        topStatus = "BLE";
+        bleState = hasError ? STEP_ERROR : STEP_RUNNING;
+        if (upper.indexOf("BLE_READY") >= 0 ||
+            upper.indexOf("BLE LINK READY") >= 0 ||
+            upper.indexOf("BLE CAMERA FOUND") >= 0) {
+            bleState = STEP_OK;
+            wifiState = STEP_RUNNING;
+        } else if (upper.indexOf("BLE NOT READY") >= 0 ||
+                   upper.indexOf("BLE NOT FOUND") >= 0 ||
+                   upper.indexOf("BLE CONNECT FAILED") >= 0 ||
+                   upper.indexOf("BLE UNAVAILABLE") >= 0) {
+            bleState = STEP_ERROR;
+        }
+    } else {
+        bleState = STEP_RUNNING;
     }
+
+    auto stateColor = [](StepState st) -> uint16_t {
+        switch (st) {
+            case STEP_OK:      return COLOR_GREEN;
+            case STEP_RUNNING: return COLOR_AMBER;
+            case STEP_ERROR:   return COLOR_RED;
+            default:           return COLOR_GRAY;
+        }
+    };
+
+    auto stateText = [](StepState st) -> const char* {
+        switch (st) {
+            case STEP_OK:      return "OK";
+            case STEP_RUNNING: return "RUN";
+            case STEP_ERROR:   return "ERR";
+            default:           return "--";
+        }
+    };
+
+    int16_t labelW = topStatus.length() * 6;
+    _canvas.setTextColor(topStatus == "STANDBY" ? COLOR_YELLOW : COLOR_GREEN, COLOR_BG);
+    _canvas.setCursor(_width - 10 - labelW, 8);
+    _canvas.print(topStatus);
+
+    auto drawStep = [&](int index, const char* name, const String& hint, StepState state) {
+        const int16_t y = 37 + index * 18;
+        const int16_t dotX = 18;
+        const int16_t dotY = y + 7;
+        const uint16_t color = stateColor(state);
+
+        if (index < 3) {
+            _canvas.drawFastVLine(dotX, dotY + 5, 9, COLOR_GRAY);
+        }
+
+        if (state == STEP_PENDING) {
+            _canvas.drawCircle(dotX, dotY, 4, COLOR_GRAY);
+        } else {
+            _canvas.fillCircle(dotX, dotY, 4, color);
+            if (state == STEP_OK) {
+                _canvas.drawLine(dotX - 2, dotY + 1, dotX, dotY + 3, COLOR_BG);
+                _canvas.drawLine(dotX, dotY + 3, dotX + 3, dotY - 1, COLOR_BG);
+            } else if (state == STEP_RUNNING) {
+                _canvas.fillRect(dotX - 1, dotY - 1, 2, 2, COLOR_BG);
+            } else if (state == STEP_ERROR) {
+                _canvas.drawLine(dotX - 2, dotY - 2, dotX + 2, dotY + 2, COLOR_BG);
+                _canvas.drawLine(dotX + 2, dotY - 2, dotX - 2, dotY + 2, COLOR_BG);
+            }
+        }
+
+        _canvas.setTextSize(1);
+        _canvas.setTextColor(state == STEP_PENDING ? COLOR_GRAY : COLOR_WHITE, COLOR_BG);
+        _canvas.setCursor(30, y + 1);
+        _canvas.print(name);
+
+        _canvas.setTextColor(COLOR_GRAY, COLOR_BG);
+        _canvas.setCursor(70, y + 1);
+        String h = hint.length() ? hint : String("--");
+        _canvas.print(h.substring(0, 16));
+
+        _canvas.drawRoundRect(176, y, 44, 14, 3, color);
+        _canvas.setTextColor(color, COLOR_BG);
+        const char* txt = stateText(state);
+        _canvas.setCursor(176 + (44 - static_cast<int16_t>(strlen(txt)) * 6) / 2, y + 3);
+        _canvas.print(txt);
+    };
+
+    String hintBle = s1.length() ? s1 : s2;
+    String hintWifi = s2.length() ? s2 : s1;
+    String hintHttp = s3.length() ? s3 : s1;
+    String hintLive = s4.length() ? s4 : (s3.length() ? s3 : s1);
+
+    drawStep(0, "BLE",  hintBle,  bleState);
+    drawStep(1, "WIFI", hintWifi, wifiState);
+    drawStep(2, "HTTP", hintHttp, httpState);
+    drawStep(3, "LIVE", hintLive, liveState);
+
+    _canvas.drawFastHLine(10, _height - 24, _width - 20, COLOR_SLATE);
+
+    _canvas.setTextColor(COLOR_WHITE, COLOR_BG);
+    _canvas.setCursor(10, _height - 16);
+    if (s3.length() > 0) {
+        _canvas.print(s3.substring(0, 15));
+    } else {
+        _canvas.print("RICOH GR");
+    }
+
+    bool showBattery = (s4.indexOf('%') >= 0 ||
+                        s4.indexOf("BAT") >= 0 ||
+                        s4.indexOf("CHARGE") >= 0);
+    if (showBattery && s4.length() > 0) {
+        drawBatteryIcon(113, _height - 18, s4);
+    } else if (s4.length() > 0) {
+        drawBatteryIcon(113, _height - 18, String());
+    }
+
+    _canvas.setTextColor(COLOR_GRAY, COLOR_BG);
+    _canvas.setCursor(138, _height - 16);
+    _canvas.print("BtnA Shoot/Wake");
 }
 
 // Graphic helper to draw WiFi RSSI strength bars
