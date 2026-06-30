@@ -25,13 +25,14 @@ M5Stack StickS3（ESP32-S3）固件：以 **BLE 为唯一在线入口**识别并
 platformio run                 # 编译
 platformio run -t upload       # 烧录（upload_speed=921600）
 platformio device monitor      # 串口日志（monitor_speed=115200）
+platformio test -e native      # host-side 纯逻辑单元测试
 ```
 
-无单元测试。验证依赖真实硬件（StickS3 + RICOH GR III/IIIx/IV）与串口日志。
+已有 host-side native 单元测试覆盖 `MjpegStream` 纯逻辑边界与相机身份名称推导；完整链路验证仍依赖真实硬件（StickS3 + RICOH GR III/IIIx/IV）与串口日志。
 
 ## 模块导航
 
-代码全部扁平放在 `src/`（共 9 个 `.cpp`/`.h` 对 + `config.h`，约 3638 行）。按职责分层：
+代码全部扁平放在 `src/`（共 10 个 `.cpp`/`.h` 对 + `config.h`，约 3711 行）。按职责分层：
 
 | 层 | 文件 | 职责 |
 | --- | --- | --- |
@@ -39,6 +40,7 @@ platformio device monitor      # 串口日志（monitor_speed=115200）
 | BLE | [`src/ricoh_ble_client.*`](src/ricoh_ble_client.h) | RICOH BLE 扫描/连接/配对、Wi-Fi 凭据读取、快门写入、电源状态通知 |
 | Wi-Fi | [`src/gr_wifi.*`](src/gr_wifi.h) | ESP32 STA 连接相机 AP（支持 BSSID 锚定 + 连接守卫回调） |
 | HTTP API | [`src/gr_api.*`](src/gr_api.h) | RICOH HTTP：`GET /v1/props`、`GET /v1/liveview`（MJPEG 流读取） |
+| 相机身份 | [`src/camera_identity.*`](src/camera_identity.h) | 从 RICOH Wi-Fi SSID 推导候选 BLE 名称 |
 | 解码渲染 | [`src/mjpeg_stream.*`](src/mjpeg_stream.h) · [`src/jpeg_decoder.*`](src/jpeg_decoder.h) · [`src/display.*`](src/display.h) | MJPEG 帧切分 → JPEG 解码到 RGB565 → 屏幕 UI/Overlay |
 | 持久化 | [`src/camera_profile_store.*`](src/camera_profile_store.h) | NVS（namespace `ricoh2`）存储相机 BLE 身份与 IP |
 | 输入 | [`src/buttons.*`](src/buttons.h) | 仅轮询 `M5.BtnA` |

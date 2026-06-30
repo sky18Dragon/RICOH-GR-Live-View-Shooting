@@ -110,9 +110,14 @@ platformio run -t upload
 
 # Monitor serial logs
 platformio device monitor
+
+# Run host-side unit tests (no camera or StickS3 required)
+platformio test -e native
 ```
 
 Serial baud rate: `115200`
+
+The current native tests cover the MJPEG frame-splitting edge cases in `MjpegStream` and the RICOH Wi-Fi SSID to BLE name derivation logic.
 
 ---
 
@@ -195,6 +200,7 @@ src/
   ricoh_ble_client.*       RICOH BLE scanning, connection, Wi-Fi parameters reading, shutter writing
   gr_wifi.*                ESP32 Wi-Fi STA connection
   gr_api.*                 RICOH HTTP API & LiveView
+  camera_identity.*        Pure camera Wi-Fi SSID to BLE name derivation
   mjpeg_stream.*           MJPEG stream parser
   jpeg_decoder.*           JPEG decoding and display rendering
   display.*                StickS3 screen UI

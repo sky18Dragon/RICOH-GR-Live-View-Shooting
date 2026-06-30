@@ -5,3 +5,9 @@ platformio.local.ini
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch/
+
+# Local AI workflow artifacts
+.agents/
+.claude/
+AGENTS.md
+openspec/

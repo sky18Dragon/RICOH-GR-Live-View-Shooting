@@ -2,6 +2,7 @@
 #include <esp_heap_caps.h>
 
 #include "buttons.h"
+#include "camera_identity.h"
 #include "camera_profile_store.h"
 #include "config.h"
 #include "display.h"
@@ -145,38 +146,12 @@ void closeLiveView(const char* reason) {
   mjpeg.reset();
 }
 
-String deriveBleNameFromWifiSsid(const String& ssid) {
-  if (!ssid.startsWith("GR_")) {
-    return String();
-  }
-
-  const int prefixLen = ssid.startsWith("GR_H") ? 4 : 3;
-  const String suffix = ssid.substring(prefixLen);
-  if (suffix.length() == 0) {
-    return ssid;
-  }
-  for (size_t i = 0; i < suffix.length(); ++i) {
-    if (!isDigit(suffix[i])) {
-      return ssid;
-    }
-  }
-
-  const uint32_t serial = static_cast<uint32_t>(suffix.toInt());
-  char name[20];
-  snprintf(name,
-           sizeof(name),
-           "%s%0*lu",
-           ssid.substring(0, prefixLen).c_str(),
-           static_cast<int>(suffix.length()),
-           static_cast<unsigned long>(serial + 1));
-  return String(name);
-}
-
 String preferredBleName() {
   if (cameraProfile.cameraName.length() > 0) {
     return cameraProfile.cameraName;
   }
-  return deriveBleNameFromWifiSsid(cameraProfile.wifi.ssid);
+  const std::string derivedName = deriveBleNameFromWifiSsid(cameraProfile.wifi.ssid.c_str());
+  return String(derivedName.c_str());
 }
 
 bool timeReached(uint32_t deadlineMs) {

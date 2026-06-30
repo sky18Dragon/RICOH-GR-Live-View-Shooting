@@ -1,6 +1,7 @@
 #pragma once
 
-#include <Arduino.h>
+#include <cstddef>
+#include <cstdint>
 
 class MjpegStream {
 public:
