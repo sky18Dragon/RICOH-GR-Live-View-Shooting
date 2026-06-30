@@ -349,7 +349,9 @@ bool activateCameraWifiOverBle() {
   }
 
   showStatusIfChanged("BLE WiFi sent", "Waiting WiFi params", cameraProfile.cameraName, "", true);
-  delay(RICOH_BLE_POST_WLAN_ON_WAIT_MS);
+  if (RICOH_BLE_POST_WLAN_ON_WAIT_MS > 0) {
+    delay(RICOH_BLE_POST_WLAN_ON_WAIT_MS);
+  }
   return true;
 }
 
