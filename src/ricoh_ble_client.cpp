@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cctype>
+#include <cstdlib>
 #include <cstring>
 #include <new>
 #include <string>
@@ -14,6 +15,7 @@
 #include <NimBLEDevice.h>
 #include <NimBLEScan.h>
 #include <NimBLEUUID.h>
+#include <esp_heap_caps.h>
 
 extern "C" {
 #ifdef USING_NIMBLE_ARDUINO_HEADERS
@@ -74,9 +76,9 @@ struct WlanParamHandle {
 const WlanParamHandle kWlanParamHandles[] = {
     {RICOH_BLE_GR4_WLAN_SSID_HANDLE, "ssid"},
     {RICOH_BLE_GR4_WLAN_PASSPHRASE_HANDLE, "passphrase"},
-    {RICOH_BLE_GR4_WLAN_BSSID_HANDLE, "bssid"},
     {RICOH_BLE_GR4_WLAN_SECURITY_HANDLE, "security"},
     {RICOH_BLE_GR4_WLAN_FREQUENCY_HANDLE, "frequency"},
+    {RICOH_BLE_GR4_WLAN_BSSID_HANDLE, "bssid"},
 };
 
 String toUpperCopy(String value) {
@@ -166,7 +168,7 @@ bool isRicohCandidate(const NimBLEAdvertisedDevice* device,
   const bool serviceMatch = advertisesAnyRicohService(device);
   const bool nameMatch = nameLooksLikeRicoh(info.name);
   const bool preferredMatch = addressMatches(info.address, preferredAddress) || nameMatchesPreferred(info.name, preferredName);
-  return serviceMatch || nameMatch || preferredMatch;
+  return serviceMatch || nameMatch || (preferredMatch && info.connectable);
 }
 
 class RicohScanCallbacks : public NimBLEScanCallbacks {
@@ -176,7 +178,7 @@ public:
 
   void onDiscovered(const NimBLEAdvertisedDevice* device) override {
     RicohBleDeviceInfo info = infoFromAdvertisedDevice(device);
-    if (addressMatches(info.address, _preferredAddress)) {
+    if (addressMatches(info.address, _preferredAddress) && info.connectable) {
       updateBest(info, device);
     }
   }
@@ -330,6 +332,101 @@ String macFromRaw6(const std::vector<uint8_t>& data) {
   return String(mac);
 }
 
+uint16_t frequencyMhzForChannel(uint8_t channel) {
+  if (channel >= 1 && channel <= 13) {
+    return static_cast<uint16_t>(2407 + channel * 5);
+  }
+  if (channel == 14) {
+    return 2484;
+  }
+  return 0;
+}
+
+uint8_t channelFromFrequencyMhz(uint16_t frequencyMhz) {
+  if (frequencyMhz == 2484) {
+    return 14;
+  }
+  if (frequencyMhz >= 2412 && frequencyMhz <= 2472 && ((frequencyMhz - 2407) % 5) == 0) {
+    return static_cast<uint8_t>((frequencyMhz - 2407) / 5);
+  }
+  return 0;
+}
+
+uint16_t normalizeFrequencyOrChannel(uint32_t value) {
+  if (value >= 2412 && value <= 2484) {
+    return static_cast<uint16_t>(value);
+  }
+  if (value >= 1 && value <= 14) {
+    return frequencyMhzForChannel(static_cast<uint8_t>(value));
+  }
+  return 0;
+}
+
+uint16_t frequencyFromText(const String& text) {
+  const char* cursor = text.c_str();
+  while (*cursor != '\0') {
+    while (*cursor != '\0' && !std::isdigit(static_cast<unsigned char>(*cursor))) {
+      ++cursor;
+    }
+    if (*cursor == '\0') {
+      break;
+    }
+    char* end = nullptr;
+    const unsigned long value = std::strtoul(cursor, &end, 10);
+    const uint16_t normalized = normalizeFrequencyOrChannel(value);
+    if (normalized != 0) {
+      return normalized;
+    }
+    cursor = end != nullptr && end != cursor ? end : cursor + 1;
+  }
+  return 0;
+}
+
+uint32_t readUnsignedLe(const std::vector<uint8_t>& data, size_t width) {
+  uint32_t value = 0;
+  const size_t count = std::min(width, data.size());
+  for (size_t i = 0; i < count; ++i) {
+    value |= static_cast<uint32_t>(data[i]) << (8 * i);
+  }
+  return value;
+}
+
+uint32_t readUnsignedBe(const std::vector<uint8_t>& data, size_t width) {
+  uint32_t value = 0;
+  const size_t count = std::min(width, data.size());
+  for (size_t i = 0; i < count; ++i) {
+    value = (value << 8) | data[i];
+  }
+  return value;
+}
+
+uint16_t frequencyFromRaw(const std::vector<uint8_t>& data) {
+  if (data.empty() || data.size() > 4) {
+    return 0;
+  }
+  const uint16_t le = normalizeFrequencyOrChannel(readUnsignedLe(data, data.size()));
+  if (le != 0) {
+    return le;
+  }
+  return normalizeFrequencyOrChannel(readUnsignedBe(data, data.size()));
+}
+
+uint16_t frequencyFromValue(const String& text, const std::vector<uint8_t>& data) {
+  const uint16_t fromText = frequencyFromText(text);
+  if (fromText != 0) {
+    return fromText;
+  }
+  return frequencyFromRaw(data);
+}
+
+void logBleHeapOnResourceError(const char* label) {
+  Serial.printf("BLE heap: %s free_internal=%u largest_internal=%u free_psram=%u\n",
+                label != nullptr ? label : "resource error",
+                static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
+                static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)),
+                static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)));
+}
+
 void mergeCredentialValue(RicohBleWifiCredentials& out, const char* label, const std::vector<uint8_t>& data) {
   if (data.empty()) {
     return;
@@ -379,6 +476,13 @@ void mergeCredentialValue(RicohBleWifiCredentials& out, const char* label, const
     }
   } else if (strcmp(label, "security") == 0 && data.size() == 1) {
     out.securityType = data[0];
+  } else if (strcmp(label, "frequency") == 0) {
+    const uint16_t frequencyMhz = frequencyFromValue(text, data);
+    const uint8_t channel = channelFromFrequencyMhz(frequencyMhz);
+    if (frequencyMhz != 0 && channel != 0) {
+      out.frequencyMhz = frequencyMhz;
+      out.channel = channel;
+    }
   }
 
   out.valid = out.ssid.length() > 0 &&
@@ -699,25 +803,47 @@ RicohBleDeviceInfo RicohBleClient::scanForCamera(const String& preferredAddress,
     _lastError = "RICOH BLE not found";
   } else {
     _lastError = "";
-    Serial.printf("BLE: selected camera name='%s' addr=%s rssi=%d%s\n",
+    Serial.printf("BLE: selected camera name='%s' addr=%s rssi=%d connectable=%d scan_ms=%lu%s\n",
                   best.name.c_str(),
                   best.address.c_str(),
                   best.rssi,
+                  best.connectable ? 1 : 0,
+                  static_cast<unsigned long>(millis() - startMs),
                   callbacks.foundPreferred() ? " preferred" : "");
   }
   return best;
 }
 
 bool RicohBleClient::connect(const RicohBleDeviceInfo& info, uint32_t timeoutMs) {
+  RicohBleConnectOptions options;
+  options.timeoutMs = timeoutMs;
+  options.securityWaitMs = RICOH_BLE_SECURITY_WAIT_MS;
+  options.preConnectDelayMs = BLE_SCAN_TO_CONNECT_DELAY_MS;
+  options.exchangeMtu = true;
+  return connect(info, options);
+}
+
+bool RicohBleClient::connect(const RicohBleDeviceInfo& info, const RicohBleConnectOptions& options) {
   begin();
+  _lastFailureResourceExhausted = false;
+  const uint32_t connectStartMs = millis();
   disconnect();
   if (!info.found || info.address.length() == 0) {
     _lastError = "No BLE device selected";
     return false;
   }
 
-  delay(BLE_SCAN_TO_CONNECT_DELAY_MS);
-  yield();
+  if (options.preConnectDelayMs > 0) {
+    delay(options.preConnectDelayMs);
+    yield();
+  }
+
+  Serial.printf("BLE: connect start addr=%s type=%u timeout=%lums mtu=%d pre_delay=%lums\n",
+                info.address.c_str(),
+                static_cast<unsigned>(info.addressType),
+                static_cast<unsigned long>(options.timeoutMs),
+                options.exchangeMtu ? 1 : 0,
+                static_cast<unsigned long>(options.preConnectDelayMs));
 
   NimBLEAddress peer(std::string(info.address.c_str()), info.addressType);
   NimBLEClient* client = NimBLEDevice::createClient();
@@ -728,16 +854,23 @@ bool RicohBleClient::connect(const RicohBleDeviceInfo& info, uint32_t timeoutMs)
 
   _client = client;
   client->setClientCallbacks(&g_callbacks, false);
-  client->setConnectTimeout(timeoutMs);
+  client->setConnectTimeout(options.timeoutMs);
   client->setConnectRetries(1);
   client->setConnectionParams(BLE_GAP_INITIAL_CONN_ITVL_MIN,
                               BLE_GAP_INITIAL_CONN_ITVL_MAX,
                               1,
                               2 * BLE_GAP_INITIAL_SUPERVISION_TIMEOUT);
 
-  if (!client->connect(peer, true, false, true)) {
+  if (!client->connect(peer, true, false, options.exchangeMtu)) {
     const int err = client->getLastError();
+    _lastFailureResourceExhausted = (err == BLE_HS_ENOMEM);
     _lastError = String("NimBLE connect failed err=") + String(err);
+    Serial.printf("BLE: connect failed err=%d elapsed=%lums\n",
+                  err,
+                  static_cast<unsigned long>(millis() - connectStartMs));
+    if (_lastFailureResourceExhausted) {
+      logBleHeapOnResourceError("connect");
+    }
     NimBLEDevice::deleteClient(client);
     _client = nullptr;
     _connected = false;
@@ -747,24 +880,52 @@ bool RicohBleClient::connect(const RicohBleDeviceInfo& info, uint32_t timeoutMs)
   _connected = true;
   NimBLEDevice::setPowerLevel(ESP_PWR_LVL_P9);
 
+  const uint32_t securityStartMs = millis();
   bool securityStarted = client->secureConnection(true);
   const int securityErr = client->getLastError();
   if (!securityStarted && securityErr != BLE_HS_EALREADY) {
+    _lastFailureResourceExhausted = (securityErr == BLE_HS_ENOMEM);
     _lastError = String("NimBLE security start failed err=") + String(securityErr);
+    Serial.printf("BLE: security start failed err=%d total_ms=%lums\n",
+                  securityErr,
+                  static_cast<unsigned long>(millis() - connectStartMs));
+    if (_lastFailureResourceExhausted) {
+      logBleHeapOnResourceError("security");
+    }
     disconnect();
     return false;
   }
 
   String securityWaitError;
-  if (!waitForEncryptedConnection(client, RICOH_BLE_SECURITY_WAIT_MS, securityWaitError)) {
+  const uint32_t securityWaitMs = options.securityWaitMs > 0 ? options.securityWaitMs : RICOH_BLE_SECURITY_WAIT_MS;
+  if (!waitForEncryptedConnection(client, securityWaitMs, securityWaitError)) {
+    _lastFailureResourceExhausted = false;
     _lastError = securityWaitError;
+    Serial.printf("BLE: security wait failed after %lums total_ms=%lums: %s\n",
+                  static_cast<unsigned long>(millis() - securityStartMs),
+                  static_cast<unsigned long>(millis() - connectStartMs),
+                  securityWaitError.c_str());
     disconnect();
     return false;
   }
 
+  _lastFailureResourceExhausted = false;
   _lastError = "";
-  Serial.println("BLE: connected secure");
+  Serial.printf("BLE: connected secure connect_ms=%lu security_ms=%lu total_ms=%lu\n",
+                static_cast<unsigned long>(securityStartMs - connectStartMs),
+                static_cast<unsigned long>(millis() - securityStartMs),
+                static_cast<unsigned long>(millis() - connectStartMs));
   return true;
+}
+
+bool RicohBleClient::isBonded(const RicohBleDeviceInfo& info) {
+  begin();
+  if (info.address.length() == 0) {
+    return false;
+  }
+
+  NimBLEAddress peer(std::string(info.address.c_str()), info.addressType);
+  return NimBLEDevice::isBonded(peer);
 }
 
 bool RicohBleClient::isConnected() const {
@@ -885,7 +1046,12 @@ bool RicohBleClient::waitForWifiCredentials(RicohBleWifiCredentials& credentials
     credentials = current;
     if (credentials.valid) {
       _lastError = "";
-      Serial.printf("BLE: Wi-Fi parameters received ssid='%s' bssid='%s'\n", credentials.ssid.c_str(), credentials.bssid.c_str());
+      Serial.printf("BLE: Wi-Fi parameters received ssid='%s' bssid='%s' freq=%u channel=%u wait_ms=%lu\n",
+                    credentials.ssid.c_str(),
+                    credentials.bssid.c_str(),
+                    static_cast<unsigned>(credentials.frequencyMhz),
+                    static_cast<unsigned>(credentials.channel),
+                    static_cast<unsigned long>(millis() - startMs));
       return true;
     }
 
@@ -989,9 +1155,14 @@ void RicohBleClient::resetStack(bool clearObjects) {
   disconnect();
   NimBLEDevice::deinit(clearObjects);
   _begun = false;
+  _lastFailureResourceExhausted = false;
   _lastError = "BLE stack reset";
   delay(BLE_STACK_RESET_DELAY_MS);
   begin();
+}
+
+bool RicohBleClient::lastFailureWasResourceExhausted() const {
+  return _lastFailureResourceExhausted;
 }
 
 String RicohBleClient::statusText() const {

@@ -12,7 +12,7 @@ It identifies and connects to the camera using **BLE as the only online entry po
 
 ## Current Stable Features
 
-- **BLE-First Connection Flow**: Scans for `GR_` / RICOH devices upon powering up, prioritizing the camera's BLE address and name stored in NVS.
+- **BLE-First Connection Flow**: Uses the saved BLE address and address type for a fast direct reconnect when the NVS camera profile is complete, then falls back to scanning for `GR_` / RICOH devices.
 - **Dynamic Wi-Fi Credentials**: No longer depends on a fixed SSID/passphrase in `platformio.ini`. After the camera's Wi-Fi is woken up, the SSID, password, and BSSID are read via BLE.
 - **LiveView Real-Time Preview**: Connects to the camera's Wi-Fi, accesses the RICOH HTTP API, opens `/v1/liveview`, and displays the MJPEG video stream on the StickS3 screen.
 - **Button A Shutter**: Triggers the BLE shutter sequence when the StickS3 built-in Button A is pressed.
@@ -29,9 +29,9 @@ StickS3 Power On / Reboot
   ↓
 Initialize screen, buttons, NVS, BLE, Wi-Fi
   ↓
-Read Camera Profile (BLE address, camera name, camera IP)
+Read Camera Profile (BLE address, address type, bond state, camera name, camera IP)
   ↓
-Scan for GR / RICOH BLE devices
+Fast direct BLE reconnect when profile is complete; otherwise scan for GR / RICOH BLE devices
   ↓
 Connect to camera BLE and complete secure pairing / encryption
   ↓
@@ -110,9 +110,14 @@ platformio run -t upload
 
 # Monitor serial logs
 platformio device monitor
+
+# Run host-side unit tests (no camera or StickS3 required)
+platformio test -e native
 ```
 
 Serial baud rate: `115200`
+
+The current native tests cover the MJPEG frame-splitting edge cases in `MjpegStream` and the RICOH Wi-Fi SSID to BLE name derivation logic.
 
 ---
 
@@ -130,7 +135,9 @@ Important Parameters:
 | Parameter | Default Value | Description |
 | --- | ---: | --- |
 | `BLE_SCAN_SECONDS` | `2` | Duration of a single BLE scanning round |
+| `BLE_FAST_CONNECT_TIMEOUT_MS` | `3000` | Timeout for direct reconnect using the saved BLE address and address type |
 | `BLE_CONNECT_ATTEMPTS` | `12` | Number of BLE reconnection attempts when a paired camera profile is stored |
+| `RICOH_BLE_BONDED_SECURITY_WAIT_MS` | `1500` | Short security/encryption wait used when the saved camera profile is marked bonded |
 | `FIRST_BOOT_BLE_PAIRING_ATTEMPTS` | `12` | Number of pairing scan rounds on first boot / when NVS profile is empty |
 | `CAMERA_POWER_OFF_COOLDOWN_MS` | `15000` | Cooldown period after the camera is powered off / disconnected |
 | `BLE_MANUAL_WAKE_REINIT_SETTLE_MS` | `3000` | Settling time after rebuilding the BLE stack during manual wake |
@@ -195,6 +202,7 @@ src/
   ricoh_ble_client.*       RICOH BLE scanning, connection, Wi-Fi parameters reading, shutter writing
   gr_wifi.*                ESP32 Wi-Fi STA connection
   gr_api.*                 RICOH HTTP API & LiveView
+  camera_identity.*        Pure camera Wi-Fi SSID to BLE name derivation
   mjpeg_stream.*           MJPEG stream parser
   jpeg_decoder.*           JPEG decoding and display rendering
   display.*                StickS3 screen UI

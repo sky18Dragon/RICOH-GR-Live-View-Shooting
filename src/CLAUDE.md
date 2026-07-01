@@ -2,7 +2,7 @@
 
 [← 根目录 CLAUDE.md](../CLAUDE.md) ｜ 生成时间：2026-06-29 17:19:32 CST
 
-`src/` 扁平存放全部固件源码（9 个 `.cpp`/`.h` 对 + `config.h`，约 3638 行）。本文按层记录每个模块的职责、对外接口、依赖与实现要点。
+`src/` 扁平存放全部固件源码（10 个 `.cpp`/`.h` 对 + `config.h`，约 3711 行）。本文按层记录每个模块的职责、对外接口、依赖与实现要点。
 
 ## 文件清单
 
@@ -12,6 +12,7 @@
 | `ricoh_ble_client.{cpp,h}` | 1009 / 59 | BLE | RICOH BLE 全协议：扫描/连接/凭据/快门/电源通知 |
 | `gr_wifi.{cpp,h}` | 189 / 28 | Wi-Fi | ESP32 STA 连相机 AP |
 | `gr_api.{cpp,h}` | 342 / 35 | HTTP | `/v1/props` + `/v1/liveview` MJPEG |
+| `camera_identity.{cpp,h}` | 49 / 5 | 相机身份 | 从 Wi-Fi SSID 推导候选 BLE 名称 |
 | `display.{cpp,h}` | 336 / 50 | 渲染 | 屏幕 UI：boot/status/error/overlay |
 | `jpeg_decoder.{cpp,h}` | 172 / 49 | 渲染 | JPEGDEC 解码到 RGB565 画布 |
 | `mjpeg_stream.{cpp,h}` | 110 / 39 | 渲染 | MJPEG 字节流切分为单帧 |
@@ -24,6 +25,8 @@
 ## 编排层 — `main.cpp`
 
 匿名命名空间内持有所有单例（`grWifi`/`grApi`/`mjpeg`/`ui`/`buttons`/`decoder`/`profileStore`/`cameraProfile`/`ricohBle`）。
+
+`preferredBleName()` 会优先使用 NVS 中保存的相机名；无保存名时，调用 `camera_identity` 纯逻辑模块从 `GR_` / `GR_H` Wi-Fi SSID 推导候选 BLE 名称。
 
 ### 状态机 `CameraFlowState`
 
@@ -137,6 +140,7 @@ BleScan → BleReady → WifiConnecting → HttpProbe → LiveViewRunning
 - `appendByte` 写入外部 `frameBuf`（`main.cpp` 的 256KB PSRAM 缓冲）；超长 `_overflow` 丢帧。
 - `finishFrame` 校验 `_len>=20` 后回调 `FrameCallback(data, len, user)`；`dropFrame` 仅计 `droppedFrames`。
 - `process(data, len)` 返回本次新增帧数；`frames()`/`droppedFrames()`/`currentLength()` 状态查询。
+- 头文件只依赖标准 C++ `<cstddef>` / `<cstdint>`，可被 host-side native 单元测试直接编译。
 - 逐字节扫描，`_prev`/`_havePrev` 跨调用保留前一字节以识别 marker。
 
 ### `jpeg_decoder.{cpp,h}` — `JpegDecoder`
@@ -165,11 +169,11 @@ BleScan → BleReady → WifiConnecting → HttpProbe → LiveViewRunning
 `CameraProfileStore` 基于 `Preferences`（NVS）。
 
 - namespace `"ricoh2"`，`profileVersion=3`。
-- 键：`proto_ver`/`cam_name`/`ble_addr`/`cam_ip`。
-- `load()`/`save()`/`saveBleIdentity(name, addr)`/`clear()`；`getStringIfPresent` 缺键返回空串。
+- 键：`proto_ver`/`cam_name`/`ble_addr`/`ble_addr_type`/`ble_bonded`/`cam_ip`。
+- `load()`/`save()`/`saveBleIdentity(name, addr[, type, bonded])`/`clear()`；`getStringIfPresent` 缺键返回空串。
 - **只持久化 BLE 身份 + 相机 IP**，不存 Wi-Fi 凭据（每次运行时 BLE 动态获取）；保护态不写 NVS。
 
-数据结构：`WifiCredential{ssid, passphrase, bssid, cameraIp}`、`CameraProfile{cameraName, bleAddress, wifi, profileVersion}`。
+数据结构：`WifiCredential{ssid, passphrase, bssid, cameraIp}`、`CameraProfile{cameraName, bleAddress, bleAddressType, bleAddressTypeKnown, bleBonded, wifi, profileVersion}`。
 
 ---
 
@@ -200,7 +204,8 @@ main.cpp → 全部模块（编排）
 ricoh_ble_client → NimBLE-Arduino, config.h
 gr_wifi → WiFi.h (ESP32 Arduino)
 gr_api → WiFiClient, ArduinoJson, config.h
-mjpeg_stream → Arduino.h（纯逻辑，无外部依赖）
+camera_identity → 标准 C++ 头文件（纯逻辑，无硬件依赖）
+mjpeg_stream → 标准 C++ 头文件（纯逻辑，无硬件依赖）
 jpeg_decoder → JPEGDEC, M5Unified(LovyanGFX), config.h
 display → M5Unified, config.h
 camera_profile_store → Preferences

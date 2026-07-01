@@ -89,14 +89,22 @@ bool GrWifi::connect(const char* ssid, const char* password, uint32_t timeoutMs)
 }
 
 bool GrWifi::connect(const char* ssid, const char* password, const char* bssid, uint32_t timeoutMs) {
-  return connect(ssid, password, bssid, timeoutMs, nullptr);
+  return connect(ssid, password, bssid, 0, timeoutMs, nullptr);
+}
+
+bool GrWifi::connect(const char* ssid, const char* password, const char* bssid, uint8_t channel, uint32_t timeoutMs) {
+  return connect(ssid, password, bssid, channel, timeoutMs, nullptr);
 }
 
 bool GrWifi::connect(const char* ssid, const char* password, uint32_t timeoutMs, ConnectGuard guard) {
-  return connect(ssid, password, nullptr, timeoutMs, guard);
+  return connect(ssid, password, nullptr, 0, timeoutMs, guard);
 }
 
 bool GrWifi::connect(const char* ssid, const char* password, const char* bssid, uint32_t timeoutMs, ConnectGuard guard) {
+  return connect(ssid, password, bssid, 0, timeoutMs, guard);
+}
+
+bool GrWifi::connect(const char* ssid, const char* password, const char* bssid, uint8_t channel, uint32_t timeoutMs, ConnectGuard guard) {
   if (guard != nullptr && !guard()) {
     _lastStatus = WiFi.status();
     return false;
@@ -106,7 +114,7 @@ bool GrWifi::connect(const char* ssid, const char* password, const char* bssid, 
     return true;
   }
 
-  return connectTo(ssid, password, bssid, timeoutMs, guard);
+  return connectTo(ssid, password, bssid, channel, timeoutMs, guard);
 }
 
 bool GrWifi::isConnected() const {
@@ -122,6 +130,10 @@ String GrWifi::ssid() const {
   return isConnected() ? WiFi.SSID() : String();
 }
 
+String GrWifi::bssidString() const {
+  return isConnected() ? WiFi.BSSIDstr() : String();
+}
+
 int32_t GrWifi::rssi() const {
   return isConnected() ? WiFi.RSSI() : 0;
 }
@@ -134,11 +146,11 @@ String GrWifi::statusText() const {
   return wifiStatusToString(WiFi.status());
 }
 
-bool GrWifi::connectTo(const char* ssid, const char* password, const char* bssid, uint32_t timeoutMs) {
-  return connectTo(ssid, password, bssid, timeoutMs, nullptr);
+bool GrWifi::connectTo(const char* ssid, const char* password, const char* bssid, uint8_t channel, uint32_t timeoutMs) {
+  return connectTo(ssid, password, bssid, channel, timeoutMs, nullptr);
 }
 
-bool GrWifi::connectTo(const char* ssid, const char* password, const char* bssid, uint32_t timeoutMs, ConnectGuard guard) {
+bool GrWifi::connectTo(const char* ssid, const char* password, const char* bssid, uint8_t channel, uint32_t timeoutMs, ConnectGuard guard) {
   if (ssid == nullptr || ssid[0] == '\0') {
     _lastStatus = WL_NO_SSID_AVAIL;
     return false;
@@ -162,12 +174,16 @@ bool GrWifi::connectTo(const char* ssid, const char* password, const char* bssid
   const uint8_t* bssidPtr = hasBssid ? parsedBssid : nullptr;
 
   if (password != nullptr && password[0] != '\0') {
-    WiFi.begin(ssid, password, 0, bssidPtr);
+    WiFi.begin(ssid, password, channel, bssidPtr);
   } else {
-    WiFi.begin(ssid, nullptr, 0, bssidPtr);
+    WiFi.begin(ssid, nullptr, channel, bssidPtr);
   }
 
   const uint32_t startMs = millis();
+  Serial.printf("WiFi: begin channel=%u has_bssid=%d timeout=%lums\n",
+                static_cast<unsigned>(channel),
+                hasBssid ? 1 : 0,
+                static_cast<unsigned long>(timeoutMs));
   while (millis() - startMs < timeoutMs) {
     if (guard != nullptr && !guard()) {
       WiFi.disconnect(false, false);
@@ -178,6 +194,10 @@ bool GrWifi::connectTo(const char* ssid, const char* password, const char* bssid
     const wl_status_t status = WiFi.status();
     _lastStatus = status;
     if (status == WL_CONNECTED) {
+      Serial.printf("WiFi: connect completed in %lums channel=%u status=%s\n",
+                    static_cast<unsigned long>(millis() - startMs),
+                    static_cast<unsigned>(channel),
+                    wifiStatusToString(status).c_str());
       return true;
     }
     yield();
@@ -185,5 +205,9 @@ bool GrWifi::connectTo(const char* ssid, const char* password, const char* bssid
   }
 
   _lastStatus = WiFi.status();
+  Serial.printf("WiFi: connect timed out in %lums channel=%u status=%s\n",
+                static_cast<unsigned long>(millis() - startMs),
+                static_cast<unsigned>(channel),
+                wifiStatusToString(_lastStatus).c_str());
   return false;
 }

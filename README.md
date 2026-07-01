@@ -110,9 +110,14 @@ platformio run -t upload
 
 # 查看串口日志
 platformio device monitor
+
+# 运行 host-side 单元测试（无需相机或 StickS3）
+platformio test -e native
 ```
 
 串口波特率：`115200`
+
+当前 native 测试覆盖 `MjpegStream` 的 MJPEG 帧切分边界行为，以及 RICOH Wi-Fi SSID 到 BLE 名称的推导逻辑。
 
 ---
 
@@ -195,6 +200,7 @@ src/
   ricoh_ble_client.*       RICOH BLE 扫描、连接、Wi-Fi 参数读取、快门写入
   gr_wifi.*                ESP32 Wi-Fi STA 连接
   gr_api.*                 RICOH HTTP API 与 LiveView
+  camera_identity.*        相机 Wi-Fi SSID 到 BLE 名称的纯逻辑推导
   mjpeg_stream.*           MJPEG 流解析
   jpeg_decoder.*           JPEG 解码与显示输出
   display.*                StickS3 屏幕 UI

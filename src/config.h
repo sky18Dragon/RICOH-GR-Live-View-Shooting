@@ -17,10 +17,17 @@ constexpr size_t FRAME_BUFFER_SIZE = 256 * 1024;
 constexpr size_t STREAM_READ_BUFFER_SIZE = 2048;
 
 constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 15000;
+constexpr uint32_t WIFI_CHANNEL_HINT_CONNECT_TIMEOUT_MS = 6000;
+constexpr uint32_t WIFI_CACHED_CONNECT_TIMEOUT_MS = 1200;
+constexpr uint32_t WIFI_CACHED_CONNECT_GRACE_MS = 700;
+constexpr uint32_t WIFI_CACHE_REFRESH_DELAY_MS = 5000;
 constexpr uint32_t BLE_SCAN_RETRY_INTERVAL_MS = 1000;
 constexpr uint32_t PROPS_TIMEOUT_MS = 3500;
 constexpr uint32_t LIVEVIEW_STALL_TIMEOUT_MS = 5000;
 constexpr uint32_t UI_STATUS_INTERVAL_MS = 1000;
+constexpr uint32_t POWER_BUTTON_POLL_MS = 50;
+constexpr uint32_t POWER_BUTTON_HOLD_MS = 1200;
+constexpr uint32_t POWER_BUTTON_RELEASE_WAIT_MS = 3000;
 constexpr uint32_t PROPS_REFRESH_INTERVAL_MS = 60000;
 
 #ifndef JPEG_SCALE_POLICY
@@ -28,6 +35,7 @@ constexpr uint32_t PROPS_REFRESH_INTERVAL_MS = 60000;
 #endif
 
 constexpr uint32_t BLE_SCAN_SECONDS = 2;
+constexpr uint32_t BLE_FAST_CONNECT_TIMEOUT_MS = 3000;
 constexpr uint32_t BLE_CONNECT_TIMEOUT_MS = 8000;
 constexpr uint8_t BLE_CONNECT_ATTEMPTS = 12;
 constexpr uint32_t BLE_CONNECT_RETRY_DELAY_MS = 1000;
@@ -36,9 +44,10 @@ constexpr uint8_t BLE_STACK_RESET_AFTER_FAILURES = 2;
 constexpr uint32_t BLE_STACK_RESET_DELAY_MS = 1500;
 constexpr uint32_t BLE_RECOVERY_STACK_RESET_GRACE_MS = 700;
 constexpr uint32_t BLE_DISCONNECT_WAIT_MS = 1200;
+constexpr uint32_t RICOH_BLE_BONDED_SECURITY_WAIT_MS = 1500;
 constexpr uint32_t RICOH_BLE_SECURITY_WAIT_MS = 7000;
 constexpr uint8_t FIRST_BOOT_BLE_PAIRING_ATTEMPTS = 12;
-constexpr uint32_t SERIAL_BOOT_WAIT_MS = 5000;
+constexpr uint32_t SERIAL_BOOT_WAIT_MS = 500;
 constexpr uint32_t CAMERA_POWER_OFF_COOLDOWN_MS = 15000;
 constexpr uint32_t BLE_MANUAL_WAKE_REINIT_SETTLE_MS = 3000;
 constexpr int RICOH_BLE_DISCONNECT_REMOTE_USER = 0x213;
@@ -48,8 +57,8 @@ constexpr bool RICOH_BLE_REQUIRE_POWER_ON_BEFORE_WIFI = true;
 constexpr bool RICOH_BLE_ALLOW_WIFI_WHEN_POWER_UNKNOWN = false;
 
 constexpr bool RICOH_BLE_AUTO_WLAN_ON_BOOT = true;
-constexpr uint32_t RICOH_BLE_POST_WLAN_ON_WAIT_MS = 2000;
-constexpr uint32_t RICOH_BLE_WIFI_CREDENTIAL_WAIT_MS = 8000;
+constexpr uint32_t RICOH_BLE_POST_WLAN_ON_WAIT_MS = 0;
+constexpr uint32_t RICOH_BLE_WIFI_CREDENTIAL_WAIT_MS = 10000;
 constexpr uint32_t RICOH_BLE_WIFI_CREDENTIAL_POLL_MS = 500;
 constexpr uint8_t WIFI_OPEN_ATTEMPTS = 3;
 
