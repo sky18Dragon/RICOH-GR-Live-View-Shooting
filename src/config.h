@@ -70,7 +70,6 @@ constexpr uint16_t RICOH_BLE_GR4_WLAN_PASSPHRASE_HANDLE = 0x013A;
 constexpr uint16_t RICOH_BLE_GR4_WLAN_SECURITY_HANDLE = 0x013C;
 constexpr uint16_t RICOH_BLE_GR4_WLAN_FREQUENCY_HANDLE = 0x013E;
 constexpr uint16_t RICOH_BLE_GR4_WLAN_BSSID_HANDLE = 0x0140;
-constexpr uint16_t RICOH_BLE_GR4_SHUTTER_HANDLE = 0x0099;
 
 // Verified from Android HCI logs captured on 2026-06-28.
 // 0x01: camera powered on / controllable, 0x00: power-off or shutting down.
