@@ -519,7 +519,8 @@ bool ensureCameraPowerReadyForWifi(const char* source) {
   bool readOk = false;
   const uint8_t retries = RICOH_BLE_POWER_READ_RETRIES == 0 ? 1 : RICOH_BLE_POWER_READ_RETRIES;
   for (uint8_t attempt = 0; attempt < retries; ++attempt) {
-    if (ricohBle.readPowerState(nextState)) {
+    const rvf::Result powerReadResult = bleCamera.readPowerState(nextState);
+    if (powerReadResult.ok()) {
       readOk = true;
       break;
     }
@@ -537,7 +538,8 @@ bool ensureCameraPowerReadyForWifi(const char* source) {
   if (cameraPowerPolicy.shouldReadOperationMode(readOk, toPolicyPowerStatus(cameraPowerState))) {
     const uint8_t modeRetries = RICOH_BLE_OPERATION_MODE_READ_RETRIES == 0 ? 1 : RICOH_BLE_OPERATION_MODE_READ_RETRIES;
     for (uint8_t attempt = 0; attempt < modeRetries; ++attempt) {
-      if (ricohBle.readOperationMode(cameraOperationMode)) {
+      const rvf::Result operationModeResult = bleCamera.readOperationMode(cameraOperationMode);
+      if (operationModeResult.ok()) {
         operationModeReadOk = true;
         break;
       }
@@ -569,7 +571,8 @@ bool ensureCameraPowerReadyForWifi(const char* source) {
       Serial.printf("BLE: operation mode %s; manual wake override allows WiFi\n",
                     cameraOperationModeName(cameraOperationMode));
     }
-    if (!ricohBle.enablePowerStateNotify()) {
+    const rvf::Result powerNotifyResult = bleCamera.enablePowerStateNotify();
+    if (powerNotifyResult.failed()) {
       Serial.printf("BLE: power notify subscribe failed: %s\n", bleCamera.lastError().c_str());
     }
     return true;
@@ -577,8 +580,11 @@ bool ensureCameraPowerReadyForWifi(const char* source) {
 
   if (cameraManualWakeOverride && !(readOk && cameraPowerState == RicohCameraPowerState::On)) {
     Serial.printf("BLE: power state %s; manual wake override allows WiFi\n", cameraPowerStateName(cameraPowerState));
-    if (bleCamera.isConnected() && !ricohBle.enablePowerStateNotify()) {
-      Serial.printf("BLE: power notify subscribe failed: %s\n", bleCamera.lastError().c_str());
+    if (bleCamera.isConnected()) {
+      const rvf::Result powerNotifyResult = bleCamera.enablePowerStateNotify();
+      if (powerNotifyResult.failed()) {
+        Serial.printf("BLE: power notify subscribe failed: %s\n", bleCamera.lastError().c_str());
+      }
     }
     return true;
   }
@@ -653,7 +659,7 @@ void saveConnectedBleIdentity(const String& connectedName, const RicohBleDeviceI
   cameraProfile.bleAddress = info.address;
   cameraProfile.bleAddressType = info.addressType;
   cameraProfile.bleAddressTypeKnown = true;
-  cameraProfile.bleBonded = ricohBle.isBonded(info);
+  cameraProfile.bleBonded = bleCamera.isBonded(info);
   profileStore.saveBleIdentity(cameraProfile.cameraName,
                                cameraProfile.bleAddress,
                                cameraProfile.bleAddressType,
