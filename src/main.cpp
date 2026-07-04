@@ -618,7 +618,8 @@ bool activateCameraWifiOverBle() {
   }
 
   showStatusIfChanged("BLE_READY", "Opening WiFi", cameraProfile.cameraName, "", true);
-  if (!ricohBle.openWifi()) {
+  const rvf::Result openWifiResult = bleCamera.openWifi();
+  if (openWifiResult.failed()) {
     Serial.printf("BLE: Wi-Fi open failed: %s\n", bleCamera.lastError().c_str());
     showStatusIfChanged("BLE WiFi failed", bleCamera.lastError(), "", "", true);
     return false;
