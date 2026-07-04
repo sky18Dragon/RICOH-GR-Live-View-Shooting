@@ -16,6 +16,7 @@
 #include "jpeg_decoder.h"
 #include "mjpeg_stream.h"
 #include "ricoh_ble_client.h"
+#include "ui/ButtonInput.h"
 
 namespace {
 
@@ -1332,11 +1333,14 @@ void triggerShutterFromButtonA() {
 
 void handleButtons() {
   const ButtonEvents events = buttons.poll();
-  if (events.powerOff || pollStickPowerHold()) {
+  const rvf::UserCommand command = rvf::ButtonInput::commandFromEvents(events);
+
+  if (command == rvf::UserCommand::PowerOff || pollStickPowerHold()) {
     shutdownStickS3();
     return;
   }
-  if (events.buttonA) {
+
+  if (command == rvf::UserCommand::Shoot) {
     triggerShutterFromButtonA();
   }
 }
