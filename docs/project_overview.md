@@ -2,7 +2,7 @@
 
 ## 目标
 
-本项目是 RICOH GR x M5Stack StickS3 Remote Viewfinder 固件。目标设备为 ESP32-S3 / M5Stack StickS3，使用 PlatformIO Arduino framework。固件通过 BLE 发现和控制 RICOH GR 相机，通过相机 Wi-Fi AP 使用 HTTP API 打开 LiveView，将 MJPEG 解码显示到 StickS3 屏幕，并提供 Button A BLE AF 快门。Button B / KEY2 作为维护入口，长按 3 秒用于清除 BLE 配对并重新扫描。
+本项目是 RICOH GR Live View Shooting 固件。目标设备为 ESP32-S3 / M5Stack StickS3，使用 PlatformIO Arduino framework。固件通过 BLE 发现和控制 RICOH GR 相机，通过相机 Wi-Fi AP 使用 HTTP API 打开 LiveView，将 MJPEG 解码显示到 StickS3 屏幕，并提供 Button A BLE AF 快门。
 
 ## 已从代码确认的事实
 
@@ -17,9 +17,6 @@
 - Camera HTTP 默认地址：`GR_HOST=192.168.0.1`，`GR_PORT=80`。
 - 主状态机枚举：`BleScan`、`CameraSleepGuard`、`BleReady`、`WifiConnecting`、`HttpProbe`、`LiveViewRunning`。
 - 主循环顺序：`handleButtons()`、`serviceCameraFlowIfNeeded()`、`ensureWiFi()`、`refreshPropsIfDue()`、`ensureLiveView()`、`refreshWifiCacheIfDue()`、`updateStatusUiIfDue()`、`delay(1)`。
-- Button B / KEY2：`M5.BtnB.isPressed()` 优先，GPIO12 `INPUT_PULLUP` fallback；长按 `KEY2_PAIRING_RESET_HOLD_MS=3000` 触发 BLE 配对重置。
-- KEY2 配对重置会清除 NVS 中的 `cam_name`、`ble_addr`、`ble_addr_type`、`ble_bonded` 和 Wi-Fi cache，并调用 NimBLE `deleteAllBonds()`。
-- `RicohBleClient::setServiceCallback()` 允许 BLE 扫描和安全等待循环中服务 KEY2，避免长时间 BLE 重试阻塞清除配对操作。
 - 当前没有 `include/` 和 `lib/` 目录。
 - `docs/` 原有内容仅发现 `docs/images/hardware_setup.jpg` 和 `docs/images/liveview_action.jpg`。
 
@@ -45,7 +42,6 @@ README 声明：
 - 按钮：`src/buttons.*`
 - 电源和主状态机：`src/main.cpp`
 - NVS profile：`src/camera_profile_store.*`
-- BLE 配对重置：`src/buttons.*`、`src/ui/ButtonInput.cpp`、`src/main.cpp`、`src/camera_profile_store.*`、`src/ricoh_ble_client.*`
 - 相机身份推导：`src/camera_identity.*`
 
 ## TODO_UNVERIFIED

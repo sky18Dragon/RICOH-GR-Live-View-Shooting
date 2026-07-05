@@ -1,4 +1,4 @@
-﻿# RicohViewfinder 嵌入式架构重构计划
+﻿# RICOH GR Live View Shooting 嵌入式架构重构计划
 
 ## 当前结论
 

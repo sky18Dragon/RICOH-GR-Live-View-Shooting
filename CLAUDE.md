@@ -1,4 +1,4 @@
-# CLAUDE.md — RICOH GR StickS3 Remote Viewfinder
+# CLAUDE.md — RICOH GR Live View Shooting
 
 > 项目 AI 上下文索引（根级简明）。模块级详尽文档见 [`src/CLAUDE.md`](src/CLAUDE.md)。
 >
@@ -91,12 +91,12 @@ flowchart TD
 3. **电源门控** —— 开 Wi-Fi 前必须 `readPowerState()` 确认相机 `On`；`RICOH_BLE_REQUIRE_POWER_ON_BEFORE_WIFI=true`。手动唤醒走 `cameraManualWakeOverride` 旁路。
 4. **帧缓冲在 PSRAM** —— `FRAME_BUFFER_SIZE=256KB`，优先 `MALLOC_CAP_SPIRAM`，回退内部 RAM；无 PSRAM 直接报错停机。
 5. **JPEG 缩放** —— `config.h` 设 `JPEG_SCALE_POLICY=JPEG_SCALE_HALF`（覆盖 `display.h`/`jpeg_decoder.h` 的 `QUARTER` 默认）。
-6. **NVS schema** —— namespace `ricoh2`，`proto_ver`（当前 3）/`cam_name`/`ble_addr`/`ble_addr_type`/`ble_bonded`/`cam_ip`/Wi-Fi cache。保护态只在 RAM 中生效，StickS3 重启后会重新走自动连接流程。已保存 BLE 身份的 `setup()` 启动流只做一轮快速扫描，失败后交给主循环处理 KEY1 和周期重试。KEY2/Button B 长按 3s 会清 `cam_name`、`ble_addr`、`ble_addr_type`、`ble_bonded` 和 Wi-Fi cache，并调用 NimBLE `deleteAllBonds()`。
+6. **NVS schema** —— namespace `ricoh2`，`proto_ver`（当前 3）/`cam_name`/`ble_addr`/`ble_addr_type`/`ble_bonded`/`cam_ip`/Wi-Fi cache。保护态只在 RAM 中生效，StickS3 重启后会重新走自动连接流程。已保存 BLE 身份的 `setup()` 启动流只做一轮快速扫描，失败后交给主循环处理 KEY1 和周期重试。
 7. **按键 = 仅 `M5.BtnA`** —— 见下方「文档漂移」。
 
 ## 按键实现说明
 
-固件使用 StickS3 `M5.BtnA` 触发 BLE 快门/保护态手动唤醒，使用 `M5.BtnPWR`/M5PM1 处理长按关机，使用 `M5.BtnB` 或 GPIO12 KEY2 fallback 长按 3s 清除 BLE 配对并重新扫描。**无 GPIO11/G11 外接快门、无 `attachInterrupt`**（早期版本曾有 G11 外接快门，已在提交 `7160103 "simplify buttons"` 中移除；README 已于 2026-06-29 同步修正）。`display.cpp` UI 文案标注「BtnA: shutter / wake」「Press BtnA to reconnect」。`liveviewEnabled` 无按键切换路径，仅被手动唤醒重置为 `true`。
+固件使用 StickS3 `M5.BtnA` 触发 BLE 快门/保护态手动唤醒，使用 `M5.BtnPWR`/M5PM1 处理长按关机。**无 GPIO11/G11 外接快门、无 `attachInterrupt`**（早期版本曾有 G11 外接快门，已在提交 `7160103 "simplify buttons"` 中移除；README 已于 2026-06-29 同步修正）。`display.cpp` UI 文案标注「BtnA: shutter / wake」「Press BtnA to reconnect」。`liveviewEnabled` 无按键切换路径，仅被手动唤醒重置为 `true`。
 
 ## 关键配置速查
 

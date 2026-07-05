@@ -8,13 +8,13 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/FinalOutput_EN.png" alt="RICOH GR Remote Viewfinder LiveView" width="100%" />
+  <img src="docs/images/FinalOutput_EN.png" alt="RICOH GR Live View Shooting" width="100%" />
 </p>
 
-<h1 align="center">RICOH GR StickS3 Remote Viewfinder</h1>
+<h1 align="center">RICOH GR Live View Shooting</h1>
 
 <p align="center">
-  A wireless real-time viewfinder and BLE remote shutter firmware running on the M5Stack StickS3 for RICOH GR cameras.
+  A wireless live-view shooting and BLE remote shutter firmware running on the M5Stack StickS3 for RICOH GR cameras.
 </p>
 
 <p align="center">
@@ -36,7 +36,6 @@
 * **Camera Standby & Wake Guard**: Queries the camera's `Power State` and `Operation Mode` before enabling Wi-Fi to prevent waking up a camera that is explicitly powered down or in standby.
 * **WLAN Parameter Caching**: Caches SSID, BSSID, channel, and encryption details in ESP32 NVS. Subsequent boots achieve ultra-fast connections in `<0.5s` by skipping BLE renegotiation.
 * **Physical Button AF Shutter**: Fully implements the official RICOH BLE Shooting Service protocol, using Button A to trigger high-precision auto-focus (AF) and instant capture.
-* **KEY2 / Button B Pairing Reset**: Long-press KEY2 / Button B for 3 seconds to clear the saved BLE identity, Wi-Fi cache, and NimBLE bonds, then return to GR BLE scanning for a fresh pairing.
 * **Host-side Native Test Suite**: Allows compiling and running data parser and state transition tests directly on your host machine without hardware.
 
 ---
@@ -67,13 +66,12 @@ platformio run --target upload --upload-port COM6
 
 ## Controls
 
-You can control the viewfinder's behavior using Button A, Button B / KEY2, and the Power button on the StickS3:
+You can control the viewfinder's behavior using Button A and the Power button on the StickS3:
 
 | Physical Button | App State / Context | Triggered Action |
 | :--- | :--- | :--- |
 | **Button A** | During LiveView (`LIVEVIEW_RUNNING`) | Triggers BLE Auto-Focus (AF) and shoots (writes `ShootingFlavor=IMMEDIATE`) |
 | **Button A** | Standby Cooldown (`CAMERA_SLEEP_GUARD`) | Manually overrides the guard, resets the BLE stack, and attempts to wake/reconnect |
-| **Button B / KEY2** | Any state, including BLE scan/connect retry (Long Press 3s) | Clears saved BLE pairing data and NimBLE bonds, then scans for GR BLE again |
 | **Power Button (BtnPWR)** | Any State (Long Press) | Gracefully terminates Wi-Fi/BLE connections, closes LiveView, and powers off the StickS3 |
 
 ---
@@ -116,8 +114,6 @@ graph TD
     L --> S[Standby Guard: 15s Cooldown, Wait for Button A Manual Wake]
     S -->|Press Button A| T[Rebuild BLE Stack & Reconnect]
     T --> D
-    R -->|Hold Button B / KEY2 3s| U[Clear BLE Pairing + Bonds]
-    U --> E
 ```
 
 ### 3. Camera Power-off and Sleep Protection (Standby Guard)
@@ -125,18 +121,6 @@ When the camera turns off (due to auto power-off or manual shutdown), or when th
 1. The StickS3 immediately tears down its Wi-Fi and BLE connections to save camera power.
 2. The state machine transitions to `CAMERA_SLEEP_GUARD` and starts a **15-second safety cooldown**.
 3. During this cooldown and subsequent standby phase, **automatic wake requests are completely blocked**. The camera remains in standby until the user presses Button A to wake it intentionally.
-
-### 4. Pairing Reset Recovery
-If the camera-side Bluetooth pairing entry is deleted while StickS3 still keeps the old BLE address, bonded flag, and NimBLE bond keys, fast reconnect can fail repeatedly. Hold **Button B / KEY2 for 3 seconds** to reset pairing.
-
-The reset path:
-1. Stops LiveView and disconnects Wi-Fi / BLE.
-2. Clears the saved NVS pairing identity: `cam_name`, `ble_addr`, `ble_addr_type`, and `ble_bonded`.
-3. Clears the Wi-Fi cache tied to that pairing: `wifi_valid`, `wifi_ble_addr`, `wifi_ssid`, `wifi_pass`, `wifi_bssid`, `wifi_freq`, and `wifi_ch`.
-4. Calls NimBLE `deleteAllBonds()` so the ESP32 BLE stack forgets the previous bond keys.
-5. Rebuilds the BLE stack and returns to `BLE_SCAN` with the UI messages `Reset pairing`, `Clearing BLE...`, and `Scanning GR BLE`.
-
-KEY2 is serviced during long BLE scan and security-wait loops, so the reset can be triggered even while the device is retrying a connection.
 
 ---
 
@@ -153,8 +137,6 @@ Customize these constants in [src/config.h](file:///C:/Users/Administrator/Docum
 | `RICOH_BLE_BONDED_SECURITY_WAIT_MS` | `1500` | Post-connect wait time for BLE security/encryption to settle (ms) |
 | `RICOH_BLE_SECURITY_WAIT_MS` | `7000` | Max timeout for first-time security bonding to complete (ms) |
 | `RICOH_BLE_POWER_NOTIFY_SETTLE_MS` | `30` | Short settle window after enabling power notifications, used to catch immediate power-off notifications before Wi-Fi ON |
-| `KEY2_PAIRING_RESET_HOLD_MS` | `3000` | Button B / KEY2 hold duration required to reset BLE pairing |
-| `KEY2_FALLBACK_GPIO` | `12` | GPIO fallback for KEY2 when `M5.BtnB` is unavailable |
 | `WIFI_CACHED_CONNECT_GRACE_MS` | `700` | Warm-up delay after requesting Wi-Fi ON before trying cached credentials |
 | `WIFI_CACHED_CONNECT_TIMEOUT_MS` | `1200` | Aggressive connection timeout for cached BSSID + Channel (ms) |
 | `WIFI_CONNECT_TIMEOUT_MS` | `15000` | Overall connection timeout limit for Wi-Fi STA |
@@ -232,19 +214,6 @@ SystemSupervisor: liveview stall detected! Requesting system recovery.
 Flow: LIVEVIEW_RUNNING -> BLE_READY (Resetting connections)
 ...
 ```
-
-### 4. KEY2 Pairing Reset
-Use this when the camera has forgotten the StickS3 Bluetooth pairing but the StickS3 still tries to reconnect to the old saved identity.
-
-```text
-BLE pairing reset: requested during BLE operation
-BLE pairing reset: Button B / KEY2 long press
-Profile: BLE pairing keys cleared ok=1
-BLE: delete all bonds before=1 after=0 ok=1
-Flow: LIVEVIEW_RUNNING -> BLE_SCAN (Reset pairing)
-```
-
-Expected screen sequence: `Reset pairing` -> `Clearing BLE...` -> `Scanning GR BLE`.
 
 ---
 

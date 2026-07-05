@@ -8,7 +8,6 @@
 | M5PM1 I2C 地址 | `M5PM1_DEFAULT_ADDR` | 来自 M5PM1 库，代码未展开具体值 |
 | M5PM1 I2C 频率 | `M5PM1_I2C_FREQ_100K` | 100kHz |
 | Button A | `src/buttons.cpp` | `M5.BtnA.wasPressed()` |
-| Button B / KEY2 pairing reset | `src/buttons.cpp` / M5Unified `board_M5StickS3` mapping | 优先使用 `M5.BtnB.isPressed()`；M5Unified 将 StickS3 BtnB 映射为 GPIO12 低电平按下，同时代码保留 GPIO12 `INPUT_PULLUP` fallback。 |
 | Power button | `src/buttons.cpp` / `src/main.cpp` | `M5.BtnPWR.wasHold()` + `M5PM1.btnGetState()` |
 | LCD | `src/display.cpp` / `src/jpeg_decoder.cpp` | M5Unified / M5.Display / M5Canvas，未在代码中硬编码 SPI GPIO |
 | USB CDC serial | `platformio.ini` | `ARDUINO_USB_CDC_ON_BOOT=1` |
@@ -19,7 +18,6 @@
 - Power button 的实际 GPIO / PMIC event 连接方式。
 - LCD SPI pins、backlight pin、reset pin。
 - I2C SDA/SCL 对应 ESP32-S3 GPIO 编号。
-- GPIO12 KEY2 fallback 在当前实机批次上的长按稳定性。
 
 ## GPIO 修改规则
 

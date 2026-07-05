@@ -65,20 +65,6 @@
 
 `waitForWifiCredentials()` 会在超时窗口内轮询 WLAN SSID/PASSPHRASE/SECURITY/FREQUENCY/BSSID handles。每个 handle 读取后有短 `delay(20)` 和 `yield()`；未得到 valid credentials 时按 `RICOH_BLE_WIFI_CREDENTIAL_POLL_MS` 延迟重试。
 
-## 本机配对重置
-
-KEY2 / Button B 长按 3 秒触发的是 StickS3 本机维护流程，不新增或修改任何 RICOH BLE UUID、handle 或 opcode。
-
-该流程用于相机端删除蓝牙配对后，StickS3 仍保存旧 BLE 地址、bonded 状态和 NimBLE bond key 的场景：
-
-- 清除 NVS BLE 身份：`cam_name`、`ble_addr`、`ble_addr_type`、`ble_bonded`。
-- 清除与该身份绑定的 Wi-Fi cache：`wifi_valid`、`wifi_ble_addr`、`wifi_ssid`、`wifi_pass`、`wifi_bssid`、`wifi_freq`、`wifi_ch`。
-- 调用 NimBLE `deleteAllBonds()` 删除 ESP32 BLE stack 中的 bond key。
-- 断开 Wi-Fi / BLE、重建 BLE stack，并回到 GR BLE 扫描。
-- BLE 扫描和安全等待循环会通过轻量 service callback 轮询 KEY2；回调只处理按键状态和中止标志，不做 GATT/网络操作。
-
-UI 提示顺序为：`Reset pairing` -> `Clearing BLE...` -> `Scanning GR BLE`。
-
 ## 快门控制
 
 从 `src/ricoh_ble_client.cpp::shoot()` 确认：

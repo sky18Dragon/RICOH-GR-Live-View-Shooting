@@ -179,9 +179,9 @@ BleScan → BleReady → WifiConnecting → HttpProbe → LiveViewRunning
 
 ## 输入层 — `buttons.{cpp,h}`
 
-`Buttons` 使用 `M5.update()` 轮询 `M5.BtnA.wasPressed()`、`M5.BtnPWR.wasHold()`，并检测 `M5.BtnB.isPressed()` / GPIO12 fallback 长按 3s 触发 BLE 配对重置。
+`Buttons` 使用 `M5.update()` 轮询 `M5.BtnA.wasPressed()`、`M5.BtnPWR.wasHold()`。
 
-> ⚠️ **无 GPIO11/G11 外接快门**（README 描述已过时，见根级 CLAUDE.md「文档漂移」）。Button B / KEY2 仅用于 BLE 配对重置。
+> ⚠️ **无 GPIO11/G11 外接快门**（README 描述已过时，见根级 CLAUDE.md「文档漂移」）。
 
 ---
 
