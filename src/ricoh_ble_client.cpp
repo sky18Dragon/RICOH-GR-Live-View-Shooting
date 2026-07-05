@@ -137,6 +137,14 @@ bool advertisesAnyRicohService(const NimBLEAdvertisedDevice* device) {
          device->isAdvertisingService(NimBLEUUID(RICOH_BLE_CONTROL_SERVICE_UUID));
 }
 
+bool hasRicohIdentitySignal(const RicohBleDeviceInfo& info) {
+  return info.name.length() > 0 ||
+         info.hasInfoService ||
+         info.hasCameraService ||
+         info.hasShootingService ||
+         info.hasControlService;
+}
+
 RicohBleDeviceInfo infoFromAdvertisedDevice(const NimBLEAdvertisedDevice* device) {
   RicohBleDeviceInfo info;
   if (device == nullptr) {
@@ -216,7 +224,9 @@ public:
     }
 
     updateBest(info, device);
-    if (info.connectable && (addressMatches(info.address, _preferredAddress) || nameMatchesPreferred(info.name, _preferredName))) {
+    if (info.connectable &&
+        hasRicohIdentitySignal(info) &&
+        (addressMatches(info.address, _preferredAddress) || nameMatchesPreferred(info.name, _preferredName))) {
       _foundPreferred = true;
     }
   }

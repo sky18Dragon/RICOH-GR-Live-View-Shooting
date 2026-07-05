@@ -150,7 +150,7 @@ void DisplayUi::showBoot(const char* message) {
     // Footer divider and hotkeys hint
     _canvas.drawFastHLine(20, _height - 24, 200, COLOR_SLATE);
     _canvas.setCursor(60, _height - 16);
-    _canvas.print("BtnA: Shutter / Wake");
+    _canvas.print("BtnA: Shutter / Retry");
 
     pushCanvas();
 }
@@ -203,7 +203,7 @@ void DisplayUi::showError(const char* message, const char* detail) {
     _canvas.drawFastHLine(10, _height - 20, _width - 20, COLOR_SLATE);
     _canvas.setTextColor(COLOR_WHITE, COLOR_BG);
     _canvas.setCursor(50, _height - 14);
-    _canvas.print("Press BtnA to reconnect");
+    _canvas.print("Press BtnA to retry");
 
     pushCanvas();
 }
