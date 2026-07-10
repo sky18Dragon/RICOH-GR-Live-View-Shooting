@@ -734,6 +734,10 @@ void saveConnectedBleIdentity(const String& connectedName, const RicohBleDeviceI
   cameraProfile.bleAddressType = info.addressType;
   cameraProfile.bleAddressTypeKnown = true;
   cameraProfile.bleBonded = bleCamera.isBonded(info);
+  profileStore.saveBleIdentity(cameraProfile.cameraName,
+                               cameraProfile.bleAddress,
+                               cameraProfile.bleAddressType,
+                               cameraProfile.bleBonded);
   profileStore.save(cameraProfile);
 }
 
