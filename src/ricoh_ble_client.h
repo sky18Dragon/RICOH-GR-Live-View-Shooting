@@ -2,6 +2,8 @@
 
 #include <Arduino.h>
 
+#include "protocol/CameraProtocolProfile.h"
+
 struct RicohBleDeviceInfo {
   bool found = false;
   String name;
@@ -52,6 +54,9 @@ class RicohBleClient {
 public:
   using ServiceCallback = bool (*)();
 
+  void setProtocol(const rvf::CameraProtocolProfile& protocol);
+  const rvf::CameraProtocolProfile& protocol() const;
+  rvf::CameraModel cameraModel() const;
   void begin();
   void setServiceCallback(ServiceCallback callback);
   RicohBleDeviceInfo scanForCamera(const String& preferredAddress, const String& preferredName, uint32_t scanSeconds);
@@ -83,4 +88,5 @@ private:
   bool _lastFailureResourceExhausted = false;
   String _lastError;
   void* _client = nullptr;
+  const rvf::CameraProtocolProfile* _protocol = nullptr;
 };

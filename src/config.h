@@ -68,23 +68,6 @@ constexpr uint32_t RICOH_BLE_WIFI_CREDENTIAL_WAIT_MS = 10000;
 constexpr uint32_t RICOH_BLE_WIFI_CREDENTIAL_POLL_MS = 500;
 constexpr uint8_t WIFI_OPEN_ATTEMPTS = 3;
 
-// Verified from the RICOH GR Android app BLE traffic captured on 2026-06-27.
-constexpr uint16_t RICOH_BLE_GR4_WLAN_POWER_HANDLE = 0x0135;
-constexpr uint8_t RICOH_BLE_GR4_WLAN_ON_VALUE = 0x01;
-constexpr uint16_t RICOH_BLE_GR4_WLAN_SSID_HANDLE = 0x0138;
-constexpr uint16_t RICOH_BLE_GR4_WLAN_PASSPHRASE_HANDLE = 0x013A;
-constexpr uint16_t RICOH_BLE_GR4_WLAN_SECURITY_HANDLE = 0x013C;
-constexpr uint16_t RICOH_BLE_GR4_WLAN_FREQUENCY_HANDLE = 0x013E;
-constexpr uint16_t RICOH_BLE_GR4_WLAN_BSSID_HANDLE = 0x0140;
-
-// Verified from Android HCI logs captured on 2026-06-28.
-// 0x01: camera powered on / controllable, 0x00: power-off or shutting down.
-constexpr uint16_t RICOH_BLE_GR4_POWER_STATE_HANDLE = 0x00EB;
-constexpr uint16_t RICOH_BLE_GR4_POWER_STATE_CCCD_HANDLE = 0x00EC;
-constexpr uint8_t RICOH_BLE_GR4_POWER_STATE_ON_VALUE = 0x01;
-constexpr uint8_t RICOH_BLE_GR4_POWER_STATE_OFF_VALUE = 0x00;
-
-
 #ifndef RICOH_BLE_INFO_SERVICE_UUID
 #define RICOH_BLE_INFO_SERVICE_UUID "9A5ED1C5-74CC-4C50-B5B6-66A48E7CCFF1"
 #endif

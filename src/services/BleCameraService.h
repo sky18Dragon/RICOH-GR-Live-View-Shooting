@@ -15,6 +15,8 @@ public:
 
     void attach(RicohBleClient& client);
     bool attached() const;
+    void setProtocol(const CameraProtocolProfile& protocol);
+    CameraModel cameraModel() const;
 
     Result begin();
     Result begin(RicohBleClient& client);

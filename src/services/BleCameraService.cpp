@@ -12,6 +12,16 @@ bool BleCameraService::attached() const {
     return _client != nullptr;
 }
 
+void BleCameraService::setProtocol(const CameraProtocolProfile& protocol) {
+    if (_client != nullptr) {
+        _client->setProtocol(protocol);
+    }
+}
+
+CameraModel BleCameraService::cameraModel() const {
+    return _client != nullptr ? _client->cameraModel() : CameraModel::Unknown;
+}
+
 Result BleCameraService::begin() {
     Result ready = requireClient("begin");
     if (ready.failed()) {

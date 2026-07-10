@@ -32,6 +32,7 @@ extern "C" {
 }
 
 #include "config.h"
+#include "protocol/CameraProtocolRegistry.h"
 
 namespace {
 constexpr uint32_t HANDLE_WRITE_TIMEOUT_MS = 3000;
@@ -41,6 +42,15 @@ std::atomic<int> g_powerOffDisconnectReason{0};
 std::atomic<int> g_powerStateNotifyValue{-1};
 std::atomic<bool> g_powerOffNotifyPending{false};
 RicohBleClient::ServiceCallback g_serviceCallback = nullptr;
+
+const rvf::CameraProtocolProfile*& activeProtocolStorage() {
+  static const rvf::CameraProtocolProfile* active = &rvf::CameraProtocolRegistry::defaultProfile();
+  return active;
+}
+
+const rvf::CameraProtocolProfile& activeProtocol() {
+  return *activeProtocolStorage();
+}
 
 constexpr uint8_t RICOH_SHOOTING_FLAVOR_IMMEDIATE = 0x00;
 constexpr uint8_t RICOH_OPERATION_START = 0x01;
@@ -71,8 +81,9 @@ const char* ricohOperationModeName(RicohCameraOperationMode mode) {
 }
 
 int ricohGapEventHandler(ble_gap_event* event, void*) {
+  const rvf::CameraProtocolProfile& protocol = activeProtocol();
   if (event == nullptr || event->type != BLE_GAP_EVENT_NOTIFY_RX ||
-      event->notify_rx.attr_handle != RICOH_BLE_GR4_POWER_STATE_HANDLE ||
+      event->notify_rx.attr_handle != protocol.handles.powerState ||
       event->notify_rx.om == nullptr || OS_MBUF_PKTLEN(event->notify_rx.om) < 1) {
     return 0;
   }
@@ -84,11 +95,11 @@ int ricohGapEventHandler(ble_gap_event* event, void*) {
 
   g_powerStateNotifyValue.store(value);
   Serial.printf("BLE: power notify handle=0x%04X value=0x%02X\n",
-                RICOH_BLE_GR4_POWER_STATE_HANDLE,
+                protocol.handles.powerState,
                 value);
-  if (value == RICOH_BLE_GR4_POWER_STATE_OFF_VALUE) {
+  if (value == protocol.powerOffValue) {
     g_powerOffNotifyPending.store(true);
-  } else if (value == RICOH_BLE_GR4_POWER_STATE_ON_VALUE) {
+  } else if (value == protocol.powerOnValue) {
     g_powerOffNotifyPending.store(false);
   }
   return 0;
@@ -97,14 +108,7 @@ int ricohGapEventHandler(ble_gap_event* event, void*) {
 struct WlanParamHandle {
   uint16_t handle;
   const char* label;
-};
-
-const WlanParamHandle kWlanParamHandles[] = {
-    {RICOH_BLE_GR4_WLAN_SSID_HANDLE, "ssid"},
-    {RICOH_BLE_GR4_WLAN_PASSPHRASE_HANDLE, "passphrase"},
-    {RICOH_BLE_GR4_WLAN_SECURITY_HANDLE, "security"},
-    {RICOH_BLE_GR4_WLAN_FREQUENCY_HANDLE, "frequency"},
-    {RICOH_BLE_GR4_WLAN_BSSID_HANDLE, "bssid"},
+  bool supported;
 };
 
 String toUpperCopy(String value) {
@@ -512,7 +516,7 @@ void mergeCredentialValue(RicohBleWifiCredentials& out, const char* label, const
     }
   } else if (strcmp(label, "security") == 0 && data.size() == 1) {
     out.securityType = data[0];
-  } else if (strcmp(label, "frequency") == 0) {
+  } else if (strcmp(label, "frequency") == 0 || strcmp(label, "channel") == 0) {
     const uint16_t frequencyMhz = frequencyFromValue(text, data);
     const uint8_t channel = channelFromFrequencyMhz(frequencyMhz);
     if (frequencyMhz != 0 && channel != 0) {
@@ -816,6 +820,19 @@ bool waitForEncryptedConnection(NimBLEClient* client, uint32_t timeoutMs, String
 }
 }  // namespace
 
+void RicohBleClient::setProtocol(const rvf::CameraProtocolProfile& protocol) {
+  _protocol = &protocol;
+  activeProtocolStorage() = &protocol;
+}
+
+const rvf::CameraProtocolProfile& RicohBleClient::protocol() const {
+  return _protocol != nullptr ? *_protocol : rvf::CameraProtocolRegistry::defaultProfile();
+}
+
+rvf::CameraModel RicohBleClient::cameraModel() const {
+  return protocol().model;
+}
+
 void RicohBleClient::begin() {
   if (_begun) {
     return;
@@ -1039,9 +1056,10 @@ bool RicohBleClient::openWifi() {
     return false;
   }
 
-  const uint8_t payload[] = {RICOH_BLE_GR4_WLAN_ON_VALUE};
+  const rvf::CameraProtocolProfile& protocol = this->protocol();
+  const uint8_t payload[] = {protocol.wlanEnableValue};
   String err;
-  if (!writeHandleWithResponse(client, RICOH_BLE_GR4_WLAN_POWER_HANDLE, payload, sizeof(payload), err)) {
+  if (!writeHandleWithResponse(client, protocol.handles.wlanEnable, payload, sizeof(payload), err)) {
     _lastError = err;
     return false;
   }
@@ -1059,9 +1077,10 @@ bool RicohBleClient::readPowerState(RicohCameraPowerState& state) {
     return false;
   }
 
+  const rvf::CameraProtocolProfile& protocol = this->protocol();
   std::vector<uint8_t> value;
   String err;
-  if (!readHandleWithResponse(client, RICOH_BLE_GR4_POWER_STATE_HANDLE, value, err)) {
+  if (!readHandleWithResponse(client, protocol.handles.powerState, value, err)) {
     _lastError = String("BLE power read failed: ") + err;
     return false;
   }
@@ -1072,14 +1091,14 @@ bool RicohBleClient::readPowerState(RicohCameraPowerState& state) {
 
   const uint8_t code = value[0];
   Serial.printf("BLE: power handle=0x%04X read value=0x%02X\n",
-                RICOH_BLE_GR4_POWER_STATE_HANDLE,
+                protocol.handles.powerState,
                 code);
-  if (code == RICOH_BLE_GR4_POWER_STATE_ON_VALUE) {
+  if (code == protocol.powerOnValue) {
     state = RicohCameraPowerState::On;
     _lastError = "";
     return true;
   }
-  if (code == RICOH_BLE_GR4_POWER_STATE_OFF_VALUE) {
+  if (code == protocol.powerOffValue) {
     state = RicohCameraPowerState::OffOrShuttingDown;
     _lastError = "";
     return true;
@@ -1150,15 +1169,21 @@ bool RicohBleClient::enablePowerStateNotify() {
     return false;
   }
 
+  const rvf::CameraProtocolProfile& protocol = this->protocol();
+  if (!protocol.capabilities.hasPowerStateNotify) {
+    _lastError = "BLE power notify unsupported";
+    return false;
+  }
+
   const uint8_t payload[] = {0x01, 0x00};
   String err;
-  if (!writeHandleWithResponse(client, RICOH_BLE_GR4_POWER_STATE_CCCD_HANDLE, payload, sizeof(payload), err)) {
+  if (!writeHandleWithResponse(client, protocol.handles.powerStateCccd, payload, sizeof(payload), err)) {
     _lastError = String("BLE power notify enable failed: ") + err;
     return false;
   }
 
   _lastError = "";
-  Serial.printf("BLE: power notify enabled cccd=0x%04X\n", RICOH_BLE_GR4_POWER_STATE_CCCD_HANDLE);
+  Serial.printf("BLE: power notify enabled cccd=0x%04X\n", protocol.handles.powerStateCccd);
   return true;
 }
 
@@ -1174,6 +1199,16 @@ bool RicohBleClient::waitForWifiCredentials(RicohBleWifiCredentials& credentials
     return false;
   }
 
+  const rvf::CameraProtocolProfile& protocol = this->protocol();
+  const WlanParamHandle handles[] = {
+      {protocol.handles.wlanSsid, "ssid", true},
+      {protocol.handles.wlanPassphrase, "passphrase", true},
+      {protocol.handles.wlanSecurity, "security", protocol.capabilities.hasWlanSecurity},
+      {protocol.handles.wlanFrequency, "frequency", protocol.capabilities.hasWlanFrequency},
+      {protocol.handles.wlanChannel, "channel", protocol.capabilities.hasWlanChannel},
+      {protocol.handles.wlanBssid, "bssid", protocol.capabilities.hasWlanBssid},
+  };
+
   const uint32_t startMs = millis();
   while (millis() - startMs < timeoutMs) {
     if (!isConnected() || !client->isConnected()) {
@@ -1182,7 +1217,14 @@ bool RicohBleClient::waitForWifiCredentials(RicohBleWifiCredentials& credentials
     }
 
     RicohBleWifiCredentials current = credentials;
-    for (const WlanParamHandle& item : kWlanParamHandles) {
+    for (const WlanParamHandle& item : handles) {
+      if (!item.supported) {
+        continue;
+      }
+      if (item.handle == 0) {
+        _lastError = String("BLE protocol missing ") + item.label + " handle";
+        return false;
+      }
       std::vector<uint8_t> value;
       String err;
       if (readHandleWithResponse(client, item.handle, value, err)) {
