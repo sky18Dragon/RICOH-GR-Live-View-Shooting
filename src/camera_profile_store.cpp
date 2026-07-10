@@ -36,7 +36,12 @@ bool CameraProfileStore::load(CameraProfile& profile) {
   }
 
   profile = CameraProfile{};
-  profile.profileVersion = _prefs.getUInt("proto_ver", 3);
+  const uint32_t storedProfileVersion = _prefs.getUInt("proto_ver", 3);
+  const bool hasCameraModelKey = _prefs.isKey("camera_model");
+  const uint8_t rawCameraModel = hasCameraModelKey ? _prefs.getUChar("camera_model", 0) : 0;
+  profile.model = rvf::cameraModelFromStoredProfile(hasCameraModelKey,
+                                                    storedProfileVersion,
+                                                    rawCameraModel);
   profile.cameraName = getStringIfPresent(_prefs, "cam_name");
   profile.bleAddress = getStringIfPresent(_prefs, "ble_addr");
   profile.bleAddressTypeKnown = profile.bleAddress.length() > 0 && _prefs.isKey("ble_addr_type");
@@ -62,6 +67,7 @@ bool CameraProfileStore::save(const CameraProfile& profile) {
   }
 
   _prefs.putUInt("proto_ver", profile.profileVersion);
+  _prefs.putUChar("camera_model", static_cast<uint8_t>(profile.model));
   _prefs.putString("cam_name", profile.cameraName);
   _prefs.putString("ble_addr", profile.bleAddress);
   if (profile.bleAddress.length() > 0 && profile.bleAddressTypeKnown) {
@@ -107,6 +113,7 @@ bool CameraProfileStore::clearBlePairing() {
   }
 
   _prefs.remove("cam_name");
+  _prefs.remove("camera_model");
   _prefs.remove("ble_addr");
   _prefs.remove("ble_addr_type");
   _prefs.remove("ble_bonded");

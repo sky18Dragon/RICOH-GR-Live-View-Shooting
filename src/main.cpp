@@ -15,6 +15,7 @@
 #include "gr_wifi.h"
 #include "jpeg_decoder.h"
 #include "mjpeg_stream.h"
+#include "protocol/CameraProtocolRegistry.h"
 #include "ricoh_ble_client.h"
 #include "services/BleCameraService.h"
 #include "services/CameraPowerPolicy.h"
@@ -513,6 +514,19 @@ void applyDefaultProfile() {
                 cameraProfile.wifi.cameraIp.c_str());
 }
 
+void applyCameraProtocol() {
+  const rvf::CameraProtocolProfile* protocol =
+      rvf::CameraProtocolRegistry::find(cameraProfile.model);
+  const char* source = "nvs";
+  if (protocol == nullptr) {
+    protocol = &rvf::CameraProtocolRegistry::defaultProfile();
+    source = "default";
+  }
+
+  bleCamera.setProtocol(*protocol);
+  Serial.printf("Camera protocol: model=%s source=%s\n", protocol->modelName, source);
+}
+
 bool ensureCameraPowerReadyForWifi(const char* source) {
   if (!cameraPowerPolicy.requiresPowerCheck()) {
     return true;
@@ -709,15 +723,18 @@ void deferStoredIdentityPowerProbeAfterConnectFailure(const String& errorText) {
 }
 
 void saveConnectedBleIdentity(const String& connectedName, const RicohBleDeviceInfo& info) {
+  if (cameraProfile.model == rvf::CameraModel::Unknown) {
+    // Phase 1 compatibility migration:
+    // the only enabled runtime protocol is GR IV HDF.
+    // Future model detection will replace this fallback.
+    cameraProfile.model = rvf::CameraModel::RicohGr4Hdf;
+  }
   cameraProfile.cameraName = connectedName;
   cameraProfile.bleAddress = info.address;
   cameraProfile.bleAddressType = info.addressType;
   cameraProfile.bleAddressTypeKnown = true;
   cameraProfile.bleBonded = bleCamera.isBonded(info);
-  profileStore.saveBleIdentity(cameraProfile.cameraName,
-                               cameraProfile.bleAddress,
-                               cameraProfile.bleAddressType,
-                               cameraProfile.bleBonded);
+  profileStore.save(cameraProfile);
 }
 
 bool serviceButtonsDuringBleOperation() {
@@ -1544,6 +1561,7 @@ void setup() {
   grWifi.begin();
 
   applyDefaultProfile();
+  applyCameraProtocol();
 
   if (!psramFound()) {
     LOGLINE_W("MEM", "PSRAM not found; JPEG buffer allocation may fail");

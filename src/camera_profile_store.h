@@ -3,6 +3,8 @@
 #include <Arduino.h>
 #include <Preferences.h>
 
+#include "protocol/CameraProfileMigration.h"
+
 struct WifiCredential {
   String ssid;
   String passphrase;
@@ -14,13 +16,14 @@ struct WifiCredential {
 };
 
 struct CameraProfile {
+  rvf::CameraModel model = rvf::CameraModel::Unknown;
   String cameraName;
   String bleAddress;
   uint8_t bleAddressType = 0;
   bool bleAddressTypeKnown = false;
   bool bleBonded = false;
   WifiCredential wifi;
-  uint32_t profileVersion = 3;
+  uint32_t profileVersion = rvf::kCameraProfileVersion;
 };
 
 class CameraProfileStore {
