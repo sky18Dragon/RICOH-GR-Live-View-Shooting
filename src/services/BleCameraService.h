@@ -15,8 +15,9 @@ public:
 
     void attach(RicohBleClient& client);
     bool attached() const;
-    void setProtocol(const CameraProtocolProfile& protocol);
+    Result setCameraModel(CameraModel model);
     CameraModel cameraModel() const;
+    bool supportsWifiLiveView() const;
 
     Result begin();
     Result begin(RicohBleClient& client);

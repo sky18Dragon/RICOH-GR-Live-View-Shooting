@@ -32,7 +32,9 @@ extern "C" {
 }
 
 #include "config.h"
+#include "protocol/CameraDiscoveryRegistry.h"
 #include "protocol/CameraProtocolRegistry.h"
+#include "protocol/CameraProtocolRuntime.h"
 
 namespace {
 constexpr uint32_t HANDLE_WRITE_TIMEOUT_MS = 3000;
@@ -42,15 +44,30 @@ std::atomic<int> g_powerOffDisconnectReason{0};
 std::atomic<int> g_powerStateNotifyValue{-1};
 std::atomic<bool> g_powerOffNotifyPending{false};
 RicohBleClient::ServiceCallback g_serviceCallback = nullptr;
+std::atomic<uint8_t> gActiveCameraModel{
+    static_cast<uint8_t>(rvf::CameraModel::RicohGr4Hdf)};
 
-const rvf::CameraProtocolProfile*& activeProtocolStorage() {
-  static const rvf::CameraProtocolProfile* active = &rvf::CameraProtocolRegistry::defaultProfile();
-  return active;
+const rvf::CameraProtocolProfile& activeProtocolForGap() {
+  const rvf::CameraModel model = rvf::cameraModelFromRaw(
+      gActiveCameraModel.load(std::memory_order_acquire));
+  const rvf::CameraProtocolProfile* profile =
+      rvf::CameraProtocolRegistry::find(model);
+  return profile != nullptr
+           ? *profile
+           : rvf::CameraProtocolRegistry::defaultProfile();
 }
 
-const rvf::CameraProtocolProfile& activeProtocol() {
-  return *activeProtocolStorage();
-}
+class ActivityFlagGuard {
+public:
+  explicit ActivityFlagGuard(bool& flag) : _flag(flag) { _flag = true; }
+  ~ActivityFlagGuard() { _flag = false; }
+
+  ActivityFlagGuard(const ActivityFlagGuard&) = delete;
+  ActivityFlagGuard& operator=(const ActivityFlagGuard&) = delete;
+
+private:
+  bool& _flag;
+};
 
 constexpr uint8_t RICOH_SHOOTING_FLAVOR_IMMEDIATE = 0x00;
 constexpr uint8_t RICOH_OPERATION_START = 0x01;
@@ -81,7 +98,7 @@ const char* ricohOperationModeName(RicohCameraOperationMode mode) {
 }
 
 int ricohGapEventHandler(ble_gap_event* event, void*) {
-  const rvf::CameraProtocolProfile& protocol = activeProtocol();
+  const rvf::CameraProtocolProfile& protocol = activeProtocolForGap();
   if (event == nullptr || event->type != BLE_GAP_EVENT_NOTIFY_RX ||
       event->notify_rx.attr_handle != protocol.handles.powerState ||
       event->notify_rx.om == nullptr || OS_MBUF_PKTLEN(event->notify_rx.om) < 1) {
@@ -131,15 +148,25 @@ bool nameMatchesPreferred(const String& candidate, const String& preferredName) 
   return preferredName.length() > 0 && candidate.length() > 0 && candidate.equalsIgnoreCase(preferredName);
 }
 
+bool advertisesService(const NimBLEAdvertisedDevice* device,
+                       const char* uuid) {
+  return device != nullptr && uuid != nullptr && uuid[0] != '\0' &&
+         device->isAdvertisingService(NimBLEUUID(uuid));
+}
+
 bool advertisesAnyRicohService(const NimBLEAdvertisedDevice* device) {
   if (device == nullptr) {
     return false;
   }
-  const rvf::CameraGattUuids& uuids = activeProtocol().uuids;
-  return device->isAdvertisingService(NimBLEUUID(uuids.infoService)) ||
-         device->isAdvertisingService(NimBLEUUID(uuids.cameraService)) ||
-         device->isAdvertisingService(NimBLEUUID(uuids.shootingService)) ||
-         device->isAdvertisingService(NimBLEUUID(uuids.controlService));
+  for (size_t index = 0;
+       index < rvf::CameraDiscoveryRegistry::serviceUuidCount();
+       ++index) {
+    const char* uuid = rvf::CameraDiscoveryRegistry::serviceUuidAt(index);
+    if (advertisesService(device, uuid)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 bool hasRicohIdentitySignal(const RicohBleDeviceInfo& info) {
@@ -164,11 +191,20 @@ RicohBleDeviceInfo infoFromAdvertisedDevice(const NimBLEAdvertisedDevice* device
   if (device->haveName()) {
     info.name = device->getName().c_str();
   }
-  const rvf::CameraGattUuids& uuids = activeProtocol().uuids;
-  info.hasInfoService = device->isAdvertisingService(NimBLEUUID(uuids.infoService));
-  info.hasCameraService = device->isAdvertisingService(NimBLEUUID(uuids.cameraService));
-  info.hasShootingService = device->isAdvertisingService(NimBLEUUID(uuids.shootingService));
-  info.hasControlService = device->isAdvertisingService(NimBLEUUID(uuids.controlService));
+  for (size_t index = 0;
+       index < rvf::CameraProtocolRegistry::profileCount();
+       ++index) {
+    const rvf::CameraGattUuids& uuids =
+        rvf::CameraProtocolRegistry::profileAt(index).uuids;
+    info.hasInfoService = info.hasInfoService ||
+                          advertisesService(device, uuids.infoService);
+    info.hasCameraService = info.hasCameraService ||
+                            advertisesService(device, uuids.cameraService);
+    info.hasShootingService = info.hasShootingService ||
+                              advertisesService(device, uuids.shootingService);
+    info.hasControlService = info.hasControlService ||
+                             advertisesService(device, uuids.controlService);
+  }
   return info;
 }
 
@@ -570,13 +606,20 @@ public:
 
 RicohNimBleCallbacks g_callbacks;
 
-void configureRicohSecurity() {
-  NimBLEDevice::setSecurityAuth(true, true, true);
-  NimBLEDevice::setSecurityIOCap(BLE_HS_IO_DISPLAY_YESNO);
-  NimBLEDevice::setSecurityInitKey(BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID);
-  NimBLEDevice::setSecurityRespKey(BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID);
-  NimBLEDevice::setSecurityPasskey(123456);
-  NimBLEDevice::setOwnAddrType(BLE_OWN_ADDR_RPA_PUBLIC_DEFAULT);
+bool configureRicohSecurity(rvf::BlePairingMode mode) {
+  switch (mode) {
+    case rvf::BlePairingMode::ExistingDefault:
+      NimBLEDevice::setSecurityAuth(true, true, true);
+      NimBLEDevice::setSecurityIOCap(BLE_HS_IO_DISPLAY_YESNO);
+      NimBLEDevice::setSecurityInitKey(BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID);
+      NimBLEDevice::setSecurityRespKey(BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID);
+      NimBLEDevice::setSecurityPasskey(123456);
+      NimBLEDevice::setOwnAddrType(BLE_OWN_ADDR_RPA_PUBLIC_DEFAULT);
+      return true;
+    case rvf::BlePairingMode::PasskeyEntry:
+      return false;
+  }
+  return false;
 }
 
 struct WriteContext {
@@ -822,31 +865,73 @@ bool waitForEncryptedConnection(NimBLEClient* client, uint32_t timeoutMs, String
 }
 }  // namespace
 
-void RicohBleClient::setProtocol(const rvf::CameraProtocolProfile& protocol) {
-  _protocolSelection.setProtocol(protocol);
-  activeProtocolStorage() = &protocol;
+rvf::Result RicohBleClient::setCameraModel(rvf::CameraModel model) {
+  const rvf::CameraProtocolProfile* selected =
+      rvf::CameraProtocolRegistry::find(model);
+  if (selected == nullptr) {
+    _lastError = "Camera model is not registered";
+    return rvf::Result::failure(rvf::ErrorCode::InvalidState, _lastError);
+  }
+  const bool connected = isConnected();
+  if (!rvf::canChangeCameraModelDuringBleActivity(connected,
+                                                   _scanning,
+                                                   _connecting)) {
+    if (connected) {
+      _lastError = "Cannot change camera model while BLE is connected";
+    } else if (_scanning) {
+      _lastError = "Cannot change camera model while BLE is scanning";
+    } else {
+      _lastError = "Cannot change camera model during BLE connection or security";
+    }
+    return rvf::Result::failure(rvf::ErrorCode::InvalidState, _lastError);
+  }
+  if (_begun && !configureRicohSecurity(selected->pairingMode)) {
+    _lastError = "BLE pairing mode is not supported";
+    return rvf::Result::failure(rvf::ErrorCode::BleSecurityFailed, _lastError);
+  }
+
+  _cameraModel = model;
+  gActiveCameraModel.store(static_cast<uint8_t>(_cameraModel),
+                           std::memory_order_release);
+  _lastError = "";
+  return rvf::Result::success();
 }
 
 const rvf::CameraProtocolProfile& RicohBleClient::protocol() const {
-  return _protocolSelection.protocol();
+  const rvf::CameraProtocolProfile* profile =
+      rvf::CameraProtocolRegistry::find(_cameraModel);
+  return profile != nullptr
+           ? *profile
+           : rvf::CameraProtocolRegistry::defaultProfile();
 }
 
 rvf::CameraModel RicohBleClient::cameraModel() const {
-  return _protocolSelection.cameraModel();
+  return _cameraModel;
 }
 
-void RicohBleClient::begin() {
+bool RicohBleClient::begin() {
   if (_begun) {
-    return;
+    return true;
+  }
+
+  const rvf::BlePairingMode pairingMode = protocol().pairingMode;
+  if (!rvf::isBlePairingModeSupported(pairingMode)) {
+    _lastError = "BLE pairing mode PasskeyEntry is not supported";
+    return false;
   }
 
   NimBLEDevice::init("RICOH-StickS3");
   NimBLEDevice::setPowerLevel(ESP_PWR_LVL_P9);
-  configureRicohSecurity();
+  if (!configureRicohSecurity(pairingMode)) {
+    NimBLEDevice::deinit(true);
+    _lastError = "BLE security configuration failed";
+    return false;
+  }
   NimBLEDevice::setCustomGapHandler(ricohGapEventHandler);
   _begun = true;
   _lastError = "";
   Serial.printf("BLE: NimBLE initialized (%s)\n", NimBLEDevice::getVersion());
+  return true;
 }
 
 void RicohBleClient::setServiceCallback(ServiceCallback callback) {
@@ -856,7 +941,14 @@ void RicohBleClient::setServiceCallback(ServiceCallback callback) {
 RicohBleDeviceInfo RicohBleClient::scanForCamera(const String& preferredAddress,
                                                  const String& preferredName,
                                                  uint32_t scanSeconds) {
-  begin();
+  if (_scanning || _connecting) {
+    _lastError = "BLE is already active";
+    return RicohBleDeviceInfo{};
+  }
+  ActivityFlagGuard scanningGuard(_scanning);
+  if (!begin()) {
+    return RicohBleDeviceInfo{};
+  }
 
   NimBLEScan* scan = NimBLEDevice::getScan();
   RicohScanCallbacks callbacks(preferredAddress, preferredName);
@@ -938,7 +1030,14 @@ bool RicohBleClient::connect(const RicohBleDeviceInfo& info, uint32_t timeoutMs)
 }
 
 bool RicohBleClient::connect(const RicohBleDeviceInfo& info, const RicohBleConnectOptions& options) {
-  begin();
+  if (_scanning || _connecting) {
+    _lastError = "BLE is already active";
+    return false;
+  }
+  ActivityFlagGuard connectingGuard(_connecting);
+  if (!begin()) {
+    return false;
+  }
   _lastFailureResourceExhausted = false;
   const uint32_t connectStartMs = millis();
   disconnect();
@@ -1033,7 +1132,9 @@ bool RicohBleClient::connect(const RicohBleDeviceInfo& info, const RicohBleConne
 }
 
 bool RicohBleClient::isBonded(const RicohBleDeviceInfo& info) {
-  begin();
+  if (!begin()) {
+    return false;
+  }
   if (info.address.length() == 0) {
     return false;
   }
@@ -1048,7 +1149,7 @@ bool RicohBleClient::isConnected() const {
 }
 
 bool RicohBleClient::shutterReady() const {
-  return isConnected();
+  return isConnected() && rvf::canShootWithProfile(protocol());
 }
 
 bool RicohBleClient::openWifi() {
@@ -1059,6 +1160,14 @@ bool RicohBleClient::openWifi() {
   }
 
   const rvf::CameraProtocolProfile& protocol = this->protocol();
+  if (!protocol.capabilities.supportsWifiLiveView) {
+    _lastError = "WiFi LiveView unsupported by active camera profile";
+    return false;
+  }
+  if (!rvf::canOpenWifiWithProfile(protocol)) {
+    _lastError = "Camera protocol missing WLAN enable handle";
+    return false;
+  }
   const uint8_t payload[] = {protocol.wlanEnableValue};
   String err;
   if (!writeHandleWithResponse(client, protocol.handles.wlanEnable, payload, sizeof(payload), err)) {
@@ -1177,6 +1286,10 @@ bool RicohBleClient::enablePowerStateNotify() {
     _lastError = "BLE power notify unsupported";
     return false;
   }
+  if (!rvf::canEnablePowerStateNotifyWithProfile(protocol)) {
+    _lastError = "Camera protocol missing power notify handle";
+    return false;
+  }
 
   const uint8_t payload[] = {0x01, 0x00};
   String err;
@@ -1203,6 +1316,16 @@ bool RicohBleClient::waitForWifiCredentials(RicohBleWifiCredentials& credentials
   }
 
   const rvf::CameraProtocolProfile& protocol = this->protocol();
+  if (!protocol.capabilities.supportsWifiLiveView) {
+    _lastError = "WiFi LiveView unsupported by active camera profile";
+    return false;
+  }
+  if (!rvf::canReadWifiCredentialsWithProfile(protocol)) {
+    _lastError = protocol.handles.wlanSsid == 0
+                   ? "Camera protocol missing WLAN SSID handle"
+                   : "Camera protocol missing WLAN passphrase handle";
+    return false;
+  }
   const WlanParamHandle handles[] = {
       {protocol.handles.wlanSsid, "ssid", true},
       {protocol.handles.wlanPassphrase, "passphrase", true},
@@ -1273,6 +1396,10 @@ bool RicohBleClient::shoot(bool autofocus) {
   const rvf::CameraProtocolProfile& protocol = this->protocol();
   if (!protocol.capabilities.supportsBleShutter) {
     _lastError = "BLE shutter unsupported";
+    return false;
+  }
+  if (!rvf::canShootWithProfile(protocol)) {
+    _lastError = "Camera protocol missing BLE shutter UUID";
     return false;
   }
 
@@ -1350,7 +1477,9 @@ void RicohBleClient::clearDisconnectReason() {
 }
 
 bool RicohBleClient::deleteAllBonds() {
-  begin();
+  if (!begin()) {
+    return false;
+  }
   disconnect();
   const int before = NimBLEDevice::getNumBonds();
   const bool ok = NimBLEDevice::deleteAllBonds();

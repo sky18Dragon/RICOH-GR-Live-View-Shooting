@@ -2,11 +2,11 @@
 
 ## 适用范围
 
-以下信息从当前代码、README 和配置常量提取。README 声明协议以 RICOH GR IV HDF 实测为准；GR III / GR II 当前不可用。
+以下信息从当前代码、README 和 GR IV Profile 提取。协议以 RICOH GR IV HDF 实测为准；GR IIIx 当前只有枚举预留，没有可连接 Profile、实际 GATT Handle、Passkey 输入 UI、WLAN 或 LiveView 实现。
 
 ## BLE 服务 UUID
 
-从 `src/config.h` 确认：
+UUID 的唯一生产代码来源是 `src/protocol/profiles/Gr4ProtocolProfile.cpp`：
 
 | 名称 | UUID |
 | --- | --- |
@@ -20,12 +20,12 @@
 
 ## GR IV WLAN / Power handles
 
-从 `src/config.h` 确认：
+Handle 和协议 Value 的唯一生产代码来源是 `src/protocol/profiles/Gr4ProtocolProfile.cpp`：
 
 | 功能 | Handle / Value | 代码含义 |
 | --- | --- | --- |
 | WLAN Power | `0x0135` | 写 `0x01` 请求打开相机 Wi-Fi |
-| WLAN ON value | `0x01` | `RICOH_BLE_GR4_WLAN_ON_VALUE` |
+| WLAN ON value | `0x01` | Profile 的 `wlanEnableValue` |
 | WLAN SSID | `0x0138` | 读取 SSID |
 | WLAN Passphrase | `0x013A` | 读取密码 |
 | WLAN Security | `0x013C` | 读取安全类型 |
@@ -56,12 +56,25 @@
 从 `src/ricoh_ble_client.cpp` 确认：
 
 - 候选设备通过广告服务或名称判断。
-- `advertisesAnyRicohService()` 匹配 Info/Camera/Shooting/Control 四个服务之一。
+- `CameraDiscoveryRegistry` 从全部已注册且已校验的 Profile 枚举发现 UUID；`advertisesAnyRicohService()`、广告元数据和候选评分不依赖当前活动 Profile。
+- 当前 Registry 只注册 GR IV HDF，因此发现集合仍是其 Info/Camera/Shooting/Control 四个服务；此分离不等于自动机型探测。
 - `nameLooksLikeRicoh()` 接受 `GR`、`GR_`、包含 `RICOH`、`PENTAX`、`GRIII`、`GR III` 等名称特征。
 - 连接后调用 `secureConnection(true)` 等待加密。
 - Security wait 默认来自 `RICOH_BLE_SECURITY_WAIT_MS`，bonded 直连使用 `RICOH_BLE_BONDED_SECURITY_WAIT_MS`。
+- `ExistingDefault` 保持 `BLE_HS_IO_DISPLAY_YESNO`、固定 Passkey `123456` 和确认流程；`PasskeyEntry` 尚未实现，会明确阻止初始化/连接，不会回退到默认安全模式。
+
+## Profile 解析与生命周期
+
+- `CameraProtocolRegistry::resolve()` 同时记录 `requestedModel`、`resolvedModel` 和 `usedFallback`。GR IIIx、Unknown 和非法值当前都回退到 GR IV HDF。
+- Client/Service 只按 `CameraModel` 选择 Registry 内静态 Profile，不接收或保存外部 Profile 引用/裸指针。
+- BLE 连接、扫描、连接建立或安全协商期间禁止切换 Model。
+- GAP 回调只读取原子机型值，并在回调内解析 Registry 静态 Profile。
+- Registry 生产 Profile 必须通过 `CameraProtocolValidator` 的能力/Handle/UUID 一致性校验。
+- 连接成功后，持久化 Model 必须无条件等于 Client 的活动 Model；fallback 请求因此会被修正为实际 GR IV Model。
 
 ## Wi-Fi 参数读取
+
+只有 `supportsWifiLiveView=true` 且必需 Handle 完整时才允许 WLAN ON 和参数读取。不支持 Wi-Fi 会立即返回明确错误，不会伪装成普通超时。
 
 `waitForWifiCredentials()` 会在超时窗口内轮询 WLAN SSID/PASSPHRASE/SECURITY/FREQUENCY/BSSID handles。每个 handle 读取后有短 `delay(20)` 和 `yield()`；未得到 valid credentials 时按 `RICOH_BLE_WIFI_CREDENTIAL_POLL_MS` 延迟重试。
 
@@ -86,7 +99,7 @@
 ## TODO_UNVERIFIED
 
 - UUID/handle 是否适用于所有 GR IV 非 HDF 机型。
-- GR III / GR II 的等价协议、handle 和状态值。
+- GR IIIx / GR III / GR II 的等价协议、handle 和状态值。
 - `0x03 OTHER` 的具体相机语义。
 - Passkey 的相机侧交互细节；代码中存在 passkey request 和 confirm passkey 流程，但完整 UX 需实机日志确认。
 

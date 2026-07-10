@@ -4,16 +4,16 @@
 
 避免 StickS3 在相机处于关机/待机状态时自动唤醒 RICOH GR。该策略对 BLE 重连、Wi-Fi ON、LiveView 恢复都具有最高优先级。
 
-## 已确认的电源相关常量
+## 已确认的电源协议和策略常量
 
-从 `src/config.h` 确认：
+Power Handle/Value 的唯一生产代码来源是 `src/protocol/profiles/Gr4ProtocolProfile.cpp`；超时和状态机策略仍来自 `src/config.h`：
 
 | 常量 | 值 | 含义 |
 | --- | --- | --- |
-| `RICOH_BLE_GR4_POWER_STATE_HANDLE` | `0x00EB` | Power State read/notify handle |
-| `RICOH_BLE_GR4_POWER_STATE_CCCD_HANDLE` | `0x00EC` | Power State notify CCCD |
-| `RICOH_BLE_GR4_POWER_STATE_ON_VALUE` | `0x01` | powered on / controllable |
-| `RICOH_BLE_GR4_POWER_STATE_OFF_VALUE` | `0x00` | power-off or shutting down |
+| Profile `handles.powerState` | `0x00EB` | Power State read/notify handle |
+| Profile `handles.powerStateCccd` | `0x00EC` | Power State notify CCCD |
+| Profile `powerOnValue` | `0x01` | powered on / controllable |
+| Profile `powerOffValue` | `0x00` | power-off or shutting down |
 | `RICOH_BLE_DISCONNECT_REMOTE_USER` | `0x213` | power-off/user remote disconnect candidate |
 | `RICOH_BLE_DISCONNECT_REMOTE_POWER_OFF` | `0x215` | power-off disconnect candidate |
 | `CAMERA_POWER_OFF_COOLDOWN_MS` | `15000` | guard cooldown |
@@ -73,6 +73,9 @@ Button A 手动唤醒：
 - BLE 断连 reason `0x213` / `0x215` 在 ready/liveview 阶段必须进入 guard。
 - Power notify `0x00` 必须进入 guard。
 - 开 Wi-Fi 前不得跳过 Power Notify settle；否则相机刚关机时可能读到旧的 Power On 后立刻收到 `0x00`，导致误开 Wi-Fi。
+- 活动 Profile 必须通过 Validator；`hasPowerStateNotify=true` 时 Power State 与 CCCD Handle 都必须存在。
+- BLE 连接、扫描、连接建立或安全协商期间禁止切换 Model，避免 GAP 通知解释使用不同协议。
+- GAP 回调只保存/读取原子机型值，不保存 Profile 指针，也不访问 Preferences。
 
 ## TODO_UNVERIFIED
 

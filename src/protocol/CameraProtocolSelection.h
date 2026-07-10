@@ -6,20 +6,25 @@ namespace rvf {
 
 class CameraProtocolSelection {
 public:
-    void setProtocol(const CameraProtocolProfile& protocol) {
-        _protocol = &protocol;
+    bool select(CameraModel model) {
+        if (CameraProtocolRegistry::find(model) == nullptr) {
+            return false;
+        }
+        _model = model;
+        return true;
     }
 
     const CameraProtocolProfile& protocol() const {
-        return _protocol != nullptr ? *_protocol : CameraProtocolRegistry::defaultProfile();
+        const CameraProtocolProfile* profile = CameraProtocolRegistry::find(_model);
+        return profile != nullptr ? *profile : CameraProtocolRegistry::defaultProfile();
     }
 
     CameraModel cameraModel() const {
-        return protocol().model;
+        return _model;
     }
 
 private:
-    const CameraProtocolProfile* _protocol = nullptr;
+    CameraModel _model = CameraModel::RicohGr4Hdf;
 };
 
 }  // namespace rvf

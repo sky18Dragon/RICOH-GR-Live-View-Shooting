@@ -1,5 +1,7 @@
 #include <unity.h>
 
+#include <stdint.h>
+
 #include "protocol/CameraProfileMigration.h"
 
 namespace {
@@ -44,6 +46,21 @@ void testInvalidStoredModelsMigrateToUnknown() {
         static_cast<int>(rvf::cameraModelFromStoredProfile(true, rvf::kCameraProfileVersion, 255)));
 }
 
+void testFutureProfileVersionsMigrateToUnknown() {
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(rvf::CameraModel::Unknown),
+        static_cast<int>(rvf::cameraModelFromStoredProfile(
+            true,
+            rvf::kCameraProfileVersion + 1,
+            1)));
+    TEST_ASSERT_EQUAL_INT(
+        static_cast<int>(rvf::CameraModel::Unknown),
+        static_cast<int>(rvf::cameraModelFromStoredProfile(
+            true,
+            UINT32_MAX,
+            1)));
+}
+
 }  // namespace
 
 void runCameraProfileMigrationTests() {
@@ -52,4 +69,5 @@ void runCameraProfileMigrationTests() {
     RUN_TEST(testMissingModelKeyMigratesToUnknown);
     RUN_TEST(testLegacyProfileVersionMigratesToUnknown);
     RUN_TEST(testInvalidStoredModelsMigrateToUnknown);
+    RUN_TEST(testFutureProfileVersionsMigrateToUnknown);
 }

@@ -12,14 +12,30 @@ bool BleCameraService::attached() const {
     return _client != nullptr;
 }
 
-void BleCameraService::setProtocol(const CameraProtocolProfile& protocol) {
-    if (_client != nullptr) {
-        _client->setProtocol(protocol);
+Result BleCameraService::setCameraModel(CameraModel model) {
+    Result ready = requireClient("setCameraModel");
+    if (ready.failed()) {
+        publish(AppEventType::ErrorRaised,
+                static_cast<int>(ready.code),
+                "setCameraModel");
+        return ready;
     }
+    Result selected = _client->setCameraModel(model);
+    if (selected.failed()) {
+        publish(AppEventType::ErrorRaised,
+                static_cast<int>(selected.code),
+                "setCameraModel");
+    }
+    return selected;
 }
 
 CameraModel BleCameraService::cameraModel() const {
     return _client != nullptr ? _client->cameraModel() : CameraModel::Unknown;
+}
+
+bool BleCameraService::supportsWifiLiveView() const {
+    return _client != nullptr &&
+           _client->protocol().capabilities.supportsWifiLiveView;
 }
 
 Result BleCameraService::begin() {
@@ -28,7 +44,14 @@ Result BleCameraService::begin() {
         publish(AppEventType::ErrorRaised, static_cast<int>(ready.code), "begin");
         return ready;
     }
-    _client->begin();
+    if (!_client->begin()) {
+        Result failed = Result::failure(ErrorCode::BleSecurityFailed,
+                                        _client->lastError());
+        publish(AppEventType::ErrorRaised,
+                static_cast<int>(failed.code),
+                "begin");
+        return failed;
+    }
     LOGLINE_I("BLE", "BLE service initialized");
     return Result::success();
 }
@@ -162,6 +185,15 @@ Result BleCameraService::openWifi() {
         publish(AppEventType::ErrorRaised, static_cast<int>(ready.code), "openWifi");
         return ready;
     }
+    if (!supportsWifiLiveView()) {
+        Result unsupported = Result::failure(
+            ErrorCode::InvalidState,
+            "WiFi LiveView unsupported by active camera profile");
+        publish(AppEventType::ErrorRaised,
+                static_cast<int>(unsupported.code),
+                "openWifi");
+        return unsupported;
+    }
     if (!_client->openWifi()) {
         publish(AppEventType::ErrorRaised, static_cast<int>(ErrorCode::BleConnectFailed), "openWifi");
         return Result::failure(ErrorCode::BleConnectFailed, _client->lastError());
@@ -230,6 +262,16 @@ Result BleCameraService::waitForWifiCredentials(RicohBleWifiCredentials& credent
         credentials = RicohBleWifiCredentials{};
         publish(AppEventType::ErrorRaised, static_cast<int>(ready.code), "waitForWifiCredentials");
         return ready;
+    }
+    if (!supportsWifiLiveView()) {
+        credentials = RicohBleWifiCredentials{};
+        Result unsupported = Result::failure(
+            ErrorCode::InvalidState,
+            "WiFi LiveView unsupported by active camera profile");
+        publish(AppEventType::ErrorRaised,
+                static_cast<int>(unsupported.code),
+                "waitForWifiCredentials");
+        return unsupported;
     }
     if (!_client->waitForWifiCredentials(credentials, timeoutMs)) {
         publish(AppEventType::ErrorRaised, static_cast<int>(ErrorCode::Timeout), "waitForWifiCredentials");

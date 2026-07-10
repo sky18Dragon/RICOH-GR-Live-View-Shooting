@@ -78,6 +78,7 @@ String lastStatusLine3;
 String lastStatusLine4;
 bool wifiCacheRefreshPending = false;
 uint32_t wifiCacheRefreshAfter = 0;
+bool cameraProfileLoadedFromNvs = false;
 
 constexpr uint32_t STATUS_MIN_REDRAW_MS = 1500;
 constexpr bool DRAW_LIVE_OVERLAY = true;
@@ -508,7 +509,8 @@ void refreshWifiCacheIfDue() {
 }
 
 void applyDefaultProfile() {
-  if (!profileStore.load(cameraProfile)) {
+  cameraProfileLoadedFromNvs = profileStore.load(cameraProfile);
+  if (!cameraProfileLoadedFromNvs) {
     Serial.println("Profile: NVS open failed; using runtime defaults");
     cameraProfile = CameraProfile{};
   }
@@ -525,16 +527,22 @@ void applyDefaultProfile() {
 }
 
 void applyCameraProtocol() {
-  const rvf::CameraProtocolProfile* protocol =
-      rvf::CameraProtocolRegistry::find(cameraProfile.model);
-  const char* source = "nvs";
-  if (protocol == nullptr) {
-    protocol = &rvf::CameraProtocolRegistry::defaultProfile();
-    source = "default";
-  }
+  const rvf::CameraProtocolResolution resolution =
+      rvf::CameraProtocolRegistry::resolve(cameraProfile.model);
+  const char* source = cameraProfileLoadedFromNvs ? "nvs" : "default";
+  const rvf::Result selectionResult =
+      bleCamera.setCameraModel(resolution.resolvedModel);
 
-  bleCamera.setProtocol(*protocol);
-  Serial.printf("Camera protocol: model=%s source=%s\n", protocol->modelName, source);
+  Serial.printf("Camera protocol requested=%s resolved=%s fallback=%d source=%s\n",
+                rvf::cameraModelName(resolution.requestedModel),
+                rvf::cameraModelName(resolution.resolvedModel),
+                resolution.usedFallback ? 1 : 0,
+                source);
+  if (selectionResult.failed()) {
+    LOGE("BLE",
+         "Failed to select resolved camera protocol: %s",
+         selectionResult.message.c_str());
+  }
 }
 
 bool ensureCameraPowerReadyForWifi(const char* source) {
@@ -648,6 +656,17 @@ bool activateCameraWifiOverBle() {
   if (!RICOH_BLE_AUTO_WLAN_ON_BOOT) {
     return true;
   }
+  if (!bleCamera.supportsWifiLiveView()) {
+    LOGLINE_E("BLE", "WiFi LiveView unsupported by active camera profile");
+    showStatusIfChanged("WiFi unsupported",
+                        rvf::cameraModelName(bleCamera.cameraModel()),
+                        "",
+                        "",
+                        true);
+    setCameraFlowState(CameraFlowState::BleReady,
+                       "WiFi unsupported by camera profile");
+    return false;
+  }
   if (cameraSleepGuardBlocksFlow("WiFi open")) {
     return false;
   }
@@ -733,22 +752,15 @@ void deferStoredIdentityPowerProbeAfterConnectFailure(const String& errorText) {
 }
 
 void saveConnectedBleIdentity(const String& connectedName, const RicohBleDeviceInfo& info) {
-  if (cameraProfile.model == rvf::CameraModel::Unknown) {
-    // Phase 1 compatibility migration:
-    // the only enabled runtime protocol is GR IV HDF.
-    // Future model detection will replace this fallback.
-    cameraProfile.model = rvf::CameraModel::RicohGr4Hdf;
-  }
+  cameraProfile.model = bleCamera.cameraModel();
   cameraProfile.cameraName = connectedName;
   cameraProfile.bleAddress = info.address;
   cameraProfile.bleAddressType = info.addressType;
   cameraProfile.bleAddressTypeKnown = true;
   cameraProfile.bleBonded = bleCamera.isBonded(info);
-  profileStore.saveBleIdentity(cameraProfile.cameraName,
-                               cameraProfile.bleAddress,
-                               cameraProfile.bleAddressType,
-                               cameraProfile.bleBonded);
-  profileStore.save(cameraProfile);
+  if (!profileStore.saveConnectedCamera(cameraProfile)) {
+    LOGLINE_E("PROFILE", "Failed to persist connected camera profile");
+  }
 }
 
 bool serviceButtonsDuringBleOperation() {

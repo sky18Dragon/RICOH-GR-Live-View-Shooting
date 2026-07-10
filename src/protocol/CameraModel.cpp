@@ -14,4 +14,16 @@ const char* cameraModelName(CameraModel model) {
     return "UNKNOWN";
 }
 
+CameraModel cameraModelFromRaw(uint8_t raw) {
+    switch (raw) {
+        case static_cast<uint8_t>(CameraModel::RicohGr4Hdf):
+            return CameraModel::RicohGr4Hdf;
+        case static_cast<uint8_t>(CameraModel::RicohGr3x):
+            return CameraModel::RicohGr3x;
+        case static_cast<uint8_t>(CameraModel::Unknown):
+        default:
+            return CameraModel::Unknown;
+    }
+}
+
 }  // namespace rvf

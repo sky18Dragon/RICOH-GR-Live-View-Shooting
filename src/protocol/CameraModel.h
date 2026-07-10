@@ -11,5 +11,6 @@ enum class CameraModel : uint8_t {
 };
 
 const char* cameraModelName(CameraModel model);
+CameraModel cameraModelFromRaw(uint8_t raw);
 
 }  // namespace rvf

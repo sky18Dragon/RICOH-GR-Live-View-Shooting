@@ -45,6 +45,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install platformio==6.1.18
 
+      - name: Run native tests
+        run: platformio test -e native
+
       - name: Build RicohViewfinder
         run: |
           platformio run -e ${{ matrix.environment }}

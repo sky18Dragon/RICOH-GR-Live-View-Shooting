@@ -170,7 +170,7 @@ BleScan → BleReady → WifiConnecting → HttpProbe → LiveViewRunning
 
 - namespace `"ricoh2"`，`profileVersion=4`。
 - 键：`proto_ver`/`camera_model`/`cam_name`/`ble_addr`/`ble_addr_type`/`ble_bonded`/`cam_ip`。
-- `load()`/`save()`/`saveBleIdentity(name, addr[, type, bonded])`/`clear()`；`getStringIfPresent` 缺键返回空串。
+- `load()`/`save()`/`saveConnectedCamera(profile)`/`clear()`；连接成功后通过单一接口统一保存活动 Model 与 BLE 身份，所有 NVS 写入结果都会检查。
 - 持久化 BLE 身份、相机 IP 和 Wi-Fi 缓存；保护态不写 NVS。
 
 数据结构：`WifiCredential{ssid, passphrase, bssid, cameraIp}`、`CameraProfile{model, cameraName, bleAddress, bleAddressType, bleAddressTypeKnown, bleBonded, wifi, profileVersion}`。
