@@ -108,9 +108,19 @@ bool beginStickPower() {
 bool isStickPowerButtonPressed() {
   if (stickPowerReady) {
     bool pressed = false;
-    if (stickPower.btnGetState(&pressed) == M5PM1_OK) {
+    const m5pm1_err_t err = stickPower.btnGetState(&pressed);
+    if (err == M5PM1_OK) {
       return pressed;
     }
+
+    // A failed M5PM1 I2C transaction can block for seconds. Repeating it on
+    // every loop starves LiveView reads and delays the first complete frame.
+    // Keep the existing M5Unified fallback for both button state and shutdown,
+    // but stop retrying the unhealthy I2C path until the next reboot.
+    stickPowerReady = false;
+    LOGW("POWER",
+         "Power: M5PM1 button read failed err=%d; disabling M5PM1 polling and using M5Unified",
+         static_cast<int>(err));
   }
   return M5.BtnPWR.isPressed();
 }
