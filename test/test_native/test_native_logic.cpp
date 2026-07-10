@@ -14,6 +14,8 @@ void tearDown(void) {}
 #include "mjpeg_stream.h"
 #include "supervisor/SystemSupervisor.h"
 
+void runCameraProtocolTests();
+
 namespace {
 
 struct CapturedFrames {
@@ -217,6 +219,7 @@ void testSupervisorReportsPreviewIdleTimeout() {
 
 int main() {
   UNITY_BEGIN();
+  runCameraProtocolTests();
   RUN_TEST(testBeginRejectsInvalidInputs);
   RUN_TEST(testDeliversFrameSplitAcrossChunks);
   RUN_TEST(testDropsShortFrame);
