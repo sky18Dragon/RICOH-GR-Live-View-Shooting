@@ -135,10 +135,11 @@ bool advertisesAnyRicohService(const NimBLEAdvertisedDevice* device) {
   if (device == nullptr) {
     return false;
   }
-  return device->isAdvertisingService(NimBLEUUID(RICOH_BLE_INFO_SERVICE_UUID)) ||
-         device->isAdvertisingService(NimBLEUUID(RICOH_BLE_CAMERA_SERVICE_UUID)) ||
-         device->isAdvertisingService(NimBLEUUID(RICOH_BLE_SHOOTING_SERVICE_UUID)) ||
-         device->isAdvertisingService(NimBLEUUID(RICOH_BLE_CONTROL_SERVICE_UUID));
+  const rvf::CameraGattUuids& uuids = activeProtocol().uuids;
+  return device->isAdvertisingService(NimBLEUUID(uuids.infoService)) ||
+         device->isAdvertisingService(NimBLEUUID(uuids.cameraService)) ||
+         device->isAdvertisingService(NimBLEUUID(uuids.shootingService)) ||
+         device->isAdvertisingService(NimBLEUUID(uuids.controlService));
 }
 
 bool hasRicohIdentitySignal(const RicohBleDeviceInfo& info) {
@@ -163,10 +164,11 @@ RicohBleDeviceInfo infoFromAdvertisedDevice(const NimBLEAdvertisedDevice* device
   if (device->haveName()) {
     info.name = device->getName().c_str();
   }
-  info.hasInfoService = device->isAdvertisingService(NimBLEUUID(RICOH_BLE_INFO_SERVICE_UUID));
-  info.hasCameraService = device->isAdvertisingService(NimBLEUUID(RICOH_BLE_CAMERA_SERVICE_UUID));
-  info.hasShootingService = device->isAdvertisingService(NimBLEUUID(RICOH_BLE_SHOOTING_SERVICE_UUID));
-  info.hasControlService = device->isAdvertisingService(NimBLEUUID(RICOH_BLE_CONTROL_SERVICE_UUID));
+  const rvf::CameraGattUuids& uuids = activeProtocol().uuids;
+  info.hasInfoService = device->isAdvertisingService(NimBLEUUID(uuids.infoService));
+  info.hasCameraService = device->isAdvertisingService(NimBLEUUID(uuids.cameraService));
+  info.hasShootingService = device->isAdvertisingService(NimBLEUUID(uuids.shootingService));
+  info.hasControlService = device->isAdvertisingService(NimBLEUUID(uuids.controlService));
   return info;
 }
 
@@ -1116,14 +1118,15 @@ bool RicohBleClient::readOperationMode(RicohCameraOperationMode& mode) {
     return false;
   }
 
-  NimBLERemoteService* cameraService = client->getService(NimBLEUUID(RICOH_BLE_CAMERA_SERVICE_UUID));
+  const rvf::CameraProtocolProfile& protocol = this->protocol();
+  NimBLERemoteService* cameraService = client->getService(NimBLEUUID(protocol.uuids.cameraService));
   if (cameraService == nullptr) {
     _lastError = "BLE camera service unavailable";
     return false;
   }
 
   NimBLERemoteCharacteristic* operationMode =
-      cameraService->getCharacteristic(NimBLEUUID(RICOH_BLE_OPERATION_MODE_UUID));
+      cameraService->getCharacteristic(NimBLEUUID(protocol.uuids.operationMode));
   if (operationMode == nullptr || !operationMode->canRead()) {
     _lastError = "BLE operation mode unavailable";
     return false;
@@ -1267,21 +1270,27 @@ bool RicohBleClient::shoot(bool autofocus) {
     return false;
   }
 
+  const rvf::CameraProtocolProfile& protocol = this->protocol();
+  if (!protocol.capabilities.supportsBleShutter) {
+    _lastError = "BLE shutter unsupported";
+    return false;
+  }
+
   // RICOH GR uses a single capture operation instead of a generic
   // half-press/full-press/release characteristic.  Keep this aligned with the
   // furble Ricoh implementation: ShootingFlavor=IMMEDIATE, then
   // OperationRequest={START, AF|NO_AF}.  There is no release write.
-  NimBLERemoteService* shootingService = client->getService(NimBLEUUID(RICOH_BLE_SHOOTING_SERVICE_UUID));
+  NimBLERemoteService* shootingService = client->getService(NimBLEUUID(protocol.uuids.shootingService));
   String err;
   NimBLERemoteCharacteristic* shootingFlavor =
-      writableCharacteristic(shootingService, RICOH_BLE_SHOOTING_FLAVOR_UUID, "ShootingFlavor", err);
+      writableCharacteristic(shootingService, protocol.uuids.shootingFlavor, "ShootingFlavor", err);
   if (shootingFlavor == nullptr) {
     _lastError = err;
     return false;
   }
 
   NimBLERemoteCharacteristic* operationRequest =
-      writableCharacteristic(shootingService, RICOH_BLE_OPERATION_REQUEST_UUID, "OperationRequest", err);
+      writableCharacteristic(shootingService, protocol.uuids.operationRequest, "OperationRequest", err);
   if (operationRequest == nullptr) {
     _lastError = err;
     return false;

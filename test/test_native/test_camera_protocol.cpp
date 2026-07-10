@@ -20,6 +20,13 @@ void testGr4ProtocolValuesMatchExistingFirmware() {
     TEST_ASSERT_EQUAL_HEX8(0x01, profile.wlanEnableValue);
     TEST_ASSERT_EQUAL_HEX8(0x01, profile.powerOnValue);
     TEST_ASSERT_EQUAL_HEX8(0x00, profile.powerOffValue);
+    TEST_ASSERT_EQUAL_STRING("9A5ED1C5-74CC-4C50-B5B6-66A48E7CCFF1", profile.uuids.infoService);
+    TEST_ASSERT_EQUAL_STRING("4B445988-CAA0-4DD3-941D-37B4F52ACA86", profile.uuids.cameraService);
+    TEST_ASSERT_EQUAL_STRING("1452335A-EC7F-4877-B8AB-0F72E18BB295", profile.uuids.operationMode);
+    TEST_ASSERT_EQUAL_STRING("9F00F387-8345-4BBC-8B92-B87B52E3091A", profile.uuids.shootingService);
+    TEST_ASSERT_EQUAL_STRING("B29E6DE3-1AEC-48C1-9D05-02CEA57CE664", profile.uuids.shootingFlavor);
+    TEST_ASSERT_EQUAL_STRING("559644B8-E0BC-4011-929B-5CF9199851E7", profile.uuids.operationRequest);
+    TEST_ASSERT_EQUAL_STRING("0F291746-0C80-4726-87A7-3C501FD3B4B6", profile.uuids.controlService);
 }
 
 void testGr4ProtocolCapabilitiesMatchExistingFirmware() {
