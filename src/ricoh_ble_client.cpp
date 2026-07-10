@@ -823,16 +823,16 @@ bool waitForEncryptedConnection(NimBLEClient* client, uint32_t timeoutMs, String
 }  // namespace
 
 void RicohBleClient::setProtocol(const rvf::CameraProtocolProfile& protocol) {
-  _protocol = &protocol;
+  _protocolSelection.setProtocol(protocol);
   activeProtocolStorage() = &protocol;
 }
 
 const rvf::CameraProtocolProfile& RicohBleClient::protocol() const {
-  return _protocol != nullptr ? *_protocol : rvf::CameraProtocolRegistry::defaultProfile();
+  return _protocolSelection.protocol();
 }
 
 rvf::CameraModel RicohBleClient::cameraModel() const {
-  return protocol().model;
+  return _protocolSelection.cameraModel();
 }
 
 void RicohBleClient::begin() {

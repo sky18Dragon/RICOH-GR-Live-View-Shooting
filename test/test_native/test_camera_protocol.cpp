@@ -1,6 +1,7 @@
 #include <unity.h>
 
 #include "protocol/CameraProtocolRegistry.h"
+#include "protocol/CameraProtocolSelection.h"
 #include "protocol/profiles/Gr4ProtocolProfile.h"
 
 namespace {
@@ -63,6 +64,14 @@ void testDefaultProtocolIsAlwaysGr4() {
                           static_cast<int>(profile.pairingMode));
 }
 
+void testUnsetProtocolSelectionDefaultsToGr4() {
+    rvf::CameraProtocolSelection selection;
+
+    TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::CameraModel::RicohGr4Hdf),
+                          static_cast<int>(selection.cameraModel()));
+    TEST_ASSERT_EQUAL_PTR(&rvf::CameraProtocolRegistry::defaultProfile(), &selection.protocol());
+}
+
 }  // namespace
 
 void runCameraProtocolTests() {
@@ -70,4 +79,5 @@ void runCameraProtocolTests() {
     RUN_TEST(testGr4ProtocolCapabilitiesMatchExistingFirmware);
     RUN_TEST(testRegistryOnlyEnablesGr4Protocol);
     RUN_TEST(testDefaultProtocolIsAlwaysGr4);
+    RUN_TEST(testUnsetProtocolSelectionDefaultsToGr4);
 }

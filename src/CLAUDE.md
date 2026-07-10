@@ -86,11 +86,11 @@ BleScan → BleReady → WifiConnecting → HttpProbe → LiveViewRunning
 | `scanForCamera(preferredAddress, preferredName, scanSeconds)` | 扫描并打分挑最佳 RICOH 候选（`RicohBleDeviceInfo`） |
 | `connect(info, timeoutMs)` | 连接 + 安全配对/加密 |
 | `isConnected()` / `shutterReady()` | 连接态 / 可拍快门 |
-| `shoot(autofocus=true)` | 写 `0x0099`：`0x01`对焦→`0x02`拍摄→`0x00`释放 |
-| `openWifi()` | 写 `0x0135`=`0x01` 唤醒相机 Wi-Fi |
-| `readPowerState(&state)` / `enablePowerStateNotify()` | 读/订阅电源状态 `0x00EB`/CCCD `0x00EC` |
+| `shoot(autofocus=true)` | 通过当前 Profile 的 Shooting Flavor / Operation Request UUID 拍摄 |
+| `openWifi()` | 写当前 Profile 的 WLAN enable Handle/Value 唤醒相机 Wi-Fi |
+| `readPowerState(&state)` / `enablePowerStateNotify()` | 读/订阅当前 Profile 的电源状态 Handle/CCCD |
 | `consumePowerOffNotification()` | 取走一次电源 `0x00` 通知 |
-| `waitForWifiCredentials(&cred, timeoutMs)` | 轮询读取 `0x0138` SSID / `0x013A` 密码 / `0x0140` BSSID |
+| `waitForWifiCredentials(&cred, timeoutMs)` | 按当前 Profile 能力轮询读取 WLAN 参数 |
 | `disconnect()` / `resetStack(clearObjects=false)` | 断连 / 重建 BLE 栈（手动唤醒用 `clearObjects=true`） |
 | `consumeDisconnectReason()` / `clearDisconnectReason()` | 取走/清除 GAP 断连 reason |
 | `statusText()` / `lastError()` | 状态文本 / 最近错误 |
@@ -168,12 +168,12 @@ BleScan → BleReady → WifiConnecting → HttpProbe → LiveViewRunning
 
 `CameraProfileStore` 基于 `Preferences`（NVS）。
 
-- namespace `"ricoh2"`，`profileVersion=3`。
-- 键：`proto_ver`/`cam_name`/`ble_addr`/`ble_addr_type`/`ble_bonded`/`cam_ip`。
+- namespace `"ricoh2"`，`profileVersion=4`。
+- 键：`proto_ver`/`camera_model`/`cam_name`/`ble_addr`/`ble_addr_type`/`ble_bonded`/`cam_ip`。
 - `load()`/`save()`/`saveBleIdentity(name, addr[, type, bonded])`/`clear()`；`getStringIfPresent` 缺键返回空串。
 - 持久化 BLE 身份、相机 IP 和 Wi-Fi 缓存；保护态不写 NVS。
 
-数据结构：`WifiCredential{ssid, passphrase, bssid, cameraIp}`、`CameraProfile{cameraName, bleAddress, bleAddressType, bleAddressTypeKnown, bleBonded, wifi, profileVersion}`。
+数据结构：`WifiCredential{ssid, passphrase, bssid, cameraIp}`、`CameraProfile{model, cameraName, bleAddress, bleAddressType, bleAddressTypeKnown, bleBonded, wifi, profileVersion}`。
 
 ---
 
@@ -193,8 +193,7 @@ BleScan → BleReady → WifiConnecting → HttpProbe → LiveViewRunning
 - 超时/周期：`WIFI_CONNECT_TIMEOUT_MS`、`PROPS_TIMEOUT_MS`、`LIVEVIEW_STALL_TIMEOUT_MS`、`UI_STATUS_INTERVAL_MS`、`PROPS_REFRESH_INTERVAL_MS`。
 - BLE 时序：`BLE_SCAN_SECONDS`、`BLE_CONNECT_ATTEMPTS`、`FIRST_BOOT_BLE_PAIRING_ATTEMPTS`、`BLE_STACK_RESET_AFTER_FAILURES`、`RICOH_BLE_SECURITY_WAIT_MS` 等。
 - 电源/保护：`CAMERA_POWER_OFF_COOLDOWN_MS`、`BLE_MANUAL_WAKE_REINIT_SETTLE_MS`、`RICOH_BLE_DISCONNECT_REMOTE_USER=0x213`、`RICOH_BLE_DISCONNECT_REMOTE_POWER_OFF=0x215`、`RICOH_BLE_REQUIRE_POWER_ON_BEFORE_WIFI=true`。
-- **BLE GATT 句柄**（抓包验证 2026-06-27/28）：WLAN POWER `0x0135`(ON=`0x01`)、SSID `0x0138`、PASSPHRASE `0x013A`、SECURITY `0x013C`、FREQUENCY `0x013E`、BSSID `0x0140`、SHUTTER `0x0099`、POWER_STATE `0x00EB`/CCCD `0x00EC`(ON=`0x01`/OFF=`0x00`)。
-- Service UUID：`RICOH_BLE_INFO/CAMERA/SHOOTING/CONTROL_SERVICE_UUID`。
+- **BLE 协议参数**：机型专属 Handle、Value、Service/Characteristic UUID 与能力标志集中在 `protocol/profiles/` 的静态 Profile 中。
 - 默认端点：`GR_HOST=192.168.0.1`、`GR_PORT=80`。
 
 ## 依赖关系总览

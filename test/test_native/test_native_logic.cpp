@@ -15,6 +15,7 @@ void tearDown(void) {}
 #include "supervisor/SystemSupervisor.h"
 
 void runCameraProtocolTests();
+void runCameraProfileMigrationTests();
 
 namespace {
 
@@ -220,6 +221,7 @@ void testSupervisorReportsPreviewIdleTimeout() {
 int main() {
   UNITY_BEGIN();
   runCameraProtocolTests();
+  runCameraProfileMigrationTests();
   RUN_TEST(testBeginRejectsInvalidInputs);
   RUN_TEST(testDeliversFrameSplitAcrossChunks);
   RUN_TEST(testDropsShortFrame);

@@ -2,7 +2,7 @@
 
 #include <Arduino.h>
 
-#include "protocol/CameraProtocolProfile.h"
+#include "protocol/CameraProtocolSelection.h"
 
 struct RicohBleDeviceInfo {
   bool found = false;
@@ -88,5 +88,5 @@ private:
   bool _lastFailureResourceExhausted = false;
   String _lastError;
   void* _client = nullptr;
-  const rvf::CameraProtocolProfile* _protocol = nullptr;
+  rvf::CameraProtocolSelection _protocolSelection;
 };

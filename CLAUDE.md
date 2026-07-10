@@ -44,7 +44,8 @@ platformio test -e native      # host-side 纯逻辑单元测试
 | 解码渲染 | [`src/mjpeg_stream.*`](src/mjpeg_stream.h) · [`src/jpeg_decoder.*`](src/jpeg_decoder.h) · [`src/display.*`](src/display.h) | MJPEG 帧切分 → JPEG 解码到 RGB565 → 屏幕 UI/Overlay |
 | 持久化 | [`src/camera_profile_store.*`](src/camera_profile_store.h) | NVS（namespace `ricoh2`）存储相机 BLE 身份、Wi-Fi 缓存与 IP |
 | 输入 | [`src/buttons.*`](src/buttons.h) | 仅轮询 `M5.BtnA` |
-| 配置 | [`src/config.h`](src/config.h) | 全局常量：BLE GATT 句柄、超时、扫描次数、缩放策略、Service UUID |
+| 协议 | [`src/protocol/`](src/protocol/) | 相机模型、能力、静态 GATT Profile 与 Registry |
+| 配置 | [`src/config.h`](src/config.h) | 全局超时、扫描次数、缩放策略与应用策略 |
 
 详细接口、依赖、状态机说明见 [`src/CLAUDE.md`](src/CLAUDE.md)。
 
@@ -87,7 +88,7 @@ flowchart TD
 ## 关键约定（改代码前必读）
 
 1. **Wi-Fi 凭据动态获取** —— 不再硬编码 SSID/密码；`platformio.ini` 无需 `GR_WIFI_SSID/PASSWORD`，凭据由 BLE 实时读取写入 `CameraProfile.wifi`。
-2. **BLE GATT 句柄在 `config.h`** —— 已用 RICOH GR Android App HCI 抓包验证（2026-06-27/28），修改前先看注释。电源状态句柄 `0x00EB`/CCCD `0x00EC`、WLAN `0x0135`、快门 `0x0099`。
+2. **BLE 协议参数在静态 Profile** —— GR IV HDF 的 Handle、Value、UUID 与能力标志集中在 `src/protocol/profiles/Gr4ProtocolProfile.cpp`；业务层只调用通用能力。
 3. **电源门控** —— 开 Wi-Fi 前必须 `readPowerState()` 确认相机 `On`；`RICOH_BLE_REQUIRE_POWER_ON_BEFORE_WIFI=true`。手动唤醒走 `cameraManualWakeOverride` 旁路。
 4. **帧缓冲在 PSRAM** —— `FRAME_BUFFER_SIZE=256KB`，优先 `MALLOC_CAP_SPIRAM`，回退内部 RAM；无 PSRAM 直接报错停机。
 5. **JPEG 缩放** —— `config.h` 设 `JPEG_SCALE_POLICY=JPEG_SCALE_HALF`（覆盖 `display.h`/`jpeg_decoder.h` 的 `QUARTER` 默认）。
