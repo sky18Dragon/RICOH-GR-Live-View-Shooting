@@ -24,6 +24,16 @@ enum class AppEventType {
     ButtonLongPress,
     ShutterPressed,
     ErrorRaised,
+
+    StateChanged,
+    ShutterSucceeded,
+    ShutterFailed,
+    RecoveryStarted,
+    RecoverySucceeded,
+    RecoveryFailed,
+    PairingResetStarted,
+    PairingResetCompleted,
+    ShutdownRequested,
 };
 
 }  // namespace rvf

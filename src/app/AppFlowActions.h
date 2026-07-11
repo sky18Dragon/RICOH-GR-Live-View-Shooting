@@ -2,12 +2,13 @@
 
 #include <Arduino.h>
 
+#include "RecoveryCause.h"
+
 namespace rvf {
 
 struct AppFlowActions {
     bool (*cameraSleepGuardBlocksFlow)(const char* reason) = nullptr;
     bool (*cameraSleepGuardActive)() = nullptr;
-    void (*showCameraSleepGuardStatus)() = nullptr;
 
     bool (*isBleConnected)() = nullptr;
     bool (*isWifiConnected)() = nullptr;
@@ -32,7 +33,6 @@ struct AppFlowActions {
     bool (*fetchCameraProps)() = nullptr;
     void (*onHttpProbeSucceeded)() = nullptr;
     void (*onHttpProbeFailed)() = nullptr;
-    void (*showStartingLiveView)() = nullptr;
     bool (*openLiveView)() = nullptr;
     void (*onLiveViewOpened)() = nullptr;
     void (*onLiveViewOpenFailed)() = nullptr;
@@ -42,9 +42,7 @@ struct AppFlowActions {
 
     bool (*cameraRecoveryInProgress)() = nullptr;
     void (*setCameraRecoveryInProgress)(bool inProgress) = nullptr;
-    bool (*reasonRequiresBleRescan)(const char* reason) = nullptr;
-    void (*showRecoveryBleReadyRetry)(const char* reason) = nullptr;
-    void (*showRecoveryBleScan)(const char* reason) = nullptr;
+    bool (*reasonRequiresBleRescan)(RecoveryCause cause) = nullptr;
     void (*resetBleStackBeforeScanAfterLinkLoss)(const char* reason) = nullptr;
     void (*shortRecoveryDelay)() = nullptr;
     void (*onRecoveryGuardBlocked)() = nullptr;
@@ -52,10 +50,7 @@ struct AppFlowActions {
 
     void (*requestManualCameraWake)(const char* source) = nullptr;
     bool (*shutterReady)() = nullptr;
-    void (*showShutterBleNotReady)() = nullptr;
     bool (*shootAutofocus)() = nullptr;
-    void (*onShutterOk)() = nullptr;
-    void (*onShutterFailed)() = nullptr;
     bool (*previewKeptAfterShutterFailure)() = nullptr;
 
     void (*delayAndYield)(uint32_t delayMs) = nullptr;

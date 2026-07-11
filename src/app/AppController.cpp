@@ -60,6 +60,10 @@ void AppController::begin(AppState initialState) {
     _state = initialState;
 }
 
+void AppController::setEventSink(AppEventSink sink) {
+    _eventSink = sink;
+}
+
 AppTickPlan AppController::planTick(uint32_t nowMs) const {
     (void)nowMs;
 
@@ -214,6 +218,7 @@ bool AppController::connectWifiAfterBleReady(const AppFlowActions& actions) {
             if (actions.onCachedWifiConnected != nullptr) {
                 actions.onCachedWifiConnected();
             }
+            publish(AppEventType::WifiConnected, 0, "cached WiFi connected", millis());
             return true;
         }
 
@@ -282,6 +287,7 @@ bool AppController::connectWifiAfterBleReady(const AppFlowActions& actions) {
     if (actions.onFreshWifiConnected != nullptr) {
         actions.onFreshWifiConnected();
     }
+    publish(AppEventType::WifiConnected, 0, "fresh WiFi connected", millis());
     return true;
 }
 
@@ -296,12 +302,14 @@ bool AppController::httpProbeCamera(const AppFlowActions& actions) {
         if (actions.onHttpProbeFailed != nullptr) {
             actions.onHttpProbeFailed();
         }
+        publish(AppEventType::HttpProbeFailed, 0, "camera HTTP probe failed", millis());
         return false;
     }
 
     if (actions.onHttpProbeSucceeded != nullptr) {
         actions.onHttpProbeSucceeded();
     }
+    publish(AppEventType::HttpProbeSucceeded, 0, "camera HTTP probe succeeded", millis());
     return true;
 }
 
@@ -313,14 +321,12 @@ bool AppController::startLiveViewFromProbe(const AppFlowActions& actions) {
         return false;
     }
 
-    if (actions.showStartingLiveView != nullptr) {
-        actions.showStartingLiveView();
-    }
     transitionTo(AppState::PreviewStarting, "HTTP probe ready", millis());
     if (actions.openLiveView == nullptr || !actions.openLiveView()) {
         if (actions.onLiveViewOpenFailed != nullptr) {
             actions.onLiveViewOpenFailed();
         }
+        publish(AppEventType::PreviewStopped, 0, "LiveView open failed", millis());
         return false;
     }
 
@@ -328,11 +334,12 @@ bool AppController::startLiveViewFromProbe(const AppFlowActions& actions) {
         actions.onLiveViewOpened();
     }
     transitionTo(AppState::PreviewRunning, "LiveView opened", millis());
+    publish(AppEventType::PreviewStarted, 0, "LiveView opened", millis());
     return true;
 }
 
-void AppController::recoverCameraConnection(const AppFlowActions& actions, const char* reason) {
-    const char* recoveryReason = reason != nullptr ? reason : "camera recovery";
+void AppController::recoverCameraConnection(const AppFlowActions& actions, RecoveryCause cause) {
+    const char* recoveryReason = recoveryCauseName(cause);
     if (actions.cameraRecoveryInProgress != nullptr && actions.cameraRecoveryInProgress()) {
         return;
     }
@@ -340,7 +347,11 @@ void AppController::recoverCameraConnection(const AppFlowActions& actions, const
     if (actions.setCameraRecoveryInProgress != nullptr) {
         actions.setCameraRecoveryInProgress(true);
     }
-    Serial.printf("Camera recovery: %s\n", reason != nullptr ? reason : "manual");
+    publish(AppEventType::RecoveryStarted,
+            static_cast<int>(cause),
+            recoveryReason,
+            millis());
+    Serial.printf("Camera recovery: %s\n", recoveryReason);
 
     if ((actions.isBleConnected == nullptr || !actions.isBleConnected()) &&
         actions.consumePowerOffDisconnect != nullptr &&
@@ -348,6 +359,10 @@ void AppController::recoverCameraConnection(const AppFlowActions& actions, const
         if (actions.setCameraRecoveryInProgress != nullptr) {
             actions.setCameraRecoveryInProgress(false);
         }
+        publish(AppEventType::RecoveryFailed,
+                static_cast<int>(cause),
+                recoveryReason,
+                millis());
         return;
     }
 
@@ -356,16 +371,17 @@ void AppController::recoverCameraConnection(const AppFlowActions& actions, const
         if (actions.setCameraRecoveryInProgress != nullptr) {
             actions.setCameraRecoveryInProgress(false);
         }
+        publish(AppEventType::RecoveryFailed,
+                static_cast<int>(cause),
+                recoveryReason,
+                millis());
         return;
     }
 
     bool recovered = false;
     const bool needsBleRescan = actions.reasonRequiresBleRescan == nullptr ||
-                                actions.reasonRequiresBleRescan(reason);
+                                actions.reasonRequiresBleRescan(cause);
     if (!needsBleRescan) {
-        if (actions.showRecoveryBleReadyRetry != nullptr) {
-            actions.showRecoveryBleReadyRetry(reason != nullptr ? reason : "reconnect");
-        }
         recovered = resumeFromBleReady(actions, recoveryReason);
     }
 
@@ -377,14 +393,15 @@ void AppController::recoverCameraConnection(const AppFlowActions& actions, const
         } else if (actions.setCameraRecoveryInProgress != nullptr) {
             actions.setCameraRecoveryInProgress(false);
         }
+        publish(AppEventType::RecoveryFailed,
+                static_cast<int>(cause),
+                recoveryReason,
+                millis());
         return;
     }
 
     if (!recovered) {
         const bool bleLinkAlreadyLost = actions.isBleConnected == nullptr || !actions.isBleConnected();
-        if (actions.showRecoveryBleScan != nullptr) {
-            actions.showRecoveryBleScan(reason != nullptr ? reason : "reconnect");
-        }
         if (actions.disconnectAllTransportsToBleScan != nullptr) {
             actions.disconnectAllTransportsToBleScan(recoveryReason);
         }
@@ -403,6 +420,10 @@ void AppController::recoverCameraConnection(const AppFlowActions& actions, const
     } else if (actions.setCameraRecoveryInProgress != nullptr) {
         actions.setCameraRecoveryInProgress(false);
     }
+    publish(recovered ? AppEventType::RecoverySucceeded : AppEventType::RecoveryFailed,
+            static_cast<int>(cause),
+            recoveryReason,
+            millis());
 }
 
 void AppController::serviceCameraFlowIfNeeded(const AppFlowActions& actions, uint32_t nowMs) {
@@ -449,7 +470,7 @@ void AppController::serviceCameraFlowIfNeeded(const AppFlowActions& actions, uin
 void AppController::monitorWifi(const AppFlowActions& actions) {
     if (isPreviewActive() &&
         (actions.isWifiConnected == nullptr || !actions.isWifiConnected())) {
-        recoverCameraConnection(actions, "WiFi disconnected");
+        recoverCameraConnection(actions, RecoveryCause::WifiDisconnected);
     }
 }
 
@@ -468,28 +489,25 @@ void AppController::monitorLiveView(const AppFlowActions& actions, uint32_t nowM
             actions.consumePowerOffDisconnect("BLE disconnected")) {
             return;
         }
-        recoverCameraConnection(actions, "BLE disconnected");
+        recoverCameraConnection(actions, RecoveryCause::BleDisconnected);
         return;
     }
     if (actions.isWifiConnected == nullptr || !actions.isWifiConnected()) {
-        recoverCameraConnection(actions, "WiFi disconnected");
+        recoverCameraConnection(actions, RecoveryCause::WifiDisconnected);
         return;
     }
     if (actions.cameraSleepGuardActive != nullptr && actions.cameraSleepGuardActive()) {
-        if (actions.showCameraSleepGuardStatus != nullptr) {
-            actions.showCameraSleepGuardStatus();
-        }
         return;
     }
 
     if (actions.previewStreamRunning == nullptr || !actions.previewStreamRunning()) {
-        recoverCameraConnection(actions, "LiveView closed");
+        recoverCameraConnection(actions, RecoveryCause::PreviewClosed);
         return;
     }
 
     if (actions.readAndProcessLiveViewFrame != nullptr &&
         !actions.readAndProcessLiveViewFrame()) {
-        recoverCameraConnection(actions, "LiveView read failed");
+        recoverCameraConnection(actions, RecoveryCause::PreviewReadFailed);
         return;
     }
 
@@ -516,8 +534,8 @@ void AppController::monitorLiveView(const AppFlowActions& actions, uint32_t nowM
                           static_cast<unsigned long>(actions.liveViewStallTimeoutMs));
             recoverCameraConnection(actions,
                                     frameStalled
-                                      ? "LiveView frame stall watchdog"
-                                      : "LiveView stream stall watchdog");
+                                      ? RecoveryCause::FrameStalled
+                                      : RecoveryCause::StreamStalled);
         }
     }
 }
@@ -546,30 +564,31 @@ void AppController::triggerShutterFromButtonA(const AppFlowActions& actions) {
     }
 
     if (actions.shutterReady == nullptr || !actions.shutterReady()) {
-        if (actions.showShutterBleNotReady != nullptr) {
-            actions.showShutterBleNotReady();
-        }
-        recoverCameraConnection(actions, "Button A shutter BLE not ready");
+        publish(AppEventType::ShutterFailed,
+                static_cast<int>(RecoveryCause::ShutterBleNotReady),
+                recoveryCauseName(RecoveryCause::ShutterBleNotReady),
+                millis());
+        recoverCameraConnection(actions, RecoveryCause::ShutterBleNotReady);
         return;
     }
 
+    publish(AppEventType::ShutterPressed, 0, "autofocus shutter", millis());
     if (actions.shootAutofocus != nullptr && actions.shootAutofocus()) {
-        if (actions.onShutterOk != nullptr) {
-            actions.onShutterOk();
-        }
+        publish(AppEventType::ShutterSucceeded, 0, "autofocus shutter", millis());
         return;
     }
 
-    if (actions.onShutterFailed != nullptr) {
-        actions.onShutterFailed();
-    }
+    publish(AppEventType::ShutterFailed,
+            static_cast<int>(RecoveryCause::ShutterFailed),
+            recoveryCauseName(RecoveryCause::ShutterFailed),
+            millis());
 
     if (actions.previewKeptAfterShutterFailure != nullptr &&
         actions.previewKeptAfterShutterFailure()) {
         return;
     }
 
-    recoverCameraConnection(actions, "Button A BLE shutter failed");
+    recoverCameraConnection(actions, RecoveryCause::ShutterFailed);
 }
 
 void AppController::dispatch(const AppMessage& message) {
@@ -609,7 +628,26 @@ bool AppController::transitionTo(AppState nextState, const char* reason, uint32_
                   reason != nullptr ? reason : "",
                   static_cast<unsigned long>(stamp));
     _state = nextState;
+    publish(AppEventType::StateChanged,
+            static_cast<int>(nextState),
+            reason,
+            stamp);
     return true;
+}
+
+void AppController::publish(AppEventType type,
+                            int code,
+                            const char* detail,
+                            uint32_t nowMs) const {
+    if (_eventSink.publish == nullptr) {
+        return;
+    }
+    AppMessage message;
+    message.type = type;
+    message.timestampMs = nowMs;
+    message.code = code;
+    message.detail = detail;
+    _eventSink.publish(message);
 }
 
 AppState AppController::state() const {

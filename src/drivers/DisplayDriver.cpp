@@ -3,7 +3,7 @@
 namespace rvf {
 
 bool DisplayDriver::begin() {
-    // Stage 1 placeholder. Existing DisplayUi remains active.
+    // Reserved adapter point for boards that do not use M5DisplaySurface.
     return true;
 }
 

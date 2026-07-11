@@ -22,7 +22,7 @@
 
 class JpegDecoder {
 public:
-    bool begin();
+    bool begin(int displayWidth, int displayHeight);
     bool drawFrame(LovyanGFX* dst, const uint8_t* data, size_t length);
 
     uint32_t lastDecodeMs() const;

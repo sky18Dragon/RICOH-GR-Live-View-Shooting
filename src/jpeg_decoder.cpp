@@ -25,9 +25,12 @@ int scaleDivisorFromOption(int option) {
 }
 }  // namespace
 
-bool JpegDecoder::begin() {
-    _displayW = M5.Display.width() > 0 ? M5.Display.width() : DISPLAY_WIDTH;
-    _displayH = M5.Display.height() > 0 ? M5.Display.height() : DISPLAY_HEIGHT;
+bool JpegDecoder::begin(int displayWidth, int displayHeight) {
+    if (displayWidth <= 0 || displayHeight <= 0) {
+        return setError("invalid display surface size");
+    }
+    _displayW = displayWidth;
+    _displayH = displayHeight;
     _lastDecodeMs = 0;
     _lastWidth = 0;
     _lastHeight = 0;
@@ -36,6 +39,9 @@ bool JpegDecoder::begin() {
 }
 
 bool JpegDecoder::drawFrame(LovyanGFX* dst, const uint8_t* data, size_t length) {
+    if (dst == nullptr) {
+        return setError("missing display surface");
+    }
     if (data == nullptr || length < 4) {
         return setError("empty jpeg frame");
     }
@@ -43,7 +49,7 @@ bool JpegDecoder::drawFrame(LovyanGFX* dst, const uint8_t* data, size_t length) 
         return setError("jpeg frame too large");
     }
 
-    _dst = dst != nullptr ? dst : &M5.Display;
+    _dst = dst;
     const uint32_t started = millis();
     activeDecoder = this;
 
