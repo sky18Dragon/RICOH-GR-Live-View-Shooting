@@ -4,7 +4,7 @@
 
 RICOH GR Live View Shooting 是面向 ESP32-S3 / M5Stack StickS3 的 PlatformIO Arduino 固件。固件以 BLE 完成相机发现、配对、状态读取、Wi-Fi 激活和快门控制，连接相机 Wi-Fi AP 后通过 HTTP 打开 MJPEG LiveView，并将解码后的画面显示在 StickS3 上。
 
-项目同时包含相机待机/关机保护、连接恢复、NVS 相机 Profile 和主机侧 Native 测试。UI 已与业务流程分离，可在编译期选择 Ricoh、Minimal 或 Debug 界面。
+项目同时包含相机待机/关机保护、连接恢复、NVS 相机 Profile 和主机侧 Native 测试。UI 已与业务流程分离，可在编译期选择 Ricoh、Minimal、Debug 或 Kawaii 界面。
 
 ## 当前代码结构
 
@@ -24,14 +24,15 @@ AppController / Services
 - Services 负责 BLE、相机、Wi-Fi/HTTP LiveView、快门和预览缓冲等能力。
 - `UiPresenter` 根据 `AppState` 和结构化运行态生成强类型 `UiModel`，不通过展示字符串推断状态。
 - `UiManager` 负责页面选择、Dirty 检测、非 LiveView 刷新节流和统一上屏。
-- `ActiveUiRenderer` 在编译期解析为 Ricoh、Minimal 或 Debug Renderer，只绘制传入的 `UiModel`。
+- `ActiveUiRenderer` 在编译期解析为 Ricoh、Minimal、Debug 或 Kawaii Renderer，只绘制传入的 `UiModel`。
 - `M5DisplaySurface` 独占 M5 初始化、Canvas 生命周期和 `present()`。
 
-UI 的详细职责、字段、扩展方式和约束见 [ui_architecture.md](./ui_architecture.md)。Wi-Fi、MJPEG、JPEG 和上屏时序见 [wifi_preview_flow.md](./wifi_preview_flow.md)。
+UI 的详细职责、字段、六方法 Renderer 契约、扩展方式和约束见 [ui_architecture.md](./ui_architecture.md)。Kawaii 的代码绘制视觉与限制见 [ui_kawaii_theme.md](./ui_kawaii_theme.md)，Wi-Fi、MJPEG、JPEG 和上屏时序见 [wifi_preview_flow.md](./wifi_preview_flow.md)。
 
 ## 从当前配置与代码确认的事实
 
 - 默认 PlatformIO 环境：`sticks3-ui-ricoh`。
+- 第四套 UI 环境：`sticks3-ui-kawaii`，定义 `UI_VARIANT=4`。
 - 兼容环境：`m5stack-sticks3`，继承 Ricoh UI。
 - Platform：`espressif32@6.12.0`。
 - Board：`esp32-s3-devkitc-1`。
@@ -44,7 +45,9 @@ UI 的详细职责、字段、扩展方式和约束见 [ui_architecture.md](./ui
 - LiveView JPEG scale 默认由 `JPEG_SCALE_POLICY` 决定，当前配置为 `JPEG_SCALE_HALF`。
 - 主循环由 `AppController::planTick()` 规划按钮、相机流程、Wi-Fi 监视、属性刷新和 LiveView 监视，并运行 Supervisor、Wi-Fi Profile 刷新和状态 UI 更新。
 
-这些代码级事实不代表具体相机、帧率、长期稳定性或三套 UI 已在当前改动中完成实机验证。
+- `UiScreen` 包含 `Settings`，所有 Renderer 都实现 `renderSettings()`；当前 Presenter 和按钮流程尚未导航到该页面。
+
+这些代码级事实不代表具体相机、帧率、长期稳定性或四套 UI 已在当前改动中完成实机验证。尤其是 Kawaii 的屏幕视觉和相机链路仍待 StickS3 实测。
 
 ## 业务流程
 
@@ -85,16 +88,20 @@ WifiPreviewService / GrApi 读取 MJPEG 字节
 | `sticks3-ui-ricoh` | Ricoh | 默认视觉界面 |
 | `sticks3-ui-minimal` | Minimal | 简洁状态页和 Overlay |
 | `sticks3-ui-debug` | Debug | 强调状态与诊断指标 |
+| `sticks3-ui-kawaii` | Kawaii | 代码绘制的柔和紫色背景、角色与装饰性 HUD |
 | `m5stack-sticks3` | Ricoh | 保留旧环境名的兼容入口 |
 
 ```bash
 pio run -e sticks3-ui-ricoh
 pio run -e sticks3-ui-minimal
 pio run -e sticks3-ui-debug
+pio run -e sticks3-ui-kawaii
 pio run -e m5stack-sticks3
 ```
 
-六个 `UI_FEATURE_*` 宏可在编译期控制 FPS、帧统计、Wi-Fi RSSI、电量、相机型号和对焦框。取值 `-1` 使用 Variant 默认、`0` 关闭、`1` 开启；这些宏只能影响绘制。
+六个通用 `UI_FEATURE_*` 宏可在编译期控制 FPS、帧统计、Wi-Fi RSSI、电量、相机型号和对焦框；Kawaii 另使用 `UI_FEATURE_MASCOTS` 与 `UI_FEATURE_PATTERN_BACKGROUND` 控制角色和图案背景。取值 `-1` 使用 Variant 默认、`0` 关闭、`1` 开启；这些宏只能影响绘制。
+
+Kawaii 实现 Boot、Status、LiveView、Settings、Error、Shutdown 六个页面方法。Settings 当前使用固定示例值做静态渲染，不具备导航、按键交互、持久化或相机参数写入能力。
 
 ## 模块索引
 
@@ -110,7 +117,7 @@ pio run -e m5stack-sticks3
 | Display Surface | `src/display/DisplaySurface.h`、`src/display/M5DisplaySurface.cpp` | M5 初始化、Canvas 和上屏 |
 | UI Model / Presenter | `src/ui/model/`、`src/ui/presenter/` | 强类型 UI 数据和状态映射 |
 | UI Manager / 选择器 | `src/ui/core/` | 刷新策略、特性开关和 Variant 类型选择 |
-| UI Renderers | `src/ui/variants/` | Ricoh、Minimal、Debug 纯绘制实现 |
+| UI Renderers | `src/ui/variants/` | Ricoh、Minimal、Debug、Kawaii 纯绘制实现 |
 | Supervisor | `src/supervisor/SystemSupervisor.*` | 预览健康检查和恢复事件 |
 | Native 测试 | `test/test_native/`、`test/test_ui_presenter/`、`test/test_ui_variant_contract/` | 基础逻辑、Presenter 和 Profile 契约 |
 
@@ -118,8 +125,8 @@ pio run -e m5stack-sticks3
 
 固件编译、Native 测试和实机回归是三类不同证据：
 
-- 四个固件环境编译成功：证明各 Variant 与兼容环境能链接，不证明屏幕视觉或相机通信实际可用。
-- `pio test -e native` 成功：证明主机侧基础逻辑、Presenter 映射和三套 Profile 默认值符合测试，不覆盖 M5 硬件或网络时序。
+- 五个固件环境编译成功：证明四个 Variant 与兼容环境能链接，不证明屏幕视觉或相机通信实际可用。
+- `pio test -e native` 成功：证明主机侧基础逻辑、Presenter 映射和四套 Profile 默认值符合测试，不覆盖 M5 硬件或网络时序。
 - StickS3 + 相机实测：才能确认页面、Overlay、不闪屏、帧率、BLE/Wi-Fi/快门和电源保护行为。
 
 执行方法和记录要求见 [test_plan.md](./test_plan.md)。未附带当次命令输出或设备记录时，不应把待验证项写成“已通过”。

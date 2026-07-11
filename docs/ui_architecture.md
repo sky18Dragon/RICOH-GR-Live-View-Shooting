@@ -14,7 +14,7 @@ flowchart TD
     B --> C["UiPresenter"]
     C -->|"UiModel"| D["UiManager&lt;ActiveUiRenderer&gt;"]
     E["UiVariant.h<br/>编译期选择"] -->|"ActiveUiRenderer 类型别名"| D
-    D --> F["ActiveUiRenderer<br/>Ricoh / Minimal / Debug"]
+    D --> F["ActiveUiRenderer<br/>Ricoh / Minimal / Debug / Kawaii"]
     F -->|"绘制到 surface.canvas()"| G["M5DisplaySurface"]
     D -->|"统一提交非 LiveView 页面"| G
     G --> H["M5Canvas / M5.Display"]
@@ -39,7 +39,7 @@ flowchart TD
 
 | 字段 | 类型 | 含义 |
 | --- | --- | --- |
-| `screen` | `UiScreen` | `Boot`、`Status`、`LiveView`、`Error` 或 `Shutdown` |
+| `screen` | `UiScreen` | `Boot`、`Status`、`LiveView`、`Settings`、`Error` 或 `Shutdown` |
 | `phase` | `UiPhase` | BLE、相机电源、Wi-Fi、HTTP、预览、快门、恢复等强类型展示阶段 |
 | `appState` | `AppState` | 生成 Model 时的业务状态，供诊断显示使用 |
 | `bleConnected` | `bool` | BLE 当前是否连接 |
@@ -68,11 +68,13 @@ flowchart TD
 
 非 LiveView 页面由 `UiManager::update()` 统一处理：
 
-- `Boot`、`Status`、`Error`、`Shutdown` Renderer 可以清屏。
+- `Boot`、`Status`、`Settings`、`Error`、`Shutdown` Renderer 可以清屏。
 - Model 指纹或页面变化会标记 Dirty。
 - 非强制刷新受 `statusMinRedrawMs` 节流，当前默认值为 1500 ms。
 - Renderer 完成绘制后，由 `UiManager` 调用一次 `M5DisplaySurface::present()`。
 - `UiScreen::LiveView` 传入普通 `update()` 时不会清屏，也不会上屏；LiveView 必须走帧回调专用链路。
+
+`UiScreen::Settings` 当前只是 Renderer 契约中的静态页面：`UiManager` 能在收到该 Screen 时调用 `renderSettings()` 并上屏，但 `UiPresenter::mapScreen()` 尚不会产生 `Settings`，按钮层也没有把 `OpenSettings` 接入运行流程。页面中的快门、滤镜、曝光、Wi-Fi、配对和休眠值均为视觉样稿，不会读取或修改相机设置。
 
 ## LiveView Canvas 所有权
 
@@ -104,6 +106,7 @@ JpegDecoder::drawFrame(&displaySurface.canvas(), data, len)
 | Ricoh | `UI_VARIANT_RICOH=1` | `sticks3-ui-ricoh` | 默认的 Ricoh 视觉界面 |
 | Minimal | `UI_VARIANT_MINIMAL=2` | `sticks3-ui-minimal` | 简洁状态页和轻量 Overlay |
 | Debug | `UI_VARIANT_DEBUG=3` | `sticks3-ui-debug` | 显示阶段、连接和帧统计等诊断信息 |
+| Kawaii | `UI_VARIANT_KAWAII=4` | `sticks3-ui-kawaii` | 代码绘制的柔和紫色背景、角色和装饰性 HUD |
 
 兼容环境 `m5stack-sticks3` 继承 Ricoh Variant。最小编译矩阵：
 
@@ -111,21 +114,26 @@ JpegDecoder::drawFrame(&displaySurface.canvas(), data, len)
 pio run -e sticks3-ui-ricoh
 pio run -e sticks3-ui-minimal
 pio run -e sticks3-ui-debug
+pio run -e sticks3-ui-kawaii
 pio run -e m5stack-sticks3
 ```
 
+Kawaii 的文件结构、六个页面和已知限制见 [ui_kawaii_theme.md](./ui_kawaii_theme.md)。
+
 ## UI 元素编译期开关
 
-六个宏只决定某个元素是否参与绘制，不得停止对应业务数据的采集或维护：
+共有六个通用宏和两个 Kawaii 专用宏。它们只决定某个元素是否参与绘制，不得停止对应业务数据的采集或维护：
 
-| 宏 | 元素 | Ricoh 默认 | Minimal 默认 | Debug 默认 |
-| --- | --- | :---: | :---: | :---: |
-| `UI_FEATURE_FPS` | FPS | 开 | 关 | 开 |
-| `UI_FEATURE_FRAME_STATS` | 帧数/丢帧统计 | 开 | 关 | 开 |
-| `UI_FEATURE_WIFI_RSSI` | Wi-Fi RSSI/信号图标 | 开 | 开 | 开 |
-| `UI_FEATURE_BATTERY` | 电量 | 开 | 开 | 开 |
-| `UI_FEATURE_CAMERA_MODEL` | 相机型号 | 开 | 关 | 开 |
-| `UI_FEATURE_FOCUS_BRACKET` | 对焦框 | 开 | 开 | 开 |
+| 宏 | 元素 | Ricoh 默认 | Minimal 默认 | Debug 默认 | Kawaii 默认 |
+| --- | --- | :---: | :---: | :---: | :---: |
+| `UI_FEATURE_FPS` | FPS | 开 | 关 | 开 | 开 |
+| `UI_FEATURE_FRAME_STATS` | 帧数/丢帧统计 | 开 | 关 | 开 | 关 |
+| `UI_FEATURE_WIFI_RSSI` | Wi-Fi RSSI/信号图标 | 开 | 开 | 开 | 开 |
+| `UI_FEATURE_BATTERY` | 电量 | 开 | 开 | 开 | 开 |
+| `UI_FEATURE_CAMERA_MODEL` | 相机型号 | 开 | 关 | 开 | 开 |
+| `UI_FEATURE_FOCUS_BRACKET` | 对焦框 | 开 | 开 | 开 | 开 |
+| `UI_FEATURE_MASCOTS` | Kawaii 角色 | 未使用 | 未使用 | 未使用 | 开 |
+| `UI_FEATURE_PATTERN_BACKGROUND` | Kawaii 图案背景 | 未使用 | 未使用 | 未使用 | 开 |
 
 每个宏都支持三态值：
 
@@ -133,25 +141,39 @@ pio run -e m5stack-sticks3
 - `0`：编译期关闭。
 - `1`：编译期开启。
 
-例如，在某个环境的 `build_flags` 中覆盖 Minimal 默认值：
+例如，在某个环境的 `build_flags` 中保留 Kawaii Variant、关闭角色和图案背景：
 
 ```ini
 build_flags =
     ${env:m5stack-sticks3-base.build_flags}
-    -DUI_VARIANT=2
-    -DUI_FEATURE_FPS=1
-    -DUI_FEATURE_BATTERY=0
-    -DUI_FEATURE_CAMERA_MODEL=-1
+    -DUI_VARIANT=4
+    -DUI_FEATURE_MASCOTS=0
+    -DUI_FEATURE_PATTERN_BACKGROUND=0
 ```
 
 Renderer 使用 `if constexpr` 读取 Profile，关闭的绘制分支在编译期裁剪。开关不得影响相机属性刷新、RSSI 读取、帧统计、LiveView 启动或快门能力。
+
+## Renderer 六方法契约
+
+所有 Active Renderer 必须提供相同的六个公开方法：
+
+```cpp
+void renderBoot(LovyanGFX& canvas, const UiModel& model);
+void renderStatus(LovyanGFX& canvas, const UiModel& model);
+void renderSettings(LovyanGFX& canvas, const UiModel& model);
+void renderLiveViewOverlay(LovyanGFX& canvas, const UiModel& model);
+void renderError(LovyanGFX& canvas, const UiModel& model);
+void renderShutdown(LovyanGFX& canvas, const UiModel& model);
+```
+
+`renderSettings()` 与其他非 LiveView 页面一样由 `UiManager` 统一 `present()`；它当前只验证页面契约和视觉布局。`renderLiveViewOverlay()` 则只能在 JPEG 底图上叠加，既不能清屏，也不能自行 `present()`。
 
 ## 新增 UI Variant
 
 新增 Variant 时：
 
 1. 在 `src/ui/variants/<name>/` 实现 Renderer；Theme、Layout 和 Profile 放在同一 Variant 目录。
-2. 实现统一的五个方法：`renderBoot()`、`renderStatus()`、`renderLiveViewOverlay()`、`renderError()`、`renderShutdown()`。
+2. 实现统一的六个方法：`renderBoot()`、`renderStatus()`、`renderSettings()`、`renderLiveViewOverlay()`、`renderError()`、`renderShutdown()`。
 3. 在 `UiVariant.h` 增加唯一宏值和 `ActiveUiRenderer` 类型别名分支；不要在业务文件散布 `#if UI_VARIANT`。
 4. 在 `platformio.ini` 增加继承 `m5stack-sticks3-base` 的环境，并设置对应 `-DUI_VARIANT=<value>`。
 5. 为 Profile 默认值和 Presenter/Model 契约增加 Native 测试，并把新环境加入编译矩阵。
@@ -167,4 +189,4 @@ Renderer 接口依赖应限于 `UiModel`、Variant 自身的 Theme/Layout/Profil
 
 ## 回归验证
 
-Native 三套测试由 `pio test -e native` 统一运行：基础逻辑、Presenter 映射和 Variant Profile 契约。固件还必须编译 Ricoh、Minimal、Debug 和旧兼容环境。完整命令、验收条件和实机用例见 [test_plan.md](./test_plan.md)。
+Native 三套测试由 `pio test -e native` 统一运行：基础逻辑、Presenter 映射和 Variant Profile 契约。固件还必须编译 Ricoh、Minimal、Debug、Kawaii 和旧兼容环境。Kawaii 的编译或 Native 契约测试不能替代 StickS3 实机视觉、性能与相机链路验证；完整命令和待验证项目见 [test_plan.md](./test_plan.md)。

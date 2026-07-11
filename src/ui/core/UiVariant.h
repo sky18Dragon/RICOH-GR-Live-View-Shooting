@@ -3,6 +3,7 @@
 #define UI_VARIANT_RICOH 1
 #define UI_VARIANT_MINIMAL 2
 #define UI_VARIANT_DEBUG 3
+#define UI_VARIANT_KAWAII 4
 
 #ifndef UI_VARIANT
 #define UI_VARIANT UI_VARIANT_RICOH
@@ -30,6 +31,14 @@ using ActiveUiRenderer = MinimalUiRenderer;
 
 namespace rvf::ui {
 using ActiveUiRenderer = DebugUiRenderer;
+}
+
+#elif UI_VARIANT == UI_VARIANT_KAWAII
+
+#include "../variants/kawaii/KawaiiUiRenderer.h"
+
+namespace rvf::ui {
+using ActiveUiRenderer = KawaiiUiRenderer;
 }
 
 #else

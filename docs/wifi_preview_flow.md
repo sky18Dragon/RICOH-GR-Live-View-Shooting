@@ -32,7 +32,7 @@ loop()
   -> delay(1)
 ```
 
-相机待机/关机保护和 BLE 断线恢复仍属于业务层。UI Variant 的选择不会改变上述连接顺序。
+相机待机/关机保护和 BLE 断线恢复仍属于业务层。Ricoh、Minimal、Debug、Kawaii 的编译期选择不会改变上述连接顺序。
 
 ## HTTP API
 
@@ -98,13 +98,15 @@ flowchart TD
 - 不访问 BLE、Wi-Fi、HTTP、NVS 或相机控制；
 - 不改变 MJPEG 读取大小、JPEG scale 或流处理节奏。
 
-Boot、Status、Error 和 Shutdown 页面可以由 Renderer 清屏。`UiManager::update()` 收到 `UiScreen::LiveView` 时直接返回，不会在两帧之间额外清屏或上屏。
+Boot、Status、Settings、Error 和 Shutdown 页面可以由 Renderer 清屏。`UiManager::update()` 收到 `UiScreen::LiveView` 时直接返回，不会在两帧之间额外清屏或上屏。Settings 当前没有 Presenter 映射或按键导航，只是非 LiveView 静态 Renderer 契约，不参与 Preview 数据流。
 
 ## UI 数据刷新
 
 `makeUiRuntimeSnapshot()` 从 AppController、Services 和现有统计值收集 BLE、Wi-Fi、Preview、相机待机、快门、RSSI、FPS、帧计数和相机属性。`UiPresenter` 再根据强类型字段生成 `UiModel`。
 
-六个 `UI_FEATURE_*` 开关只裁剪对应的 UI 绘制元素（包括 Overlay 或 Debug 状态页中的同类元素）。即使某个 Variant 不显示 FPS、RSSI 或电量，业务层仍应继续维护相关值；开关不得成为跳过属性刷新或网络检查的条件。
+六个通用 `UI_FEATURE_*` 开关只裁剪对应的 UI 绘制元素（包括 Overlay 或 Debug 状态页中的同类元素）。Kawaii 额外使用 `UI_FEATURE_MASCOTS` 和 `UI_FEATURE_PATTERN_BACKGROUND`；前者可移除页面角色与 LiveView 边缘小角色，后者只影响非 LiveView 页面中由代码绘制的背景图案。即使某个 Variant 不显示这些元素，业务层仍应继续维护 FPS、RSSI、电量和帧统计；开关不得成为跳过属性刷新或网络检查的条件。
+
+Kawaii 的 LiveView Overlay 由边缘状态 Badge、Wi-Fi/电量、可选相机型号、对焦框、小角色和底部操作条组成。它与其他 Variant 遵守同一约束：只在已解码 JPEG Canvas 上绘制，不调用 `fillScreen()` / `clear()`，不调用 `present()`，最终仍由帧回调统一 `M5DisplaySurface::present()` 一次。
 
 ## 实时预览性能风险
 
@@ -123,8 +125,9 @@ Boot、Status、Error 和 Shutdown 页面可以由 Renderer 清屏。`UiManager:
 
 ## 待实机确认
 
-- Ricoh、Minimal、Debug Overlay 在真实画面上是否可读且不闪烁、不残留、不清空底图。
-- 三个 Variant 的实际 FPS、平均 JPEG decode/render 耗时和 dropped frames。
+- Ricoh、Minimal、Debug、Kawaii Overlay 在真实画面上是否可读且不闪烁、不残留、不清空底图。
+- 四个 Variant 的实际 FPS、平均 JPEG decode/render 耗时和 dropped frames。
+- Kawaii 代码绘制角色、背景与边缘 HUD 在 StickS3 上的颜色、裁切和性能；当前仍无实机结论。
 - 长时间运行时 heap/PSRAM、MJPEG stall 和恢复表现。
 - 相机 LiveView 分辨率、帧率、单帧最大大小的采样值。
 - Wi-Fi RSSI 与卡顿的相关阈值。

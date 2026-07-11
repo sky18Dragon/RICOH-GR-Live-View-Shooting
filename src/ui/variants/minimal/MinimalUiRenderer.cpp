@@ -72,6 +72,24 @@ void MinimalUiRenderer::renderStatus(LovyanGFX& canvas, const UiModel& model) {
     }
 }
 
+void MinimalUiRenderer::renderSettings(LovyanGFX& canvas, const UiModel& model) {
+    (void)model;
+    canvas.fillScreen(MinimalTheme::kBackground);
+    drawHeader(canvas, "QUICK CONTROLS", MinimalTheme::kPrimary);
+    canvas.setTextColor(MinimalTheme::kPrimary, MinimalTheme::kBackground);
+    canvas.setCursor(MinimalLayout::kMargin, 38);
+    canvas.print("SHUTTER    1/125s");
+    canvas.setCursor(MinimalLayout::kMargin, 54);
+    canvas.print("FILTER     STANDARD");
+    canvas.setCursor(MinimalLayout::kMargin, 70);
+    canvas.print("EXPOSURE   +/-0.0 EV");
+    canvas.setCursor(MinimalLayout::kMargin, 86);
+    canvas.print("WIFI       ON");
+    canvas.setTextColor(MinimalTheme::kMuted, MinimalTheme::kBackground);
+    canvas.setCursor(MinimalLayout::kMargin, 110);
+    canvas.print("STATIC PREVIEW");
+}
+
 void MinimalUiRenderer::renderLiveViewOverlay(LovyanGFX& canvas, const UiModel& model) {
     if constexpr (MinimalUiProfile::kShowFocusBracket) {
         drawFocusBracket(canvas);

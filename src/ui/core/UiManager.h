@@ -97,6 +97,9 @@ public:
             case UiScreen::Status:
                 _renderer.renderStatus(_surface.canvas(), model);
                 break;
+            case UiScreen::Settings:
+                _renderer.renderSettings(_surface.canvas(), model);
+                break;
             case UiScreen::Error:
                 _renderer.renderError(_surface.canvas(), model);
                 break;

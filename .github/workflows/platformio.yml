@@ -7,6 +7,7 @@ on:
   pull_request:
     branches:
       - main
+      - refactor/ui-variant-architecture
   workflow_dispatch:
 
 jobs:
@@ -23,6 +24,8 @@ jobs:
           - environment: sticks3-ui-minimal
             command: run
           - environment: sticks3-ui-debug
+            command: run
+          - environment: sticks3-ui-kawaii
             command: run
           - environment: m5stack-sticks3
             command: run

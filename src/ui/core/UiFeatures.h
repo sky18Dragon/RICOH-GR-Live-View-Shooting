@@ -26,6 +26,14 @@
 #define UI_FEATURE_FOCUS_BRACKET -1
 #endif
 
+#ifndef UI_FEATURE_MASCOTS
+#define UI_FEATURE_MASCOTS -1
+#endif
+
+#ifndef UI_FEATURE_PATTERN_BACKGROUND
+#define UI_FEATURE_PATTERN_BACKGROUND -1
+#endif
+
 namespace rvf::ui {
 
 constexpr bool uiFeatureValue(int overrideValue, bool profileDefault) {

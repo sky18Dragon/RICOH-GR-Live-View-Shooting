@@ -45,6 +45,23 @@ void DebugUiRenderer::renderStatus(LovyanGFX& canvas, const UiModel& model) {
     drawModel(canvas, model, 20);
 }
 
+void DebugUiRenderer::renderSettings(LovyanGFX& canvas, const UiModel& model) {
+    canvas.fillScreen(kBlack);
+    canvas.setTextSize(1);
+    canvas.setTextColor(kCyan, kBlack);
+    canvas.setCursor(4, 4);
+    canvas.print("DEBUG UI / SETTINGS");
+    canvas.setTextColor(kWhite, kBlack);
+    canvas.setCursor(4, 24);
+    canvas.print("STATIC QUICK CONTROLS");
+    canvas.setCursor(4, 42);
+    canvas.print("SHUTTER=1/125 FILTER=STD");
+    canvas.setCursor(4, 58);
+    canvas.print("EXPOSURE=+/-0 WIFI=ON");
+    canvas.setCursor(4, 82);
+    canvas.print(uiPhaseName(model.phase));
+}
+
 void DebugUiRenderer::renderLiveViewOverlay(LovyanGFX& canvas, const UiModel& model) {
     char line[64];
     canvas.setTextSize(1);

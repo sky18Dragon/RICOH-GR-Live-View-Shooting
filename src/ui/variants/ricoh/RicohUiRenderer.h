@@ -10,6 +10,7 @@ class RicohUiRenderer {
 public:
     void renderBoot(LovyanGFX& canvas, const UiModel& model);
     void renderStatus(LovyanGFX& canvas, const UiModel& model);
+    void renderSettings(LovyanGFX& canvas, const UiModel& model);
     void renderLiveViewOverlay(LovyanGFX& canvas, const UiModel& model);
     void renderError(LovyanGFX& canvas, const UiModel& model);
     void renderShutdown(LovyanGFX& canvas, const UiModel& model);

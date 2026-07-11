@@ -22,7 +22,7 @@
 </p>
 
 > [!NOTE]
-> 请阅读 [项目概览](docs/project_overview.md)、[UI Variant 架构](docs/ui_architecture.md)、[Wi-Fi / Preview 流程](docs/wifi_preview_flow.md) 和 [BLE 协议说明](docs/ricoh_ble_protocol.md) 了解实现边界。
+> 请阅读 [项目概览](docs/project_overview.md)、[UI Variant 架构](docs/ui_architecture.md)、[Kawaii 主题说明](docs/ui_kawaii_theme.md)、[Wi-Fi / Preview 流程](docs/wifi_preview_flow.md) 和 [BLE 协议说明](docs/ricoh_ble_protocol.md) 了解实现边界。
 
 > [!NOTE]
 > **关于开发背景**：本项目作者本身不具备嵌入式开发能力，本仓库的全部固件代码、架构设计及相关文档均由 AI 助手 (Codex) 协作编写与整理。若您在代码设计、逻辑实现或稳定性上发现任何问题，敬请见谅。非常欢迎您提交 [Issues](https://github.com/sky18Dragon/RicohViewfinder/issues) 共同讨论或发起 Pull Request 予以完善！
@@ -33,7 +33,7 @@
 
 * **高帧率 LiveView 渲染**：基于 ESP32-S3 硬件加速解码的 MJPEG 流处理器，直接输出到 LovyanGFX / M5Canvas，提供流畅的预览体验。
 * **分层架构**：业务采用 Supervisor / Controller / Service 分工；UI 采用 `UiRuntimeSnapshot -> UiPresenter -> UiModel -> UiManager` 数据流。
-* **编译期 UI Variant**：提供 Ricoh、Minimal 和 Debug 三套 Renderer，并支持六类 UI 元素的编译期裁剪。
+* **编译期 UI Variant**：提供 Ricoh、Minimal、Debug 和 Kawaii 四套 Renderer；六类通用元素及 Kawaii 的角色、图案背景可在编译期裁剪。
 * **智能休眠防误唤醒**：读取相机 `Power State` 和 `Operation Mode` 以确认真实运行状态，防止意外唤醒关机状态下的相机。
 * **WLAN 动态参数缓存**：首次连接后，将相机的 Wi-Fi SSID、BSSID、信道及加密参数持久化写入 NVS，在下次启动时最快以 `<0.5s` 的极速完成直连。
 * **物理按键 AF 遥控快门**：支持理光官方 BLE Shooting Service 协议，通过 Button A 进行高精度自动对焦与瞬间抓拍。
@@ -54,15 +54,24 @@ pio run -e sticks3-ui-ricoh
 
 # Minimal UI
 pio run -e sticks3-ui-minimal
+
+# Kawaii UI
+pio run -e sticks3-ui-kawaii
 ```
 
-Debug UI 使用 `pio run -e sticks3-ui-debug`；旧环境名 `m5stack-sticks3` 仍选择 Ricoh UI。选择好 Variant 后再连接 StickS3 烧录，例如：
+Debug UI 使用 `pio run -e sticks3-ui-debug`；旧环境名 `m5stack-sticks3` 仍选择 Ricoh UI。Kawaii 的烧录命令为：
 
 ```bash
-pio run -e sticks3-ui-ricoh --target upload
+pio run -e sticks3-ui-kawaii --target upload
 ```
 
 完整编译矩阵、Native 测试和实机检查见 [测试计划](docs/test_plan.md)。
+
+### Kawaii UI 当前范围
+
+Kawaii 使用 `UI_VARIANT=4`，以 LovyanGFX 图元在代码中绘制柔和紫色背景、装饰图案、角色、爱心和爪印，不依赖全屏位图。它实现 Boot、Status、LiveView、Settings、Error、Shutdown 六个页面方法；其中 Settings 目前只是静态视觉样稿，`UiPresenter` 和按键流程尚未提供页面导航，页面中的控制项不会修改相机设置。
+
+`UI_FEATURE_MASCOTS` 与 `UI_FEATURE_PATTERN_BACKGROUND` 可分别裁剪角色和图案背景。Kawaii 的 StickS3 屏幕效果、Overlay 可读性、帧率和完整相机链路仍待实机验证，详见 [Kawaii 主题说明](docs/ui_kawaii_theme.md)。
 
 ### 2. 首次扫描与安全配对
 1. 打开理光 GR 相机，并在菜单设置中启用 **蓝牙连接 (Bluetooth)**。
@@ -99,7 +108,7 @@ pio run -e sticks3-ui-ricoh --target upload
 * **[AppController](src/app/AppController.h)**：核心业务状态机，管理连接生命周期、保护态、用户命令和业务事件。
 * **[BleCameraService](src/services/BleCameraService.h)**：BLE 扫描、配对、状态读取及快门服务。
 * **[WifiPreviewService](src/services/WifiPreviewService.h)**：Wi-Fi 状态与 HTTP MJPEG 数据读取服务。
-* **UI 子系统**：`UiRuntimeSnapshot -> UiPresenter -> UiModel -> UiManager<ActiveUiRenderer> -> M5DisplaySurface`；`ActiveUiRenderer` 在编译期选择 Ricoh、Minimal 或 Debug。
+* **UI 子系统**：`UiRuntimeSnapshot -> UiPresenter -> UiModel -> UiManager<ActiveUiRenderer> -> M5DisplaySurface`；`ActiveUiRenderer` 在编译期选择 Ricoh、Minimal、Debug 或 Kawaii，并统一实现包含 `renderSettings()` 的六方法契约。
 
 UI 分层、`UI_FEATURE_*` 开关和 LiveView Overlay 约束见 [UI Variant 架构](docs/ui_architecture.md)。
 
@@ -178,7 +187,7 @@ graph TD
 
 ## 项目源码结构 (Project Structure)
 
-* [platformio.ini](platformio.ini) — 公共配置、三套 UI 环境和旧环境兼容入口
+* [platformio.ini](platformio.ini) — 公共配置、四套 UI 环境和旧环境兼容入口
 * [src/main.cpp](src/main.cpp) — 对象装配、运行快照、LiveView 帧回调和主循环入口
 * [src/app/](src/app/) — `AppController`、业务状态和动作契约
 * [src/services/](src/services/) — BLE、相机、Wi-Fi / Preview、快门和帧缓冲服务
@@ -186,7 +195,7 @@ graph TD
 * [src/display/](src/display/) — `M5DisplaySurface`、Canvas 生命周期和统一上屏
 * [src/ui/model/](src/ui/model/) / [src/ui/presenter/](src/ui/presenter/) — 强类型 UI Model 与映射
 * [src/ui/core/](src/ui/core/) — `UiManager`、Feature Flag 和编译期 Renderer 选择
-* [src/ui/variants/](src/ui/variants/) — Ricoh、Minimal、Debug Renderer 及各自 Profile
+* [src/ui/variants/](src/ui/variants/) — Ricoh、Minimal、Debug、Kawaii Renderer 及各自 Profile
 * [src/jpeg_decoder.cpp](src/jpeg_decoder.cpp) / [src/mjpeg_stream.cpp](src/mjpeg_stream.cpp) — JPEG 解码与 MJPEG 帧边界解析
 * [test/](test/) — 基础逻辑、Presenter 和 Variant 契约的 Native 测试
 

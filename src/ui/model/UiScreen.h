@@ -10,6 +10,7 @@ enum class UiScreen : uint8_t {
     LiveView,
     Error,
     Shutdown,
+    Settings,
 };
 
 inline const char* uiScreenName(UiScreen screen) {
@@ -19,6 +20,7 @@ inline const char* uiScreenName(UiScreen screen) {
         case UiScreen::LiveView: return "LIVE VIEW";
         case UiScreen::Error: return "ERROR";
         case UiScreen::Shutdown: return "SHUTDOWN";
+        case UiScreen::Settings: return "SETTINGS";
     }
     return "UNKNOWN";
 }

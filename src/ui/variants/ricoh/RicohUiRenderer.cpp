@@ -108,6 +108,30 @@ void RicohUiRenderer::renderStatus(LovyanGFX& canvas, const UiModel& model) {
     canvas.print(status);
 }
 
+void RicohUiRenderer::renderSettings(LovyanGFX& canvas, const UiModel& model) {
+    (void)model;
+    canvas.fillScreen(RicohTheme::kBackground);
+    canvas.fillRoundRect(8, 6, canvas.width() - 16, canvas.height() - 12, 10, RicohTheme::kCard);
+    canvas.drawRoundRect(8, 6, canvas.width() - 16, canvas.height() - 12, 10, RicohTheme::kGraphite);
+    canvas.setTextSize(1);
+    canvas.setTextColor(RicohTheme::kPrimary, RicohTheme::kCard);
+    canvas.setCursor(14, 13);
+    canvas.print("QUICK CONTROLS");
+    canvas.drawFastHLine(14, 25, canvas.width() - 28, RicohTheme::kSlate);
+    canvas.setTextColor(RicohTheme::kText, RicohTheme::kCard);
+    canvas.setCursor(18, 36);
+    canvas.print("SHUTTER       1/125s");
+    canvas.setCursor(18, 52);
+    canvas.print("FILTER        STANDARD");
+    canvas.setCursor(18, 68);
+    canvas.print("EXPOSURE      +/-0.0 EV");
+    canvas.setCursor(18, 84);
+    canvas.print("WIFI          ON");
+    canvas.setTextColor(RicohTheme::kGray, RicohTheme::kCard);
+    canvas.setCursor(18, 108);
+    canvas.print("Static preview / no navigation");
+}
+
 void RicohUiRenderer::renderLiveViewOverlay(LovyanGFX& canvas, const UiModel& model) {
     const int16_t vx = RicohLayout::kViewportX;
     const int16_t vy = RicohLayout::kViewportY;
