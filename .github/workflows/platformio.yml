@@ -17,8 +17,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        environment:
-          - m5stack-sticks3
+        include:
+          - environment: sticks3-ui-ricoh
+            command: run
+          - environment: sticks3-ui-minimal
+            command: run
+          - environment: sticks3-ui-debug
+            command: run
+          - environment: m5stack-sticks3
+            command: run
+          - environment: native
+            command: test
 
     steps:
       - name: Checkout
@@ -45,6 +54,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install platformio==6.1.18
 
-      - name: Build RicohViewfinder
+      - name: Verify RicohViewfinder
         run: |
-          platformio run -e ${{ matrix.environment }}
+          platformio ${{ matrix.command }} -e ${{ matrix.environment }}
