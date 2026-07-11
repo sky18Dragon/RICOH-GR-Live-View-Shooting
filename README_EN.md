@@ -50,6 +50,9 @@ Connect the M5Stack StickS3 to your PC using a USB cable. Ensure PlatformIO Core
 # Build and upload the firmware
 platformio run --target upload
 
+# GR IIIx configuration build (keeps the original pairing, controls, and state flow)
+platformio run -e m5stack-sticks3-gr3x --target upload
+
 # Optionally, specify the upload port if automatic detection fails
 platformio run --target upload --upload-port COM6
 ```
@@ -157,7 +160,8 @@ Customize these constants in [src/config.h](file:///C:/Users/Administrator/Docum
 | :--- | :---: | :--- |
 | **RICOH GR IV HDF** | **Verified Working** | Core development target. Supports BLE shutter and LiveView out of the box. |
 | **RICOH GR IV** | **Verified Working** | Tested with BLE pairing and reconnect, Wi-Fi activation, LiveView, and BLE AF shutter. |
-| **RICOH GR III / GR IIIx** | **Not Supported** | Uses different BLE handshakes and wake sequences. Outside the scope of this project. |
+| **RICOH GR IIIx** | **Configuration Port / Hardware Test Pending** | Use `m5stack-sticks3-gr3x` to select the GATT handles; pairing, controls, and state flow remain unchanged. |
+| **RICOH GR III** | **Not Supported** | GR III configuration was not ported or verified. |
 | **RICOH GR II** | **Not Supported** | Lacks the BLE-first broadcast wake-up and on-demand Wi-Fi AP control interfaces. |
 
 ---

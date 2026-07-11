@@ -59,10 +59,10 @@ struct AppConfig {
     };
 
     struct RicohPower {
-        static constexpr uint16_t kPowerStateHandle = RICOH_BLE_GR4_POWER_STATE_HANDLE;
-        static constexpr uint16_t kPowerStateCccdHandle = RICOH_BLE_GR4_POWER_STATE_CCCD_HANDLE;
-        static constexpr uint8_t kPowerStateOnValue = RICOH_BLE_GR4_POWER_STATE_ON_VALUE;
-        static constexpr uint8_t kPowerStateOffValue = RICOH_BLE_GR4_POWER_STATE_OFF_VALUE;
+        static constexpr uint16_t kPowerStateHandle = RICOH_BLE_POWER_STATE_HANDLE;
+        static constexpr uint16_t kPowerStateCccdHandle = RICOH_BLE_POWER_STATE_CCCD_HANDLE;
+        static constexpr uint8_t kPowerStateOnValue = RICOH_BLE_POWER_STATE_ON_VALUE;
+        static constexpr uint8_t kPowerStateOffValue = RICOH_BLE_POWER_STATE_OFF_VALUE;
         static constexpr uint8_t kPowerReadRetries = RICOH_BLE_POWER_READ_RETRIES;
         static constexpr bool kRequirePowerOnBeforeWifi = RICOH_BLE_REQUIRE_POWER_ON_BEFORE_WIFI;
         static constexpr bool kAllowWifiWhenPowerUnknown = RICOH_BLE_ALLOW_WIFI_WHEN_POWER_UNKNOWN;

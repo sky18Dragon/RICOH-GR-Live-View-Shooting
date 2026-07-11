@@ -49,6 +49,9 @@
 # 自动编译并烧录固件
 platformio run --target upload
 
+# GR IIIx 配置构建（保留原项目的配对、操作和状态流）
+platformio run -e m5stack-sticks3-gr3x --target upload
+
 # 如有需要，可指定特定的串口（例如 COM6）
 platformio run --target upload --upload-port COM6
 ```
@@ -156,7 +159,8 @@ graph TD
 | :--- | :---: | :--- |
 | **RICOH GR IV HDF** | **已验证可用** | 固件核心开发和实机测试靶机，提供最完美的支持。 |
 | **RICOH GR IV** | **已验证可用** | 已完成 BLE 配对与重连、Wi-Fi 激活、LiveView 和 BLE AF 快门实机验证。 |
-| **RICOH GR III / GR IIIx** | **当前不可用** | BLE 交互时序与相机唤醒逻辑存在代际协议差异，非本固件设计支持目标。 |
+| **RICOH GR IIIx** | **配置适配 / 待实机验证** | 使用 `m5stack-sticks3-gr3x` 切换 GATT 句柄；配对方式、操作与状态流保持原项目不变。 |
+| **RICOH GR III** | **当前不可用** | 本次未移植或验证 GR III 配置。 |
 | **RICOH GR II** | **当前不可用** | 缺乏低功耗蓝牙 (BLE) 先行广播和按需激活 Wi-Fi AP 的交互链路。 |
 
 ---

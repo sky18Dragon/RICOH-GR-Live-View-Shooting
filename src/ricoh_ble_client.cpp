@@ -72,7 +72,7 @@ const char* ricohOperationModeName(RicohCameraOperationMode mode) {
 
 int ricohGapEventHandler(ble_gap_event* event, void*) {
   if (event == nullptr || event->type != BLE_GAP_EVENT_NOTIFY_RX ||
-      event->notify_rx.attr_handle != RICOH_BLE_GR4_POWER_STATE_HANDLE ||
+      event->notify_rx.attr_handle != RICOH_BLE_POWER_STATE_HANDLE ||
       event->notify_rx.om == nullptr || OS_MBUF_PKTLEN(event->notify_rx.om) < 1) {
     return 0;
   }
@@ -84,11 +84,11 @@ int ricohGapEventHandler(ble_gap_event* event, void*) {
 
   g_powerStateNotifyValue.store(value);
   Serial.printf("BLE: power notify handle=0x%04X value=0x%02X\n",
-                RICOH_BLE_GR4_POWER_STATE_HANDLE,
+                RICOH_BLE_POWER_STATE_HANDLE,
                 value);
-  if (value == RICOH_BLE_GR4_POWER_STATE_OFF_VALUE) {
+  if (value == RICOH_BLE_POWER_STATE_OFF_VALUE) {
     g_powerOffNotifyPending.store(true);
-  } else if (value == RICOH_BLE_GR4_POWER_STATE_ON_VALUE) {
+  } else if (value == RICOH_BLE_POWER_STATE_ON_VALUE) {
     g_powerOffNotifyPending.store(false);
   }
   return 0;
@@ -100,11 +100,11 @@ struct WlanParamHandle {
 };
 
 const WlanParamHandle kWlanParamHandles[] = {
-    {RICOH_BLE_GR4_WLAN_SSID_HANDLE, "ssid"},
-    {RICOH_BLE_GR4_WLAN_PASSPHRASE_HANDLE, "passphrase"},
-    {RICOH_BLE_GR4_WLAN_SECURITY_HANDLE, "security"},
-    {RICOH_BLE_GR4_WLAN_FREQUENCY_HANDLE, "frequency"},
-    {RICOH_BLE_GR4_WLAN_BSSID_HANDLE, "bssid"},
+    {RICOH_BLE_WLAN_SSID_HANDLE, "ssid"},
+    {RICOH_BLE_WLAN_PASSPHRASE_HANDLE, "passphrase"},
+    {RICOH_BLE_WLAN_SECURITY_HANDLE, "security"},
+    {RICOH_BLE_WLAN_FREQUENCY_HANDLE, "frequency"},
+    {RICOH_BLE_WLAN_BSSID_HANDLE, "bssid"},
 };
 
 String toUpperCopy(String value) {
@@ -1046,9 +1046,9 @@ bool RicohBleClient::openWifi() {
     return false;
   }
 
-  const uint8_t payload[] = {RICOH_BLE_GR4_WLAN_ON_VALUE};
+  const uint8_t payload[] = {RICOH_BLE_WLAN_ON_VALUE};
   String err;
-  if (!writeHandleWithResponse(client, RICOH_BLE_GR4_WLAN_POWER_HANDLE, payload, sizeof(payload), err)) {
+  if (!writeHandleWithResponse(client, RICOH_BLE_WLAN_POWER_HANDLE, payload, sizeof(payload), err)) {
     _lastError = err;
     return false;
   }
@@ -1068,7 +1068,7 @@ bool RicohBleClient::readPowerState(RicohCameraPowerState& state) {
 
   std::vector<uint8_t> value;
   String err;
-  if (!readHandleWithResponse(client, RICOH_BLE_GR4_POWER_STATE_HANDLE, value, err)) {
+  if (!readHandleWithResponse(client, RICOH_BLE_POWER_STATE_HANDLE, value, err)) {
     _lastError = String("BLE power read failed: ") + err;
     return false;
   }
@@ -1079,14 +1079,14 @@ bool RicohBleClient::readPowerState(RicohCameraPowerState& state) {
 
   const uint8_t code = value[0];
   Serial.printf("BLE: power handle=0x%04X read value=0x%02X\n",
-                RICOH_BLE_GR4_POWER_STATE_HANDLE,
+                RICOH_BLE_POWER_STATE_HANDLE,
                 code);
-  if (code == RICOH_BLE_GR4_POWER_STATE_ON_VALUE) {
+  if (code == RICOH_BLE_POWER_STATE_ON_VALUE) {
     state = RicohCameraPowerState::On;
     _lastError = "";
     return true;
   }
-  if (code == RICOH_BLE_GR4_POWER_STATE_OFF_VALUE) {
+  if (code == RICOH_BLE_POWER_STATE_OFF_VALUE) {
     state = RicohCameraPowerState::OffOrShuttingDown;
     _lastError = "";
     return true;
@@ -1159,13 +1159,13 @@ bool RicohBleClient::enablePowerStateNotify() {
 
   const uint8_t payload[] = {0x01, 0x00};
   String err;
-  if (!writeHandleWithResponse(client, RICOH_BLE_GR4_POWER_STATE_CCCD_HANDLE, payload, sizeof(payload), err)) {
+  if (!writeHandleWithResponse(client, RICOH_BLE_POWER_STATE_CCCD_HANDLE, payload, sizeof(payload), err)) {
     _lastError = String("BLE power notify enable failed: ") + err;
     return false;
   }
 
   _lastError = "";
-  Serial.printf("BLE: power notify enabled cccd=0x%04X\n", RICOH_BLE_GR4_POWER_STATE_CCCD_HANDLE);
+  Serial.printf("BLE: power notify enabled cccd=0x%04X\n", RICOH_BLE_POWER_STATE_CCCD_HANDLE);
   return true;
 }
 
@@ -1190,6 +1190,10 @@ bool RicohBleClient::waitForWifiCredentials(RicohBleWifiCredentials& credentials
 
     RicohBleWifiCredentials current = credentials;
     for (const WlanParamHandle& item : kWlanParamHandles) {
+      // GR IIIx does not expose the GR IV security/frequency/BSSID handles.
+      if (item.handle == 0) {
+        continue;
+      }
       std::vector<uint8_t> value;
       String err;
       if (readHandleWithResponse(client, item.handle, value, err)) {

@@ -19,6 +19,7 @@ jobs:
       matrix:
         environment:
           - m5stack-sticks3
+          - m5stack-sticks3-gr3x
 
     steps:
       - name: Checkout
