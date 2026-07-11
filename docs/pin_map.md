@@ -9,7 +9,7 @@
 | M5PM1 I2C 频率 | `M5PM1_I2C_FREQ_100K` | 100kHz |
 | Button A | `src/buttons.cpp` | `M5.BtnA.wasPressed()` |
 | Power button | `src/buttons.cpp` / `src/main.cpp` | `M5.BtnPWR.wasHold()` + `M5PM1.btnGetState()` |
-| LCD | `src/display.cpp` / `src/jpeg_decoder.cpp` | M5Unified / M5.Display / M5Canvas，未在代码中硬编码 SPI GPIO |
+| LCD | `src/display/M5DisplaySurface.cpp` / `src/jpeg_decoder.cpp` | M5Unified / M5.Display / M5Canvas，未在代码中硬编码 SPI GPIO |
 | USB CDC serial | `platformio.ini` | `ARDUINO_USB_CDC_ON_BOOT=1` |
 
 ## TODO_UNVERIFIED

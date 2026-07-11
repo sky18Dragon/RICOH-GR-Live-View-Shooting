@@ -1,54 +1,133 @@
 # Project Overview
 
-## 目标
+## 项目目标
 
-本项目是 RICOH GR Live View Shooting 固件。目标设备为 ESP32-S3 / M5Stack StickS3，使用 PlatformIO Arduino framework。固件通过 BLE 发现和控制 RICOH GR 相机，通过相机 Wi-Fi AP 使用 HTTP API 打开 LiveView，将 MJPEG 解码显示到 StickS3 屏幕，并提供 Button A BLE AF 快门。
+RICOH GR Live View Shooting 是面向 ESP32-S3 / M5Stack StickS3 的 PlatformIO Arduino 固件。固件以 BLE 完成相机发现、配对、状态读取、Wi-Fi 激活和快门控制，连接相机 Wi-Fi AP 后通过 HTTP 打开 MJPEG LiveView，并将解码后的画面显示在 StickS3 上。
 
-## 已从代码确认的事实
+项目同时包含相机待机/关机保护、连接恢复、NVS 相机 Profile 和主机侧 Native 测试。UI 已与业务流程分离，可在编译期选择 Ricoh、Minimal 或 Debug 界面。
 
-- `platformio.ini` 默认环境：`m5stack-sticks3`。
+## 当前代码结构
+
+核心运行链路：
+
+```text
+AppController / Services
+  -> UiRuntimeSnapshot
+  -> UiPresenter
+  -> UiModel
+  -> UiManager<ActiveUiRenderer>
+  -> M5DisplaySurface
+  -> M5Canvas / M5.Display
+```
+
+- `AppController` 负责状态机、业务事件、恢复和用户命令，不知道当前 UI Variant。
+- Services 负责 BLE、相机、Wi-Fi/HTTP LiveView、快门和预览缓冲等能力。
+- `UiPresenter` 根据 `AppState` 和结构化运行态生成强类型 `UiModel`，不通过展示字符串推断状态。
+- `UiManager` 负责页面选择、Dirty 检测、非 LiveView 刷新节流和统一上屏。
+- `ActiveUiRenderer` 在编译期解析为 Ricoh、Minimal 或 Debug Renderer，只绘制传入的 `UiModel`。
+- `M5DisplaySurface` 独占 M5 初始化、Canvas 生命周期和 `present()`。
+
+UI 的详细职责、字段、扩展方式和约束见 [ui_architecture.md](./ui_architecture.md)。Wi-Fi、MJPEG、JPEG 和上屏时序见 [wifi_preview_flow.md](./wifi_preview_flow.md)。
+
+## 从当前配置与代码确认的事实
+
+- 默认 PlatformIO 环境：`sticks3-ui-ricoh`。
+- 兼容环境：`m5stack-sticks3`，继承 Ricoh UI。
 - Platform：`espressif32@6.12.0`。
 - Board：`esp32-s3-devkitc-1`。
-- Framework：Arduino。
-- 依赖：M5Unified、M5PM1、JPEGDEC、ArduinoJson、NimBLE-Arduino 2.5.0、WiFi、Preferences、Wire。
-- 显示默认尺寸：`DISPLAY_WIDTH=240`、`DISPLAY_HEIGHT=135`。
-- LiveView frame buffer：`FRAME_BUFFER_SIZE=256 * 1024`。
-- Stream read buffer：`STREAM_READ_BUFFER_SIZE=2048`。
-- Camera HTTP 默认地址：`GR_HOST=192.168.0.1`，`GR_PORT=80`。
-- 主状态机枚举：`BleScan`、`CameraSleepGuard`、`BleReady`、`WifiConnecting`、`HttpProbe`、`LiveViewRunning`。
-- 主循环顺序：`handleButtons()`、`serviceCameraFlowIfNeeded()`、`ensureWiFi()`、`refreshPropsIfDue()`、`ensureLiveView()`、`refreshWifiCacheIfDue()`、`updateStatusUiIfDue()`、`delay(1)`。
-- 当前没有 `include/` 和 `lib/` 目录。
-- `docs/` 原有内容仅发现 `docs/images/hardware_setup.jpg` 和 `docs/images/liveview_action.jpg`。
+- Framework：Arduino，C++17。
+- 主要依赖：M5Unified、M5PM1、JPEGDEC、ArduinoJson、NimBLE-Arduino 2.5.0。
+- 逻辑显示尺寸：240 × 135；`M5DisplaySurface` 在启动时按实际 rotation 创建 Canvas。
+- LiveView frame buffer：256 KiB，优先 PSRAM、失败时尝试内部 RAM。
+- Stream read buffer：2048 bytes。
+- Camera HTTP 默认地址：`192.168.0.1:80`。
+- LiveView JPEG scale 默认由 `JPEG_SCALE_POLICY` 决定，当前配置为 `JPEG_SCALE_HALF`。
+- 主循环由 `AppController::planTick()` 规划按钮、相机流程、Wi-Fi 监视、属性刷新和 LiveView 监视，并运行 Supervisor、Wi-Fi Profile 刷新和状态 UI 更新。
 
-## 机型支持状态
+这些代码级事实不代表具体相机、帧率、长期稳定性或三套 UI 已在当前改动中完成实机验证。
 
-README 声明：
+## 业务流程
 
-| 机型 | 状态 |
-| --- | --- |
-| RICOH GR IV HDF | 已验证可用 |
-| RICOH GR IV 系列 | 理论可用，仍需实机确认 |
-| RICOH GR III / GR IIIx | 当前不可用 |
-| RICOH GR II | 当前不可用 |
+典型连接主路径：
 
-## 功能模块
+```text
+BleScan
+  -> BLE 扫描或已保存地址直连
+  -> BleReady
+  -> 检查 Power State / Operation Mode
+  -> 通过 BLE 激活相机 Wi-Fi
+  -> 缓存 Wi-Fi 参数短超时连接，失败则读取最新参数回退
+  -> HttpProbe
+  -> 打开 /v1/liveview
+  -> LiveViewRunning
+```
 
-- BLE：`src/ricoh_ble_client.*`
-- Wi-Fi：`src/gr_wifi.*`
-- HTTP/LiveView：`src/gr_api.*`
-- MJPEG：`src/mjpeg_stream.*`
-- JPEG 解码：`src/jpeg_decoder.*`
-- UI：`src/display.*`
-- 按钮：`src/buttons.*`
-- 电源和主状态机：`src/main.cpp`
-- NVS profile：`src/camera_profile_store.*`
-- 相机身份推导：`src/camera_identity.*`
+`AppState` 还包含更细粒度的 Boot、BLE 连接、相机电源检查、Wi-Fi 激活、HTTP 探测、Preview 启停、拍摄、断开和错误状态。`UiPresenter` 将这些状态统一映射为 `UiScreen` 和 `UiPhase`。
 
-## TODO_UNVERIFIED
+当检测到 `BLE_STARTUP`、`POWER_OFF_TRANSFER` 或相机关机语义时，流程进入待机/关机保护，不应为继续预览而自动开启相机 Wi-Fi。涉及唤醒或保护逻辑的修改还必须阅读 [power_state_policy.md](./power_state_policy.md)。
 
-- GR IV 非 HDF 机型的完整兼容性：README 标记为理论可用，需实机确认。
+## LiveView 显示路径
 
-## 后续 Codex 修改代码时必须注意
+```text
+WifiPreviewService / GrApi 读取 MJPEG 字节
+  -> MjpegStream 按 SOI/EOI 组帧
+  -> JpegDecoder 写入 displaySurface.canvas()
+  -> ActiveUiRenderer 叠加 Overlay
+  -> displaySurface.present() 一次
+```
 
-- 修改任何流程前先确认状态机入口和恢复路径。
-- 涉及相机唤醒的改动必须同时读 `power_state_policy.md`。
+只有 JPEG 解码成功的帧才叠加 Overlay 并上屏。Overlay 不得清屏；Renderer 不得自行 `pushSprite()`。这条所有权规则确保所有 Variant 共用同一条 LiveView 业务和解码链路。
+
+## UI Variants 与构建
+
+| 环境 | Variant | 说明 |
+| --- | --- | --- |
+| `sticks3-ui-ricoh` | Ricoh | 默认视觉界面 |
+| `sticks3-ui-minimal` | Minimal | 简洁状态页和 Overlay |
+| `sticks3-ui-debug` | Debug | 强调状态与诊断指标 |
+| `m5stack-sticks3` | Ricoh | 保留旧环境名的兼容入口 |
+
+```bash
+pio run -e sticks3-ui-ricoh
+pio run -e sticks3-ui-minimal
+pio run -e sticks3-ui-debug
+pio run -e m5stack-sticks3
+```
+
+六个 `UI_FEATURE_*` 宏可在编译期控制 FPS、帧统计、Wi-Fi RSSI、电量、相机型号和对焦框。取值 `-1` 使用 Variant 默认、`0` 关闭、`1` 开启；这些宏只能影响绘制。
+
+## 模块索引
+
+| 模块 | 路径 | 主要职责 |
+| --- | --- | --- |
+| 装配与循环 | `src/main.cpp` | 对象装配、Snapshot 收集、帧回调和运行循环 |
+| 业务状态机 | `src/app/AppController.*`、`src/app/AppState.h` | 连接流、恢复、命令和状态转换 |
+| 业务事件 | `src/core/AppEvent.h`、`src/core/AppEventSink.h`、`src/core/AppMessage.h` | 语义事件发布 |
+| BLE 服务 | `src/services/BleCameraService.*`、`src/ricoh_ble_client.*` | 扫描、配对、状态与快门协议 |
+| Wi-Fi / Preview | `src/services/WifiPreviewService.*`、`src/gr_wifi.*`、`src/gr_api.*` | Wi-Fi 连接、HTTP Props 与 LiveView 数据读取 |
+| MJPEG / JPEG | `src/mjpeg_stream.*`、`src/jpeg_decoder.*` | 帧边界解析与 JPEG 解码 |
+| 帧缓冲 | `src/services/PreviewFrameBuffer.*` | 固定缓冲及帧/内存统计 |
+| Display Surface | `src/display/DisplaySurface.h`、`src/display/M5DisplaySurface.cpp` | M5 初始化、Canvas 和上屏 |
+| UI Model / Presenter | `src/ui/model/`、`src/ui/presenter/` | 强类型 UI 数据和状态映射 |
+| UI Manager / 选择器 | `src/ui/core/` | 刷新策略、特性开关和 Variant 类型选择 |
+| UI Renderers | `src/ui/variants/` | Ricoh、Minimal、Debug 纯绘制实现 |
+| Supervisor | `src/supervisor/SystemSupervisor.*` | 预览健康检查和恢复事件 |
+| Native 测试 | `test/test_native/`、`test/test_ui_presenter/`、`test/test_ui_variant_contract/` | 基础逻辑、Presenter 和 Profile 契约 |
+
+## 验证范围
+
+固件编译、Native 测试和实机回归是三类不同证据：
+
+- 四个固件环境编译成功：证明各 Variant 与兼容环境能链接，不证明屏幕视觉或相机通信实际可用。
+- `pio test -e native` 成功：证明主机侧基础逻辑、Presenter 映射和三套 Profile 默认值符合测试，不覆盖 M5 硬件或网络时序。
+- StickS3 + 相机实测：才能确认页面、Overlay、不闪屏、帧率、BLE/Wi-Fi/快门和电源保护行为。
+
+执行方法和记录要求见 [test_plan.md](./test_plan.md)。未附带当次命令输出或设备记录时，不应把待验证项写成“已通过”。
+
+## 修改时必须保持的边界
+
+- 不为不同 UI 复制 BLE、Wi-Fi、HTTP、LiveView、快门或状态机代码。
+- Renderer 不得访问 BLE、Wi-Fi、HTTP，不得调用 `M5.begin()`、`pushSprite()` 或 `delay()`。
+- `renderLiveViewOverlay()` 不得清屏，成功解码帧只能统一上屏一次。
+- UI 元素开关不得影响数据采集或业务能力。
+- 修改连接或预览路径前同时核对错误、保护和恢复分支。

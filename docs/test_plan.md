@@ -1,81 +1,183 @@
 # Test Plan
 
-## 文档-only 任务
+## 验证原则
 
-```powershell
+UI Variant 重构需要分别验证构建、Native 逻辑和真实设备行为：
+
+- 固件构建证明指定 Variant 能编译和链接。
+- Native 测试证明主机侧逻辑和 UI 数据契约满足断言。
+- StickS3 + 相机实测才能证明屏幕输出、Overlay、帧率和完整 BLE/Wi-Fi/快门链路。
+
+记录结果时必须附命令输出或设备证据。不要把“编译成功”写成“实机通过”，也不要把历史测试结论当作本次改动的回归结果。
+
+## 1. 工作区与变更范围
+
+```bash
+git status --short
 git diff --stat
-git diff -- AGENTS.md docs logs
+git diff -- README.md docs/ui_architecture.md docs/wifi_preview_flow.md docs/project_overview.md docs/test_plan.md
 ```
 
-本类任务不需要 `platformio run`，除非用户明确要求。
+检查：
 
-## Native 逻辑测试
+- UI Variant 修改没有意外改变 GATT 句柄、BLE 安全配对、Wi-Fi 缓存、MJPEG 帧解析或 JPEG scale 策略。
+- Ricoh、Minimal、Debug 没有各自复制业务流程。
+- 新旧环境名都仍存在。
 
-`platformio.ini` 配置了 `env:native`，包含：
+## 2. 固件编译矩阵
 
-- `ble_reconnect_policy.cpp`
-- `camera_identity.cpp`
-- `mjpeg_stream.cpp`
-- `test/test_native/test_native_logic.cpp`
+逐个执行，不使用单一默认环境替代矩阵：
 
-建议命令：
-
-```powershell
-platformio test -e native
+```bash
+pio run -e sticks3-ui-ricoh
+pio run -e sticks3-ui-minimal
+pio run -e sticks3-ui-debug
+pio run -e m5stack-sticks3
 ```
 
-TODO_UNVERIFIED：本文档创建时未运行该命令。
+通过条件：
 
-## 固件构建
+- 四个环境均为 `SUCCESS`。
+- Ricoh、Minimal、Debug 分别使用对应 `UI_VARIANT`。
+- 旧兼容环境 `m5stack-sticks3` 仍能构建，并选择 Ricoh Renderer。
+- 没有新增编译 error；新增 warning 需要说明原因和影响。
 
-```powershell
-platformio run
+如修改六个 `UI_FEATURE_*` 开关，还应至少补充一个非默认组合的编译检查，例如 FPS 开启、电量关闭，确认 `-1`、`0`、`1` 语义没有破坏构建。
+
+## 3. Native 三套测试
+
+`env:native` 的 `test_filter` 包含三套测试，一条命令可全部运行：
+
+```bash
+pio test -e native
 ```
 
-通过条件：m5stack-sticks3 环境 SUCCESS，无新增编译 warning/error。
+需要单独定位失败时可执行：
 
-## 烧录与监视
-
-```powershell
-platformio run --target upload --upload-port COM6
-platformio device monitor --port COM6 --baud 115200 --filter time
+```bash
+pio test -e native --filter test_native
+pio test -e native --filter test_ui_presenter
+pio test -e native --filter test_ui_variant_contract
 ```
 
-COM 端口按实际设备替换。
+覆盖范围：
 
-## BLE / Wi-Fi / Power 实机测试用例
+| 测试套件 | 当前重点 |
+| --- | --- |
+| `test_native` | MJPEG 组帧/丢帧、相机身份、BLE 重连身份和 Supervisor 健康判断 |
+| `test_ui_presenter` | `AppState` 到 `UiScreen` / `UiPhase` 的映射、待机与错误优先级、空文本安全、展示字符串不影响状态 |
+| `test_ui_variant_contract` | Ricoh、Minimal 与 Debug Profile 的六个元素默认值 |
+
+通过条件：三套测试均完成且无失败。Native 不包含 M5Unified 屏幕、真实 BLE、Wi-Fi 或 HTTP 实测。
+
+## 4. UI 静态契约检查
+
+人工 Review Renderer 的 include 和调用点，确认：
+
+- 业务文件只实例化 `ActiveUiRenderer`，不直接依赖具体 Ricoh/Minimal/Debug 类型。
+- Renderer 只依赖 `UiModel`、自身 Theme/Layout/Profile 和绘图 API。
+- Renderer 不调用 BLE、Wi-Fi、HTTP、NVS 或 `AppController` 业务操作。
+- Renderer 不调用 `M5.begin()`、`pushSprite()`、`M5DisplaySurface::present()` 或 `delay()`。
+- 三个 `renderLiveViewOverlay()` 都不调用 `fillScreen()` / `clear()`。
+- `M5.begin()` 和 `pushSprite()` 仅由 `M5DisplaySurface` 管理。
+- UI 页面/阶段不通过 `detail`、`errorMessage` 等展示字符串推断。
+
+## 5. StickS3 UI 实机冒烟
+
+每个 Variant 单独烧录；串口按实际端口替换：
+
+```bash
+pio run -e sticks3-ui-ricoh --target upload
+pio device monitor --baud 115200 --filter time
+```
+
+对 `sticks3-ui-minimal` 和 `sticks3-ui-debug` 重复同样步骤。每个 Variant 检查：
+
+1. Boot 页面方向、尺寸和文字正常，无异常重启。
+2. BLE 扫描/连接、Wi-Fi 连接、错误、恢复和 Shutdown 页面能随强类型状态切换。
+3. 进入 LiveView 后底图持续存在，Overlay 不清屏、不整屏闪烁、不明显残留。
+4. 每个成功 JPEG 帧仅发生一次硬件上屏；如需确认，使用临时低频计数或逻辑分析方式，避免每帧打印干扰性能。
+5. Ricoh、Minimal、Debug 显示各自风格，但相同按键和业务状态产生相同行为。
+6. 六个 Feature Flag 的默认元素与 Profile 一致；非默认组合只改变显示，不改变功能。
+
+## 6. BLE / Wi-Fi / Power 功能回归
+
+至少执行以下场景，并保存串口日志：
 
 1. **首次配对**
    - 擦除 NVS/flash 后启动。
-   - 期望：扫描、配对、安全连接、保存 BLE 身份、打开 Wi-Fi、进入 LiveView。
+   - 期望：扫描、配对、安全连接、保存 BLE 身份、激活 Wi-Fi、HTTP 探测并进入 LiveView。
+
 2. **已配对直连**
    - StickS3 重启，相机处于工作状态。
-   - 期望：优先直连保存的 BLE 地址，Wi-Fi cache 可短超时尝试，失败后 fresh BLE 参数回退。
+   - 期望：优先使用已保存 BLE 身份；缓存 Wi-Fi 参数短超时尝试，失败时回退到新参数。
+
 3. **相机关机/待机保护**
-   - 相机关机或进入 BLE_STARTUP / POWER_OFF_TRANSFER。
-   - 期望：不发送 Wi-Fi ON，进入 CAMERA_SLEEP_GUARD。
+   - 让相机处于关机、`BLE_STARTUP` 或 `POWER_OFF_TRANSFER` 语义。
+   - 期望：不为继续预览发送 Wi-Fi ON，进入 `CAMERA_SLEEP_GUARD`。
+
 4. **手动唤醒**
    - Guard 冷却结束后按 Button A。
-   - 期望：重建 BLE stack，手动唤醒流程启动。
+   - 期望：启动既有手动唤醒/重连流程；UI 只反映状态，不改变流程。
+
 5. **Button A AF 快门**
    - LiveView 正常运行时按 Button A。
-   - 期望：日志包含 `BLE: Ricoh shutter OperationRequest START param=1 autofocus=1`。
+   - 期望：执行既有 BLE AF 快门流程，预览按原策略保持或恢复；Overlay 以强类型 `UiShutterStatus` 短时显示成功或失败反馈。
 
-## Preview 性能测试
+6. **Button B 配对重置**
+   - 长按 Button B。
+   - 期望：清除本地配对/Profile，断开连接并重新进入扫描；显示 `PairingReset` 语义。
 
-记录：
+7. **电源键关机**
+   - 长按电源键。
+   - 期望：关闭 LiveView、Wi-Fi 和 BLE，显示 Shutdown 页面后关机。
+
+8. **断线与 Stall 恢复**
+   - 分别制造 Wi-Fi 断开、BLE 断开和 Preview 帧超时。
+   - 期望：Supervisor/AppController 按既有策略恢复；Renderer 不阻塞恢复。
+
+至少在 Ricoh 与 Minimal 上完成完整功能回归；Debug 至少完成启动、连接、LiveView、Overlay 和关机冒烟。若只测试了部分 Variant，报告中必须明确范围。
+
+## 7. Preview 性能与长期运行
+
+对重构前基线和每个待发布 Variant 使用同一相机、距离和供电条件，记录：
 
 - FPS。
-- dropped frames。
+- `droppedFrames`。
 - `JpegDecoder::lastDecodeMs()`。
+- 完整 render 时间。
 - Wi-Fi RSSI。
-- LiveView stall 次数。
-- 重连次数。
-- heap/PSRAM 可用量（TODO_UNVERIFIED：当前代码未统一输出）。
+- LiveView stall 和重连次数。
+- 内部 heap、最大连续块和 PSRAM 可用量。
+- 运行时长及是否出现闪屏、残影、重启或 watchdog。
 
+通过条件需由项目维护者根据基线确定；没有同条件数据时只报告测量值，不使用“无明显下降”等结论。
 
-## 后续 Codex 修改代码时必须注意
+## 8. 结果记录模板
 
-- 测试计划要随代码能力更新。
-- 新增协议/外设必须新增对应实机测试用例。
-- 优化预览必须提供前后对比数据。
+```text
+Commit / branch:
+Board package / PlatformIO:
+StickS3 revision:
+Camera model / firmware:
+
+Build sticks3-ui-ricoh: PASS / FAIL / NOT RUN
+Build sticks3-ui-minimal: PASS / FAIL / NOT RUN
+Build sticks3-ui-debug: PASS / FAIL / NOT RUN
+Build m5stack-sticks3: PASS / FAIL / NOT RUN
+
+Native test_native: PASS / FAIL / NOT RUN
+Native test_ui_presenter: PASS / FAIL / NOT RUN
+Native test_ui_variant_contract: PASS / FAIL / NOT RUN
+
+Hardware Ricoh UI: PASS / FAIL / NOT RUN
+Hardware Minimal UI: PASS / FAIL / NOT RUN
+Hardware Debug UI: PASS / FAIL / NOT RUN
+
+FPS / dropped / decode ms / render ms:
+BLE-Wi-Fi-LiveView regression evidence:
+Overlay visual evidence:
+Known failures / unverified items:
+```
+
+最终报告必须保留所有 `NOT RUN`，不得省略或改写为通过。

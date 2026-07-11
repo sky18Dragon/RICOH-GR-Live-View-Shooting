@@ -1,90 +1,132 @@
 # Wi-Fi and Preview Flow
 
-## 已确认的端到端流程
+## 端到端流程
 
-从 `src/main.cpp`、`src/gr_wifi.cpp`、`src/gr_api.cpp`、`src/mjpeg_stream.cpp`、`src/jpeg_decoder.cpp` 确认：
+从 `src/main.cpp`、`AppController`、Wi-Fi/Preview Services、MJPEG/JPEG 模块和 UI 子系统确认，当前主路径为：
 
 ```text
 setup()
-  -> ui / M5PM1 / buttons / decoder / Wi-Fi STA / profile init
-  -> allocate FRAME_BUFFER_SIZE
-  -> mjpeg.begin(frameBuffer)
-  -> runCameraFlowOnce()
+  -> M5DisplaySurface.begin()
+  -> UiPresenter / UiManager 使用 Boot Model 绘制启动页
+  -> power / buttons / decoder / Wi-Fi STA / profile init
+  -> 分配 256 KiB PreviewFrameBuffer
+  -> mjpeg.begin(frameBuffer, onJpegFrame)
+  -> AppController.runCameraFlowOnce()
 
 runCameraFlowOnce()
-  -> BLE scan/direct connect
+  -> BLE scan 或保存地址直连
+  -> 检查相机 Power State / Operation Mode
   -> BLE_READY
-  -> ensureCameraPowerReadyForWifi()
-  -> open Wi-Fi over BLE
-  -> cached Wi-Fi connect or fresh BLE Wi-Fi params
+  -> 通过 BLE 激活相机 Wi-Fi
+  -> 缓存 Wi-Fi 参数短超时连接，失败则读取最新 BLE 参数回退
   -> HTTP /v1/props
   -> HTTP /v1/liveview
   -> LIVEVIEW_RUNNING
 
 loop()
-  -> ensureLiveView()
-  -> grApi.readLiveView(streamReadBuffer, 2048)
-  -> mjpeg.process()
-  -> onJpegFrame()
-  -> decoder.drawFrame()
-  -> ui.drawOverlay()
-  -> ui.pushCanvas()
+  -> AppController.planTick()
+  -> buttons / camera flow / Wi-Fi monitor / props refresh / LiveView monitor
+  -> SystemSupervisor health check
+  -> Wi-Fi profile refresh
+  -> 非 LiveView 状态 UI 按需刷新
+  -> delay(1)
 ```
+
+相机待机/关机保护和 BLE 断线恢复仍属于业务层。UI Variant 的选择不会改变上述连接顺序。
 
 ## HTTP API
 
-- Props：`GET /v1/props HTTP/1.1`，`Connection: close`。
-- LiveView：`GET /v1/liveview HTTP/1.1`，`Connection: keep-alive`。
-- HTTP host 默认 `192.168.0.1:80`。
+- Props：`GET /v1/props HTTP/1.1`，使用 `Connection: close`。
+- LiveView：`GET /v1/liveview HTTP/1.1`，使用 `Connection: keep-alive`。
+- 默认 HTTP endpoint：`192.168.0.1:80`。
 - `readHttpHeaders()` 最多读取 2048 bytes header。
-- Props body 上限：16KB。
+- Props body 上限为 16 KiB。
 
 ## Wi-Fi 连接策略
 
-从 `src/gr_wifi.cpp` 和 `src/main.cpp` 确认：
+当前实现保持以下策略：
 
-- `WiFi.mode(WIFI_STA)`。
-- `WiFi.setSleep(true)`，注释说明 BLE + Wi-Fi 共存需要 modem sleep。
-- `WiFi.setAutoReconnect(true)`。
-- 支持 SSID/password、BSSID、channel hint。
-- `ConnectGuard` 可在连接轮询中检查 BLE 是否仍连接，失败时提前断开 Wi-Fi。
-- 缓存连接短超时：`WIFI_CACHED_CONNECT_TIMEOUT_MS=1200`。
-- 使用信道提示连接超时：`WIFI_CHANNEL_HINT_CONNECT_TIMEOUT_MS=6000`。
-- 总连接超时：`WIFI_CONNECT_TIMEOUT_MS=15000`。
-- 缓存连接成功后延迟刷新 BLE Wi-Fi 参数：`WIFI_CACHE_REFRESH_DELAY_MS=5000`。
+- ESP32 使用 Station 模式，并为 BLE + Wi-Fi 共存启用 modem sleep 和自动重连。
+- 连接参数支持 SSID/password、BSSID 和 channel hint。
+- `ConnectGuard` 在连接轮询期间检查 BLE 是否仍连接；BLE 丢失时可提前停止 Wi-Fi 连接。
+- 缓存参数连接使用短超时；失败后回退到通过 BLE 读取的新参数。
+- 使用 channel hint 的连接和全局连接分别受配置超时限制。
+- 缓存连接成功后延迟刷新 BLE Wi-Fi 参数，避免阻塞刚建立的 LiveView。
 
-## MJPEG/JPEG/显示
+UI 重构不得改变这些超时、回退和保护时序。
 
-- MJPEG 通过 SOI `0xFFD8` 和 EOI `0xFFD9` 切帧。
-- frame buffer 容量：256KB。
-- stream read buffer：2048 bytes。
-- JPEG decode 使用 JPEGDEC `openRAM()`。
-- Pixel type 设置为 `RGB565_BIG_ENDIAN`。
-- JPEG scale：`JPEG_SCALE_POLICY`，当前 config 默认 `JPEG_SCALE_HALF`。
-- 解码后绘制到 M5Canvas / LovyanGFX，之后 `ui.pushCanvas()` 上屏。
+## MJPEG、JPEG 与上屏
 
-## 实时预览卡顿风险
+MJPEG 字节流到屏幕的完整路径：
 
-后续优化 LiveView 时必须重点检查：
+```mermaid
+flowchart TD
+    A["WifiPreviewService.readFrame()"] --> B["processFrameData() / MjpegStream.process()"]
+    B -->|"SOI/EOI 完整帧"| C["onJpegFrame()"]
+    C --> D["JpegDecoder.drawFrame(displaySurface.canvas())"]
+    D -->|"失败"| E["记录耗时/错误<br/>不叠加、不上屏"]
+    D -->|"成功"| F["makeUiRuntimeSnapshot()"]
+    F --> G["UiPresenter.present()"]
+    G --> H["UiManager.renderLiveViewOverlay()"]
+    H --> I["M5DisplaySurface.present() 一次"]
+```
 
-1. Wi-Fi 阻塞读取：`WiFiClient::read()`、connect timeout、HTTP header/body timeout。
-2. JPEG 解码耗时：`JpegDecoder::_lastDecodeMs` 可作为观测点。
-3. 屏幕刷新频率：`pushCanvas()` 每帧调用可能影响帧率。
-4. buffer 过小：`STREAM_READ_BUFFER_SIZE=2048` 过小可能增加循环次数；`FRAME_BUFFER_SIZE=256KB` 不足会导致 dropped frame。
-5. 频繁 malloc/free：当前主 frame buffer 只在 setup 分配；新增每帧分配是风险。
-6. BLE/Wi-Fi 任务互相抢占：ESP32-S3 BLE + Wi-Fi 共存可能受 modem sleep、任务优先级影响。
-7. 长时间 delay：连接/重试路径存在 delay，LiveView 运行路径应避免新增长 delay。
-8. watchdog 风险：解码、网络读取、串口大量打印都可能造成长时间不 yield。
-9. 串口日志过多：每帧打印会显著拖慢预览。
+具体事实：
 
-## TODO_UNVERIFIED
+- `MjpegStream` 通过 SOI `0xFFD8` 和 EOI `0xFFD9` 组帧。
+- Preview frame buffer 容量为 256 KiB；stream read buffer 为 2048 bytes。
+- `JpegDecoder` 使用 JPEGDEC `openRAM()`，像素格式为 `RGB565_BIG_ENDIAN`。
+- JPEG scale 由 `JPEG_SCALE_POLICY` 控制，当前默认 `JPEG_SCALE_HALF`。
+- Decoder 直接写入 `M5DisplaySurface` 持有的 Canvas，不自行上屏。
+- 只有成功解码帧才叠加当前 Variant 的 Overlay，并由 Surface `present()` 一次。
+- 解码失败帧会记录渲染耗时和错误，不执行 Overlay 或 `present()`。
 
-- 当前实际 FPS、平均 JPEG decode ms、丢帧率需要实机日志确认。
-- 相机 LiveView MJPEG 分辨率、帧率和单帧最大大小需要采样确认。
-- Wi-Fi RSSI 与卡顿关联阈值需要实测。
+## Canvas 所有权与 Overlay 约束
 
-## 后续 Codex 修改代码时必须注意
+| 组件 | 可以做 | 不可以做 |
+| --- | --- | --- |
+| `JpegDecoder` | 把 JPEG 像素写入传入的 Canvas | 选择 UI、绘制 Overlay、上屏 |
+| `ActiveUiRenderer` | 在成功解码后的 Canvas 上叠加必要元素 | 清空 LiveView、创建全屏 Sprite、网络操作、上屏 |
+| `UiManager` | 调用 Renderer；非 LiveView 页面统一 `present()` | 在普通状态刷新中清空/提交 LiveView |
+| `M5DisplaySurface` | 拥有 Canvas，执行唯一的硬件提交 | 推断业务状态或选择页面样式 |
 
-- Preview 优化必须保留相机电源保护和 BLE guard。
-- 不要为了流畅度删除 stall watchdog；可以调整但必须记录依据。
-- 新增性能指标时优先低频统计，不要每帧串口打印。
+`renderLiveViewOverlay()` 必须满足：
+
+- 不调用 `fillScreen()` 或 `clear()`；
+- 不绘制覆盖整帧的不透明背景；
+- 不调用 `M5.begin()`、`pushSprite()`、`present()` 或 `delay()`；
+- 不访问 BLE、Wi-Fi、HTTP、NVS 或相机控制；
+- 不改变 MJPEG 读取大小、JPEG scale 或流处理节奏。
+
+Boot、Status、Error 和 Shutdown 页面可以由 Renderer 清屏。`UiManager::update()` 收到 `UiScreen::LiveView` 时直接返回，不会在两帧之间额外清屏或上屏。
+
+## UI 数据刷新
+
+`makeUiRuntimeSnapshot()` 从 AppController、Services 和现有统计值收集 BLE、Wi-Fi、Preview、相机待机、快门、RSSI、FPS、帧计数和相机属性。`UiPresenter` 再根据强类型字段生成 `UiModel`。
+
+六个 `UI_FEATURE_*` 开关只裁剪对应的 UI 绘制元素（包括 Overlay 或 Debug 状态页中的同类元素）。即使某个 Variant 不显示 FPS、RSSI 或电量，业务层仍应继续维护相关值；开关不得成为跳过属性刷新或网络检查的条件。
+
+## 实时预览性能风险
+
+后续优化 LiveView 时重点检查：
+
+1. Wi-Fi 阻塞读取、连接超时和 HTTP header/body 超时。
+2. `JpegDecoder::lastDecodeMs()` 与完整 render 时间。
+3. 每帧唯一一次 `present()` 的耗时；不得在 Renderer 中增加第二次提交。
+4. 256 KiB 帧缓冲是否发生 overflow/dropped frame。
+5. 是否引入每帧 malloc/free、动态大字符串或新建 Canvas。
+6. BLE/Wi-Fi 共存时的任务争用与 modem sleep 行为。
+7. LiveView 路径是否新增 `delay()` 或其他阻塞等待。
+8. 解码、网络和日志是否造成 watchdog 风险。
+9. 高频串口日志是否影响预览吞吐。
+10. Overlay 绘制复杂度是否导致不同 Variant 的 FPS 明显分化。
+
+## 待实机确认
+
+- Ricoh、Minimal、Debug Overlay 在真实画面上是否可读且不闪烁、不残留、不清空底图。
+- 三个 Variant 的实际 FPS、平均 JPEG decode/render 耗时和 dropped frames。
+- 长时间运行时 heap/PSRAM、MJPEG stall 和恢复表现。
+- 相机 LiveView 分辨率、帧率、单帧最大大小的采样值。
+- Wi-Fi RSSI 与卡顿的相关阈值。
+
+未附带串口日志、屏幕录像或测试记录时，以上项目应保持“待验证”，不能由编译结果推断。完整回归步骤见 [test_plan.md](./test_plan.md)。

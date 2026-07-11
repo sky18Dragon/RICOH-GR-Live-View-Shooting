@@ -22,7 +22,7 @@
 </p>
 
 > [!NOTE]
-> 正在寻找硬件通信协议和状态机细节？请阅读 [docs/project_overview.md](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/docs/project_overview.md) 了解整体架构，以及 [docs/ricoh_ble_protocol.md](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/docs/ricoh_ble_protocol.md) 了解 BLE 协议详情。
+> 请阅读 [项目概览](docs/project_overview.md)、[UI Variant 架构](docs/ui_architecture.md)、[Wi-Fi / Preview 流程](docs/wifi_preview_flow.md) 和 [BLE 协议说明](docs/ricoh_ble_protocol.md) 了解实现边界。
 
 > [!NOTE]
 > **关于开发背景**：本项目作者本身不具备嵌入式开发能力，本仓库的全部固件代码、架构设计及相关文档均由 AI 助手 (Codex) 协作编写与整理。若您在代码设计、逻辑实现或稳定性上发现任何问题，敬请见谅。非常欢迎您提交 [Issues](https://github.com/sky18Dragon/RicohViewfinder/issues) 共同讨论或发起 Pull Request 予以完善！
@@ -32,26 +32,37 @@
 ## 核心交付内容 (What Ships)
 
 * **高帧率 LiveView 渲染**：基于 ESP32-S3 硬件加速解码的 MJPEG 流处理器，直接输出到 LovyanGFX / M5Canvas，提供流畅的预览体验。
-* **分层解耦架构**：重构了传统单文件嵌入式结构，引入了 Supervisor-Controller-Service 设计模式，大大提升了连接稳健度与可维护性。
+* **分层架构**：业务采用 Supervisor / Controller / Service 分工；UI 采用 `UiRuntimeSnapshot -> UiPresenter -> UiModel -> UiManager` 数据流。
+* **编译期 UI Variant**：提供 Ricoh、Minimal 和 Debug 三套 Renderer，并支持六类 UI 元素的编译期裁剪。
 * **智能休眠防误唤醒**：读取相机 `Power State` 和 `Operation Mode` 以确认真实运行状态，防止意外唤醒关机状态下的相机。
 * **WLAN 动态参数缓存**：首次连接后，将相机的 Wi-Fi SSID、BSSID、信道及加密参数持久化写入 NVS，在下次启动时最快以 `<0.5s` 的极速完成直连。
 * **物理按键 AF 遥控快门**：支持理光官方 BLE Shooting Service 协议，通过 Button A 进行高精度自动对焦与瞬间抓拍。
 * **一键重置蓝牙配对**：支持长按 Button B 一键清除旧的蓝牙配对及绑定数据，方便快速切换并配对新相机。
-* **完整 Native 测试套件**：无需依赖 StickS3 硬件，即可在 Host 端运行核心数据解析和状态转换的本地测试。
+* **Native 测试**：无需 StickS3 硬件即可在 Host 端运行基础逻辑、UI Presenter 和 Variant Profile 契约测试。
 
 ---
 
 ## 快速开始 (Quick Start)
 
 ### 1. 编译并烧录 StickS3 固件
-将 M5Stack StickS3 通过 USB 连接至电脑，确保已安装 PlatformIO 环境，运行以下命令编译并烧录固件：
-```bash
-# 自动编译并烧录固件
-platformio run --target upload
 
-# 如有需要，可指定特定的串口（例如 COM6）
-platformio run --target upload --upload-port COM6
+确保已安装 PlatformIO。最简编译示例：
+
+```bash
+# 默认 Ricoh UI
+pio run -e sticks3-ui-ricoh
+
+# Minimal UI
+pio run -e sticks3-ui-minimal
 ```
+
+Debug UI 使用 `pio run -e sticks3-ui-debug`；旧环境名 `m5stack-sticks3` 仍选择 Ricoh UI。选择好 Variant 后再连接 StickS3 烧录，例如：
+
+```bash
+pio run -e sticks3-ui-ricoh --target upload
+```
+
+完整编译矩阵、Native 测试和实机检查见 [测试计划](docs/test_plan.md)。
 
 ### 2. 首次扫描与安全配对
 1. 打开理光 GR 相机，并在菜单设置中启用 **蓝牙连接 (Bluetooth)**。
@@ -83,10 +94,14 @@ platformio run --target upload --upload-port COM6
 
 ### 1. 软件架构设计
 本项目经过重构，实现了清晰的分层和异步事件通知机制：
-* **[SystemSupervisor](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/supervisor/SystemSupervisor.h)**：健康监视器，运行独立的健康轮询任务，负责检测 Wi-Fi/LiveView 连接是否卡死或掉线，并向控制器发送恢复指令。
-* **[AppController](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/app/AppController.h)**：核心业务状态机，统一控制连接生命周期、保护态流转、手动唤醒和全局事件分发。
-* **[BleCameraService](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/services/BleCameraService.h)**：BLE 协议驱动层，处理扫描、安全配对绑定、电量状态/操作模式读取及快门触发。
-* **[WifiPreviewService](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/services/WifiPreviewService.h)**：Wi-Fi 取景服务层，管理 Wi-Fi 状态切换与 HTTP MJPEG 预览数据流的读取。
+
+* **[SystemSupervisor](src/supervisor/SystemSupervisor.h)**：健康监视器，检查 Wi-Fi / LiveView 状态并生成恢复事件。
+* **[AppController](src/app/AppController.h)**：核心业务状态机，管理连接生命周期、保护态、用户命令和业务事件。
+* **[BleCameraService](src/services/BleCameraService.h)**：BLE 扫描、配对、状态读取及快门服务。
+* **[WifiPreviewService](src/services/WifiPreviewService.h)**：Wi-Fi 状态与 HTTP MJPEG 数据读取服务。
+* **UI 子系统**：`UiRuntimeSnapshot -> UiPresenter -> UiModel -> UiManager<ActiveUiRenderer> -> M5DisplaySurface`；`ActiveUiRenderer` 在编译期选择 Ricoh、Minimal 或 Debug。
+
+UI 分层、`UI_FEATURE_*` 开关和 LiveView Overlay 约束见 [UI Variant 架构](docs/ui_architecture.md)。
 
 ### 2. 状态机流转流程
 以下是系统的核心连接流转图，展示了从上电到 LiveView 运行的整个生命周期：
@@ -129,7 +144,7 @@ graph TD
 
 ## 关键配置参数 (Configuration)
 
-您可以通过修改 [src/config.h](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/config.h) 或 `platformio.ini` 来调整固件表现：
+您可以通过修改 [src/config.h](src/config.h) 或 `platformio.ini` 来调整固件表现：
 
 | 参数名称 | 默认值 | 作用与说明 |
 | :--- | :---: | :--- |
@@ -163,21 +178,17 @@ graph TD
 
 ## 项目源码结构 (Project Structure)
 
-* [platformio.ini](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/platformio.ini) — PlatformIO 环境配置文件与依赖项管理
-* [src/main.cpp](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/main.cpp) — 硬件层及主循环初始化入口
-* [src/app/](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/app/) — 状态机管理
-  * [AppController.cpp](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/app/AppController.cpp) / [AppController.h](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/app/AppController.h) — 状态调度中控
-  * [AppState.h](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/app/AppState.h) — 核心流转状态定义
-  * [AppFlowActions.h](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/app/AppFlowActions.h) — 状态转换转换动作映射
-* [src/supervisor/](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/supervisor/) — 运行健康监护
-  * [SystemSupervisor.cpp](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/supervisor/SystemSupervisor.cpp) / [SystemSupervisor.h](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/supervisor/SystemSupervisor.h) — 监测任务运行状态并执行故障恢复
-* [src/services/](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/services/) — 协议层与流传输层服务
-  * [BleCameraService.cpp](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/services/BleCameraService.cpp) / [BleCameraService.h](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/services/BleCameraService.h) — NimBLE 蓝牙连接驱动与协议点读写
-  * [WifiPreviewService.cpp](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/services/WifiPreviewService.cpp) / [WifiPreviewService.h](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/services/WifiPreviewService.h) — ESP32 STA 连接及 HTTP LiveView 接收驱动
-  * [PreviewFrameBuffer.cpp](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/services/PreviewFrameBuffer.cpp) / [PreviewFrameBuffer.h](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/services/PreviewFrameBuffer.h) — 预览帧内存缓冲区管理，防止碎片化并优化渲染延迟
-* [src/camera_profile_store.cpp](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/camera_profile_store.cpp) — ESP32 NVS 相机配对及 AP 连接缓存序列化
-* [src/jpeg_decoder.cpp](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/jpeg_decoder.cpp) / [mjpeg_stream.cpp](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/mjpeg_stream.cpp) — 高帧率 JPEG 硬件加速解码与字节边界切割
-* [test/test_native/](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/test/test_native/) — 运行在本地主机的架构与关键解析逻辑单元测试
+* [platformio.ini](platformio.ini) — 公共配置、三套 UI 环境和旧环境兼容入口
+* [src/main.cpp](src/main.cpp) — 对象装配、运行快照、LiveView 帧回调和主循环入口
+* [src/app/](src/app/) — `AppController`、业务状态和动作契约
+* [src/services/](src/services/) — BLE、相机、Wi-Fi / Preview、快门和帧缓冲服务
+* [src/supervisor/](src/supervisor/) — 运行健康监视和恢复事件
+* [src/display/](src/display/) — `M5DisplaySurface`、Canvas 生命周期和统一上屏
+* [src/ui/model/](src/ui/model/) / [src/ui/presenter/](src/ui/presenter/) — 强类型 UI Model 与映射
+* [src/ui/core/](src/ui/core/) — `UiManager`、Feature Flag 和编译期 Renderer 选择
+* [src/ui/variants/](src/ui/variants/) — Ricoh、Minimal、Debug Renderer 及各自 Profile
+* [src/jpeg_decoder.cpp](src/jpeg_decoder.cpp) / [src/mjpeg_stream.cpp](src/mjpeg_stream.cpp) — JPEG 解码与 MJPEG 帧边界解析
+* [test/](test/) — 基础逻辑、Presenter 和 Variant 契约的 Native 测试
 
 ---
 
@@ -222,4 +233,4 @@ Flow: LIVEVIEW_RUNNING -> BLE_READY (Resetting connections)
 
 ## 开源许可证 (License)
 
-本项目采用 [GNU General Public License v3.0 (GPL-3.0)](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/LICENSE) 开源许可证。您可以自由修改、使用和二次发布本固件，但必须根据 GPL-3.0 要求对衍生工程开源。
+本项目采用 [GNU General Public License v3.0 (GPL-3.0)](LICENSE) 开源许可证。您可以自由修改、使用和二次发布本固件，但必须根据 GPL-3.0 要求对衍生工程开源。

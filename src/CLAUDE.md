@@ -2,7 +2,9 @@
 
 [← 根目录 CLAUDE.md](../CLAUDE.md) ｜ 生成时间：2026-06-29 17:19:32 CST
 
-`src/` 扁平存放全部固件源码（10 个 `.cpp`/`.h` 对 + `config.h`，约 3711 行）。本文按层记录每个模块的职责、对外接口、依赖与实现要点。
+`src/` 同时包含历史顶层模块与按 `app/core/display/services/ui` 等目录分层的固件源码。本文按层记录主要模块的职责、对外接口、依赖与实现要点。
+
+> UI 架构已迁移到 `src/display/` 与 `src/ui/`；完整边界、Variant 和构建方式以 [`docs/ui_architecture.md`](../docs/ui_architecture.md) 为准。
 
 ## 文件清单
 
@@ -13,7 +15,7 @@
 | `gr_wifi.{cpp,h}` | 189 / 28 | Wi-Fi | ESP32 STA 连相机 AP |
 | `gr_api.{cpp,h}` | 342 / 35 | HTTP | `/v1/props` + `/v1/liveview` MJPEG |
 | `camera_identity.{cpp,h}` | 49 / 5 | 相机身份 | 从 Wi-Fi SSID 推导候选 BLE 名称 |
-| `display.{cpp,h}` | 336 / 50 | 渲染 | 屏幕 UI：boot/status/error/overlay |
+| `display/` + `ui/` | 分层目录 | 渲染 | Surface、强类型 Model/Presenter、UiManager 与三套 Renderer |
 | `jpeg_decoder.{cpp,h}` | 172 / 49 | 渲染 | JPEGDEC 解码到 RGB565 画布 |
 | `mjpeg_stream.{cpp,h}` | 110 / 39 | 渲染 | MJPEG 字节流切分为单帧 |
 | `camera_profile_store.{cpp,h}` | 62 / 31 | 持久化 | NVS 相机身份存储 |
@@ -55,7 +57,7 @@ BleScan → BleReady → WifiConnecting → HttpProbe → LiveViewRunning
 
 ### `setup()` / `loop()`
 
-- `setup()`：`Serial` → `ui.begin()` → boot 画面 → 等串口 → `buttons/decoder/grWifi.begin()` → `applyDefaultProfile()` → PSRAM 检查 → 分配 `frameBuffer`（PSRAM 优先，回退内部 RAM，失败则停机）→ `mjpeg.begin(frameBuffer, ..., onJpegFrame)` → `runCameraFlowOnce()`。
+- `setup()`：`Serial` → `displaySurface.begin()` → Presenter/UiManager boot 画面 → 等串口 → `buttons/decoder/grWifi.begin()` → `applyDefaultProfile()` → PSRAM 检查 → 分配 `frameBuffer`（PSRAM 优先，回退内部 RAM，失败则停机）→ `mjpeg.begin(frameBuffer, ..., onJpegFrame)` → `runCameraFlowOnce()`。
 - `loop()`（每轮 `delay(1)`）：
   1. `handleButtons()` — 仅 `M5.BtnA`：保护态则 `requestManualCameraWake`，否则 `triggerShutterFromButtonA()`（`bleCamera.shoot(true)`）。
   2. `serviceCameraFlowIfNeeded()` — 非运行态按 `BLE_SCAN_RETRY_INTERVAL_MS` 周期推进。
@@ -66,7 +68,7 @@ BleScan → BleReady → WifiConnecting → HttpProbe → LiveViewRunning
 
 ### 帧回调 `onJpegFrame(data, len, _)`
 
-`lastFrameAt` 更新 → `decodedFrames++` → `updateFps()` → `decoder.drawFrame(ui.getCanvas(), ...)` → 可选 `ui.drawOverlay(...)` → `ui.pushCanvas()`。
+`lastFrameAt` 更新 → `decodedFrames++` → `updateFps()` → `decoder.drawFrame(&displaySurface.canvas(), ...)` → `UiManager::renderLiveViewOverlay(...)` → `displaySurface.present()`。
 
 ### 名字推导
 
@@ -152,15 +154,9 @@ BleScan → BleReady → WifiConnecting → HttpProbe → LiveViewRunning
 - 裁剪：`visibleX/Y/W/H` 处理解码图大于屏幕的可见区。
 - `lastDecodeMs`/`lastWidth`/`lastHeight`/`lastError` 状态查询。
 
-### `display.{cpp,h}` — `DisplayUi`
+### `display/` 与 `ui/`
 
-`M5Canvas` 双缓冲 + `pushSprite` 上屏，240×135。
-
-- `begin()` 初始化画布；`getCanvas()` 暴露 `LovyanGFX*` 供解码器直接绘制。
-- `showBoot(msg)` / `showStatus(L1..L4)` / `showError(msg, detail)`：状态屏（顶部琥珀色标题、底部灰色提示；UI 文案标注「BtnA: shutter / wake」「Press BtnA to reconnect」）。
-- `drawOverlay(wifiStatus, liveviewStatus, model, battery, fps, rssi, frames, droppedFrames)`：LiveView 上的半透明 overlay（WiFi 图标 `drawWifiIcon`、电池 `drawBatteryIcon`）。
-- `pushCanvas()` 上屏；`width()`/`height()` 查询。
-- 颜色常量 `COLOR_BG/COLOR_AMBER/COLOR_WHITE/COLOR_GRAY/COLOR_RED`。
+`M5DisplaySurface` 独占 M5 初始化、`M5Canvas` 生命周期和 `present()`。`UiPresenter` 将结构化运行态映射为 `UiModel`，`UiManager<ActiveUiRenderer>` 负责页面、Dirty/节流与非 LiveView 上屏；Ricoh、Minimal、Debug Renderer 只绘图。LiveView Overlay 不清屏、不自行上屏。
 
 ---
 
@@ -207,7 +203,8 @@ gr_api → WiFiClient, ArduinoJson, config.h
 camera_identity → 标准 C++ 头文件（纯逻辑，无硬件依赖）
 mjpeg_stream → 标准 C++ 头文件（纯逻辑，无硬件依赖）
 jpeg_decoder → JPEGDEC, M5Unified(LovyanGFX), config.h
-display → M5Unified, config.h
+display → M5Unified
+ui → UiModel, LovyanGFX（Renderer 不依赖 BLE/Wi-Fi/HTTP）
 camera_profile_store → Preferences
 buttons → M5Unified
 config.h → Arduino.h
