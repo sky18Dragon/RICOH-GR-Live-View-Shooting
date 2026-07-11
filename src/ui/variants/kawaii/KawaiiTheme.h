@@ -22,6 +22,8 @@ struct KawaiiTheme {
     static constexpr uint16_t kTextSoft = 0x72B1;
     static constexpr uint16_t kWhite = 0xFFFF;
     static constexpr uint16_t kSuccess = 0x3349;
+    static constexpr uint16_t kLampGreen = 0x47F0;
+    static constexpr uint16_t kLampGray = 0x8410;
     static constexpr uint16_t kWarning = 0x8A64;
     static constexpr uint16_t kDanger = 0xA98C;
     static constexpr uint16_t kSkin = 0xFDD5;

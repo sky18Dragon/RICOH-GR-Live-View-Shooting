@@ -12,6 +12,8 @@ namespace rvf::ui {
 void KawaiiUiRenderer::renderLiveViewOverlay(LovyanGFX& canvas, const UiModel& model) {
     // The JPEG decoder owns all base pixels. This method intentionally draws
     // only edge HUD elements and never clears or presents the surface.
+    canvas.drawRoundRect(1, 1, canvas.width() - 2, canvas.height() - 2, 10,
+                         KawaiiTheme::kPanelBorder);
     drawLiveBadge(canvas, model);
 
     canvas.drawFastHLine(76, 1, 31, KawaiiTheme::kAccentGlow);
@@ -32,15 +34,6 @@ void KawaiiUiRenderer::renderLiveViewOverlay(LovyanGFX& canvas, const UiModel& m
     }
     if constexpr (KawaiiUiProfile::kShowBattery) {
         drawBatteryBadge(canvas, 218, 4, model.battery);
-    }
-
-    if constexpr (KawaiiUiProfile::kShowCameraModel) {
-        canvas.fillRoundRect(3, 21, 55, 13, 6, KawaiiTheme::kPanelSoft);
-        canvas.drawRoundRect(3, 21, 55, 13, 6, KawaiiTheme::kPanelBorder);
-        printTruncated(canvas,
-                       safeText(model.cameraModel,
-                                safeText(model.cameraName, "RICOH GR")),
-                       8, 25, 7, KawaiiTheme::kText, KawaiiTheme::kPanelSoft);
     }
 
     if constexpr (KawaiiUiProfile::kShowFrameStats) {
@@ -68,20 +61,24 @@ void KawaiiUiRenderer::renderLiveViewOverlay(LovyanGFX& canvas, const UiModel& m
     }
 
     if constexpr (KawaiiUiProfile::kShowMascots) {
-        drawMiniMascot(canvas, 11, 106);
-        drawMiniMascot(canvas, canvas.width() - 11, 106);
+        drawMascot(canvas,
+                   KawaiiLayout::kLiveMascotX,
+                   KawaiiLayout::kLiveMascotY,
+                   true,
+                   true,
+                   KawaiiLayout::kLiveMascotScale);
     }
 
-    canvas.fillRoundRect(3, 117, canvas.width() - 6, 16, 7, KawaiiTheme::kPanelSoft);
-    canvas.drawRoundRect(3, 117, canvas.width() - 6, 16, 7, KawaiiTheme::kPanelBorder);
-    canvas.drawFastHLine(12, 119, canvas.width() - 24, KawaiiTheme::kWhite);
+    drawButtonHint(canvas, 6, 120, 54, 'A', "Shoot");
+    canvas.fillRoundRect(76, 120, 46, KawaiiLayout::kButtonH,
+                         KawaiiLayout::kButtonH / 2, KawaiiTheme::kPanelSoft);
+    canvas.drawRoundRect(76, 120, 46, KawaiiLayout::kButtonH,
+                         KawaiiLayout::kButtonH / 2, KawaiiTheme::kPanelBorder);
     canvas.setTextSize(1);
     canvas.setTextColor(KawaiiTheme::kText, KawaiiTheme::kPanelSoft);
-    canvas.setCursor(8, 123);
-    canvas.print("A Shoot");
-    drawPaw(canvas, 120, 125, KawaiiTheme::kPrimary);
-    canvas.setCursor(160, 123);
-    canvas.print("Hold B Reset");
+    canvas.setCursor(81, 122);
+    canvas.print("+/-0.0");
+    drawButtonHint(canvas, 126, 120, 78, 'B', "Pair Reset");
 }
 
 }  // namespace rvf::ui

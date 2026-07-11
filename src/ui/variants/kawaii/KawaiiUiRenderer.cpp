@@ -15,51 +15,6 @@ const char* KawaiiUiRenderer::safeText(const char* value, const char* fallback) 
     return value != nullptr && value[0] != '\0' ? value : fallback;
 }
 
-const char* KawaiiUiRenderer::bleStatusText(const UiModel& model) {
-    if (model.bleConnected) {
-        return "Connected";
-    }
-    if (model.cameraStandby || model.phase == UiPhase::CameraStandby) {
-        return "Paused";
-    }
-    if (model.phase == UiPhase::BleConnecting) {
-        return "Connecting";
-    }
-    if (model.phase == UiPhase::Recovering) {
-        return "Recovering";
-    }
-    return "Scanning";
-}
-
-const char* KawaiiUiRenderer::wifiStatusText(const UiModel& model) {
-    if (model.wifiConnected) {
-        return "Connected";
-    }
-    switch (model.phase) {
-        case UiPhase::ActivatingWifi:
-        case UiPhase::WifiConnecting:
-        case UiPhase::WifiConnected:
-        case UiPhase::HttpProbing:
-        case UiPhase::StartingPreview:
-            return "Connecting";
-        default:
-            return "Not Ready";
-    }
-}
-
-const char* KawaiiUiRenderer::signalText(const UiModel& model) {
-    if (!model.wifiConnected || model.wifiRssi >= 0) {
-        return "--";
-    }
-    if (model.wifiRssi >= -60) {
-        return "Strong";
-    }
-    if (model.wifiRssi >= -75) {
-        return "Medium";
-    }
-    return "Weak";
-}
-
 void KawaiiUiRenderer::printCentered(LovyanGFX& canvas,
                                       const char* text,
                                       int16_t y,
@@ -146,7 +101,21 @@ void KawaiiUiRenderer::drawOuterShell(LovyanGFX& canvas) {
 }
 
 void KawaiiUiRenderer::drawHeader(LovyanGFX& canvas, const char* title) {
-    printCentered(canvas, title, 13, 1, KawaiiTheme::kPrimary, KawaiiTheme::kPanel);
+    const int16_t x = KawaiiLayout::kHeaderX;
+    const int16_t y = KawaiiLayout::kHeaderY;
+    const int16_t w = KawaiiLayout::kHeaderW;
+    const int16_t h = KawaiiLayout::kHeaderH;
+    canvas.fillRoundRect(x + 1, y + 2, w, h, KawaiiLayout::kHeaderRadius,
+                         KawaiiTheme::kPanelShadow);
+    canvas.fillRoundRect(x, y, w, h, KawaiiLayout::kHeaderRadius,
+                         KawaiiTheme::kPanelSoft);
+    canvas.fillTriangle(96, y + 2, 103, 0, 111, y + 2, KawaiiTheme::kPanelSoft);
+    canvas.fillTriangle(129, y + 2, 137, 0, 144, y + 2, KawaiiTheme::kPanelSoft);
+    canvas.drawRoundRect(x, y, w, h, KawaiiLayout::kHeaderRadius,
+                         KawaiiTheme::kPanelBorder);
+    canvas.drawFastHLine(x + 12, y + 2, w - 24, KawaiiTheme::kWhite);
+    printCentered(canvas, title, y + 6, 1,
+                  KawaiiTheme::kPrimary, KawaiiTheme::kPanelSoft);
 }
 
 void KawaiiUiRenderer::drawFooterPanel(LovyanGFX& canvas) {
@@ -189,58 +158,63 @@ void KawaiiUiRenderer::drawMascot(LovyanGFX& canvas,
                                    int16_t centerX,
                                    int16_t centerY,
                                    bool mirrored,
-                                   bool crying) {
-    canvas.fillRoundRect(centerX - 12, centerY + 10, 24, 25, 8, KawaiiTheme::kSuit);
-    canvas.fillCircle(centerX - 9, centerY + 29, 6, KawaiiTheme::kSuit);
-    canvas.fillCircle(centerX + 9, centerY + 29, 6, KawaiiTheme::kSuit);
-    canvas.fillCircle(centerX - 8, centerY + 21, 3, KawaiiTheme::kSuitSpot);
-    canvas.fillCircle(centerX + 7, centerY + 27, 4, KawaiiTheme::kSuitSpot);
+                                   bool crying,
+                                   uint8_t scale) {
+    const int16_t s = scale == 0 ? 1 : static_cast<int16_t>(scale);
+    canvas.fillRoundRect(centerX - 12 * s, centerY + 10 * s,
+                         24 * s, 25 * s, 8 * s, KawaiiTheme::kSuit);
+    canvas.fillCircle(centerX - 9 * s, centerY + 29 * s, 6 * s, KawaiiTheme::kSuit);
+    canvas.fillCircle(centerX + 9 * s, centerY + 29 * s, 6 * s, KawaiiTheme::kSuit);
+    canvas.fillCircle(centerX - 8 * s, centerY + 21 * s, 3 * s, KawaiiTheme::kSuitSpot);
+    canvas.fillCircle(centerX + 7 * s, centerY + 27 * s, 4 * s, KawaiiTheme::kSuitSpot);
 
-    canvas.fillTriangle(centerX - 18, centerY - 8,
-                        centerX - 12, centerY - 24,
-                        centerX - 4, centerY - 9,
+    canvas.fillTriangle(centerX - 18 * s, centerY - 8 * s,
+                        centerX - 12 * s, centerY - 24 * s,
+                        centerX - 4 * s, centerY - 9 * s,
                         KawaiiTheme::kSuit);
-    canvas.fillTriangle(centerX + 4, centerY - 9,
-                        centerX + 12, centerY - 24,
-                        centerX + 18, centerY - 8,
+    canvas.fillTriangle(centerX + 4 * s, centerY - 9 * s,
+                        centerX + 12 * s, centerY - 24 * s,
+                        centerX + 18 * s, centerY - 8 * s,
                         KawaiiTheme::kSuit);
-    canvas.fillCircle(centerX, centerY - 3, 19, KawaiiTheme::kSuit);
-    canvas.fillCircle(centerX - 13, centerY - 9, 4, KawaiiTheme::kSuitSpot);
-    canvas.fillCircle(centerX + 12, centerY - 2, 5, KawaiiTheme::kSuitSpot);
-    canvas.fillCircle(centerX, centerY - 2, 13, KawaiiTheme::kSkin);
+    canvas.fillCircle(centerX, centerY - 3 * s, 19 * s, KawaiiTheme::kSuit);
+    canvas.fillCircle(centerX - 13 * s, centerY - 9 * s, 4 * s, KawaiiTheme::kSuitSpot);
+    canvas.fillCircle(centerX + 12 * s, centerY - 2 * s, 5 * s, KawaiiTheme::kSuitSpot);
+    canvas.fillCircle(centerX, centerY - 2 * s, 13 * s, KawaiiTheme::kSkin);
 
-    canvas.fillCircle(centerX, centerY - 10, 11, KawaiiTheme::kHair);
+    canvas.fillCircle(centerX, centerY - 10 * s, 11 * s, KawaiiTheme::kHair);
     if (mirrored) {
-        canvas.fillTriangle(centerX - 12, centerY - 7,
-                            centerX + 8, centerY - 11,
-                            centerX + 12, centerY - 4,
+        canvas.fillTriangle(centerX - 12 * s, centerY - 7 * s,
+                            centerX + 8 * s, centerY - 11 * s,
+                            centerX + 12 * s, centerY - 4 * s,
                             KawaiiTheme::kHair);
     } else {
-        canvas.fillTriangle(centerX + 12, centerY - 7,
-                            centerX - 8, centerY - 11,
-                            centerX - 12, centerY - 4,
+        canvas.fillTriangle(centerX + 12 * s, centerY - 7 * s,
+                            centerX - 8 * s, centerY - 11 * s,
+                            centerX - 12 * s, centerY - 4 * s,
                             KawaiiTheme::kHair);
     }
 
-    canvas.drawLine(centerX - 8, centerY - 2,
-                    centerX - 3, centerY + 1,
+    canvas.drawLine(centerX - 8 * s, centerY - 2 * s,
+                    centerX - 3 * s, centerY + s,
                     KawaiiTheme::kPrimaryDark);
-    canvas.drawLine(centerX + 3, centerY + 1,
-                    centerX + 8, centerY - 2,
+    canvas.drawLine(centerX + 3 * s, centerY + s,
+                    centerX + 8 * s, centerY - 2 * s,
                     KawaiiTheme::kPrimaryDark);
-    canvas.fillCircle(centerX, centerY + 4, 2, KawaiiTheme::kDanger);
-    canvas.fillCircle(centerX - 8, centerY + 5, 3, KawaiiTheme::kCheek);
-    canvas.fillCircle(centerX + 8, centerY + 5, 3, KawaiiTheme::kCheek);
+    canvas.fillCircle(centerX, centerY + 4 * s, 2 * s, KawaiiTheme::kDanger);
+    canvas.fillCircle(centerX - 8 * s, centerY + 5 * s, 3 * s, KawaiiTheme::kCheek);
+    canvas.fillCircle(centerX + 8 * s, centerY + 5 * s, 3 * s, KawaiiTheme::kCheek);
     if (crying) {
-        canvas.fillCircle(centerX - 12, centerY + 2, 3, KawaiiTheme::kAccentGlow);
-        canvas.fillCircle(centerX + 12, centerY + 2, 3, KawaiiTheme::kAccentGlow);
-        canvas.fillTriangle(centerX - 15, centerY + 3,
-                            centerX - 9, centerY + 3,
-                            centerX - 12, centerY + 9,
+        canvas.fillCircle(centerX - 12 * s, centerY + 2 * s, 3 * s,
+                          KawaiiTheme::kAccentGlow);
+        canvas.fillCircle(centerX + 12 * s, centerY + 2 * s, 3 * s,
+                          KawaiiTheme::kAccentGlow);
+        canvas.fillTriangle(centerX - 15 * s, centerY + 3 * s,
+                            centerX - 9 * s, centerY + 3 * s,
+                            centerX - 12 * s, centerY + 9 * s,
                             KawaiiTheme::kAccentGlow);
-        canvas.fillTriangle(centerX + 9, centerY + 3,
-                            centerX + 15, centerY + 3,
-                            centerX + 12, centerY + 9,
+        canvas.fillTriangle(centerX + 9 * s, centerY + 3 * s,
+                            centerX + 15 * s, centerY + 3 * s,
+                            centerX + 12 * s, centerY + 9 * s,
                             KawaiiTheme::kAccentGlow);
     }
 }
@@ -321,29 +295,77 @@ void KawaiiUiRenderer::drawBatteryBadge(LovyanGFX& canvas,
     canvas.fillRoundRect(x + 2, y + 2, fillWidth, 5, 1, color);
 }
 
-void KawaiiUiRenderer::drawStatusRow(LovyanGFX& canvas,
-                                      int16_t y,
-                                      const char* label,
-                                      const char* value,
-                                      bool ok) {
-    const int16_t x = KawaiiLayout::kStatusRowsX;
-    const int16_t w = KawaiiLayout::kStatusRowsW;
+void KawaiiUiRenderer::drawCompactStatusRow(LovyanGFX& canvas,
+                                             int16_t y,
+                                             StatusGlyph glyph,
+                                             bool active,
+                                             const char* value) {
+    const int16_t x = KawaiiLayout::kStatusX + 3;
+    const int16_t w = KawaiiLayout::kStatusW - 6;
     canvas.fillRoundRect(x, y, w, KawaiiLayout::kStatusRowH,
                          KawaiiLayout::kStatusRowRadius, KawaiiTheme::kPanelSoft);
     canvas.drawRoundRect(x, y, w, KawaiiLayout::kStatusRowH,
                          KawaiiLayout::kStatusRowRadius, KawaiiTheme::kPanelBorder);
-    canvas.fillCircle(x + 7, y + 6, 2, ok ? KawaiiTheme::kSuccess : KawaiiTheme::kTextSoft);
-    canvas.setTextSize(1);
-    canvas.setTextColor(KawaiiTheme::kTextSoft, KawaiiTheme::kPanelSoft);
-    canvas.setCursor(x + 13, y + 3);
-    canvas.print(safeText(label));
 
-    char clipped[14];
-    std::snprintf(clipped, sizeof(clipped), "%.13s", safeText(value, "--"));
-    const int16_t valueWidth = static_cast<int16_t>(std::strlen(clipped) * 6U);
+    const int16_t iconX = x + 5;
+    switch (glyph) {
+        case StatusGlyph::Camera:
+        case StatusGlyph::Ready:
+            canvas.drawRoundRect(iconX, y + 2, 12, 7, 2, KawaiiTheme::kPrimary);
+            canvas.fillRect(iconX + 2, y + 1, 4, 2, KawaiiTheme::kPrimary);
+            canvas.drawCircle(iconX + 6, y + 5, 2, KawaiiTheme::kPrimary);
+            if (glyph == StatusGlyph::Ready) {
+                canvas.drawFastHLine(iconX + 14, y + 3, 3, KawaiiTheme::kPrimary);
+                canvas.drawFastHLine(iconX + 14, y + 7, 3, KawaiiTheme::kPrimary);
+            }
+            break;
+        case StatusGlyph::Bluetooth:
+            canvas.drawFastVLine(iconX + 6, y + 1, 9, KawaiiTheme::kPrimary);
+            canvas.drawLine(iconX + 6, y + 1, iconX + 10, y + 4, KawaiiTheme::kPrimary);
+            canvas.drawLine(iconX + 10, y + 4, iconX + 4, y + 9, KawaiiTheme::kPrimary);
+            canvas.drawLine(iconX + 4, y + 2, iconX + 10, y + 7, KawaiiTheme::kPrimary);
+            canvas.drawLine(iconX + 10, y + 7, iconX + 6, y + 10, KawaiiTheme::kPrimary);
+            break;
+        case StatusGlyph::Wifi:
+            drawWifiBadge(canvas, iconX + 1, y + 1, active, active ? -55 : 0);
+            break;
+        case StatusGlyph::Battery:
+            canvas.drawRect(iconX, y + 2, 13, 7, KawaiiTheme::kPrimary);
+            canvas.fillRect(iconX + 13, y + 4, 2, 3, KawaiiTheme::kPrimary);
+            if (active) {
+                canvas.fillRect(iconX + 2, y + 4, 8, 3, KawaiiTheme::kLampGreen);
+            }
+            printTruncated(canvas, safeText(value, "--"), x + 22, y + 2, 4,
+                           KawaiiTheme::kText, KawaiiTheme::kPanelSoft);
+            break;
+    }
+
+    canvas.fillCircle(x + w - 7,
+                      y + KawaiiLayout::kStatusRowH / 2,
+                      2,
+                      active ? KawaiiTheme::kLampGreen : KawaiiTheme::kLampGray);
+}
+
+void KawaiiUiRenderer::drawButtonHint(LovyanGFX& canvas,
+                                       int16_t x,
+                                       int16_t y,
+                                       int16_t width,
+                                       char key,
+                                       const char* label) {
+    canvas.fillRoundRect(x + 1, y + 1, width, KawaiiLayout::kButtonH,
+                         KawaiiLayout::kButtonH / 2, KawaiiTheme::kPanelShadow);
+    canvas.fillRoundRect(x, y, width, KawaiiLayout::kButtonH,
+                         KawaiiLayout::kButtonH / 2, KawaiiTheme::kPanelSoft);
+    canvas.drawRoundRect(x, y, width, KawaiiLayout::kButtonH,
+                         KawaiiLayout::kButtonH / 2, KawaiiTheme::kPanelBorder);
+    canvas.fillCircle(x + 7, y + KawaiiLayout::kButtonH / 2, 5, KawaiiTheme::kPrimary);
+    canvas.setTextSize(1);
+    canvas.setTextColor(KawaiiTheme::kWhite, KawaiiTheme::kPrimary);
+    canvas.setCursor(x + 4, y + 2);
+    canvas.print(key);
     canvas.setTextColor(KawaiiTheme::kText, KawaiiTheme::kPanelSoft);
-    canvas.setCursor(x + w - valueWidth - 5, y + 3);
-    canvas.print(clipped);
+    canvas.setCursor(x + 15, y + 2);
+    canvas.print(safeText(label));
 }
 
 void KawaiiUiRenderer::drawSettingTile(LovyanGFX& canvas,
@@ -371,7 +393,7 @@ void KawaiiUiRenderer::drawSettingTile(LovyanGFX& canvas,
 }
 
 void KawaiiUiRenderer::drawLiveBadge(LovyanGFX& canvas, const UiModel& model) {
-    char label[16];
+    char label[20];
     uint16_t color = model.previewRunning ? KawaiiTheme::kAccentPink
                                           : KawaiiTheme::kWarning;
     switch (model.shutterStatus) {
@@ -389,7 +411,8 @@ void KawaiiUiRenderer::drawLiveBadge(LovyanGFX& canvas, const UiModel& model) {
             break;
         case UiShutterStatus::Idle:
             if constexpr (KawaiiUiProfile::kShowFps) {
-                std::snprintf(label, sizeof(label), "LIVE %.1f", static_cast<double>(model.fps));
+                const float fps = model.fps < 0.0f ? 0.0f : model.fps > 99.0f ? 99.0f : model.fps;
+                std::snprintf(label, sizeof(label), "LIVE FPS %.0f", static_cast<double>(fps));
             } else {
                 std::snprintf(label, sizeof(label), "LIVE");
             }

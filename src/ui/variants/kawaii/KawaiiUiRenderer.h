@@ -18,10 +18,15 @@ public:
     void renderShutdown(LovyanGFX& canvas, const UiModel& model);
 
 private:
+    enum class StatusGlyph : uint8_t {
+        Camera,
+        Bluetooth,
+        Wifi,
+        Battery,
+        Ready,
+    };
+
     static const char* safeText(const char* value, const char* fallback = "");
-    static const char* bleStatusText(const UiModel& model);
-    static const char* wifiStatusText(const UiModel& model);
-    static const char* signalText(const UiModel& model);
 
     static void printCentered(LovyanGFX& canvas,
                               const char* text,
@@ -52,7 +57,8 @@ private:
                            int16_t centerX,
                            int16_t centerY,
                            bool mirrored,
-                           bool crying);
+                           bool crying,
+                           uint8_t scale = 1);
     static void drawMiniMascot(LovyanGFX& canvas, int16_t centerX, int16_t centerY);
     static void drawWifiBadge(LovyanGFX& canvas,
                               int16_t x,
@@ -63,11 +69,17 @@ private:
                                  int16_t x,
                                  int16_t y,
                                  const char* battery);
-    static void drawStatusRow(LovyanGFX& canvas,
-                              int16_t y,
-                              const char* label,
-                              const char* value,
-                              bool ok);
+    static void drawCompactStatusRow(LovyanGFX& canvas,
+                                     int16_t y,
+                                     StatusGlyph glyph,
+                                     bool active,
+                                     const char* value = nullptr);
+    static void drawButtonHint(LovyanGFX& canvas,
+                               int16_t x,
+                               int16_t y,
+                               int16_t width,
+                               char key,
+                               const char* label);
     static void drawSettingTile(LovyanGFX& canvas,
                                 int16_t x,
                                 int16_t y,

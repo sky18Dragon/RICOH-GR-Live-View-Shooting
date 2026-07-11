@@ -12,31 +12,35 @@ namespace rvf::ui {
 
 void KawaiiUiRenderer::renderBoot(LovyanGFX& canvas, const UiModel& model) {
     drawPatternBackground(canvas);
-    drawOuterShell(canvas);
     drawHeader(canvas, "RICOH GR");
 
     if constexpr (KawaiiUiProfile::kShowMascots) {
-        drawMascot(canvas, 26, 61, false, true);
-        drawMascot(canvas, 214, 61, true, true);
+        drawMascot(canvas,
+                   KawaiiLayout::kBootMascotX,
+                   KawaiiLayout::kBootMascotY,
+                   true,
+                   true,
+                   KawaiiLayout::kBootMascotScale);
     }
 
-    printCentered(canvas, "GR LIVE VIEW", 35, 2,
-                  KawaiiTheme::kPrimary, KawaiiTheme::kPanel);
-    printCentered(canvas, KawaiiAssets::kThemeLabel, 58, 1,
-                  KawaiiTheme::kTextSoft, KawaiiTheme::kPanel);
-    drawHeart(canvas, 75, 58, KawaiiTheme::kAccentPink);
-    drawHeart(canvas, 165, 58, KawaiiTheme::kAccentPink);
+    canvas.setTextSize(2);
+    canvas.setTextColor(KawaiiTheme::kWhite);
+    canvas.setCursor(KawaiiLayout::kBootTitleX, KawaiiLayout::kBootTitleY);
+    canvas.print("GR Live View");
+    canvas.setTextSize(1);
+    canvas.setTextColor(KawaiiTheme::kText);
+    canvas.setCursor(KawaiiLayout::kBootThemeX, KawaiiLayout::kBootThemeY);
+    canvas.print(KawaiiAssets::kThemeLabel);
+    drawHeart(canvas, KawaiiLayout::kBootThemeX - 10,
+              KawaiiLayout::kBootThemeY, KawaiiTheme::kAccentGlow);
+    drawHeart(canvas, KawaiiLayout::kBootThemeX + 82,
+              KawaiiLayout::kBootThemeY, KawaiiTheme::kAccentGlow);
 
-    char bootText[22];
-    std::snprintf(bootText, sizeof(bootText), "%.21s", safeText(model.detail, "Booting..."));
-    printCentered(canvas, bootText, 76, 1,
-                  KawaiiTheme::kText, KawaiiTheme::kPanel);
-
-    constexpr int16_t progressX = 58;
-    constexpr int16_t progressY = 90;
-    constexpr int16_t progressW = 124;
-    constexpr int16_t progressH = 13;
-    constexpr int16_t progressPercent = 68;
+    constexpr int16_t progressX = KawaiiLayout::kBootProgressX;
+    constexpr int16_t progressY = KawaiiLayout::kBootProgressY;
+    constexpr int16_t progressW = KawaiiLayout::kBootProgressW;
+    constexpr int16_t progressH = KawaiiLayout::kBootProgressH;
+    constexpr int16_t progressPercent = 67;
     canvas.fillRoundRect(progressX + 1, progressY + 2, progressW, progressH, 6,
                          KawaiiTheme::kPanelShadow);
     canvas.fillRoundRect(progressX, progressY, progressW, progressH, 6,
@@ -49,10 +53,16 @@ void KawaiiUiRenderer::renderBoot(LovyanGFX& canvas, const UiModel& model) {
     canvas.drawFastHLine(progressX + 7, progressY + 4,
                          fillWidth > 12 ? fillWidth - 10 : 2,
                          KawaiiTheme::kAccentGlow);
+
+    char bootText[12];
+    std::snprintf(bootText, sizeof(bootText), "%.11s", safeText(model.detail, "Booting..."));
     canvas.setTextSize(1);
+    canvas.setTextColor(KawaiiTheme::kWhite);
+    canvas.setCursor(progressX + 8, progressY + 3);
+    canvas.print(bootText);
     canvas.setTextColor(KawaiiTheme::kPrimary, KawaiiTheme::kPanelSoft);
-    canvas.setCursor(progressX + progressW - 25, progressY + 3);
-    canvas.print("68%");
+    canvas.setCursor(progressX + progressW - 24, progressY + 3);
+    canvas.print("67%");
 
     drawFooterPanel(canvas);
     canvas.setTextSize(1);
@@ -73,74 +83,67 @@ void KawaiiUiRenderer::renderBoot(LovyanGFX& canvas, const UiModel& model) {
 
 void KawaiiUiRenderer::renderStatus(LovyanGFX& canvas, const UiModel& model) {
     drawPatternBackground(canvas);
-    drawOuterShell(canvas);
-    drawHeader(canvas, "Camera Connect");
+    drawHeader(canvas, "RICOH GR");
 
-    canvas.fillRoundRect(KawaiiLayout::kStatusCardX,
-                         KawaiiLayout::kStatusCardY,
-                         KawaiiLayout::kStatusCardW,
-                         KawaiiLayout::kStatusCardH,
-                         KawaiiLayout::kCardRadius,
-                         KawaiiTheme::kPanelSoft);
-    canvas.drawRoundRect(KawaiiLayout::kStatusCardX,
-                         KawaiiLayout::kStatusCardY,
-                         KawaiiLayout::kStatusCardW,
-                         KawaiiLayout::kStatusCardH,
-                         KawaiiLayout::kCardRadius,
+    canvas.fillRoundRect(KawaiiLayout::kStatusX + 1,
+                         KawaiiLayout::kStatusY + 2,
+                         KawaiiLayout::kStatusW,
+                         KawaiiLayout::kStatusH,
+                         9,
+                         KawaiiTheme::kPanelShadow);
+    canvas.fillRoundRect(KawaiiLayout::kStatusX,
+                         KawaiiLayout::kStatusY,
+                         KawaiiLayout::kStatusW,
+                         KawaiiLayout::kStatusH,
+                         9,
+                         KawaiiTheme::kPanel);
+    canvas.drawRoundRect(KawaiiLayout::kStatusX,
+                         KawaiiLayout::kStatusY,
+                         KawaiiLayout::kStatusW,
+                         KawaiiLayout::kStatusH,
+                         9,
                          KawaiiTheme::kPanelBorder);
 
-    canvas.fillRoundRect(18, 34, 47, 21, 4, KawaiiTheme::kPrimary);
-    canvas.fillRect(24, 30, 15, 5, KawaiiTheme::kPrimary);
-    canvas.fillCircle(42, 44, 7, KawaiiTheme::kPanelSoft);
-    canvas.drawCircle(42, 44, 7, KawaiiTheme::kWhite);
-    canvas.fillCircle(61, 36, 2,
-                      model.bleConnected ? KawaiiTheme::kSuccess : KawaiiTheme::kWarning);
-
     if constexpr (KawaiiUiProfile::kShowMascots) {
-        drawMiniMascot(canvas, 42, 78);
+        drawMascot(canvas,
+                   KawaiiLayout::kStatusMascotX,
+                   KawaiiLayout::kStatusMascotY,
+                   true,
+                   true,
+                   KawaiiLayout::kStatusMascotScale);
     }
 
-    char leftStatus[11];
-    std::snprintf(leftStatus, sizeof(leftStatus), "%.10s", bleStatusText(model));
-    const int16_t statusWidth = static_cast<int16_t>(std::strlen(leftStatus) * 6U);
-    canvas.setTextSize(1);
-    canvas.setTextColor(model.bleConnected ? KawaiiTheme::kSuccess : KawaiiTheme::kText,
-                        KawaiiTheme::kPanelSoft);
-    canvas.setCursor(42 - statusWidth / 2, 99);
-    canvas.print(leftStatus);
-
-    const char* cameraValue = safeText(model.cameraModel, safeText(model.cameraName));
-    const bool hasCameraIdentity = cameraValue[0] != '\0';
-    const char* camera = hasCameraIdentity ? cameraValue : "RICOH GR";
     const char* battery = safeText(model.battery);
+    const bool connectionOk = model.bleConnected && model.wifiConnected;
+    const bool batteryKnown = battery[0] != '\0';
+    const bool cameraReady = model.previewRunning || model.shutterReady;
     constexpr int16_t rowStride = KawaiiLayout::kStatusRowH + KawaiiLayout::kStatusRowGap;
-    int16_t rowY = KawaiiLayout::kStatusRowsY;
-    drawStatusRow(canvas, rowY, "BLE", bleStatusText(model), model.bleConnected);
+    int16_t rowY = KawaiiLayout::kStatusRowY;
+    drawCompactStatusRow(canvas, rowY, StatusGlyph::Camera, connectionOk);
     rowY += rowStride;
-    drawStatusRow(canvas, rowY, "Wi-Fi", wifiStatusText(model), model.wifiConnected);
+    drawCompactStatusRow(canvas, rowY, StatusGlyph::Bluetooth, model.bleConnected);
     rowY += rowStride;
-    if constexpr (KawaiiUiProfile::kShowCameraModel) {
-        drawStatusRow(canvas, rowY, "Camera", camera,
-                      model.bleConnected && hasCameraIdentity);
-        rowY += rowStride;
-    }
+    drawCompactStatusRow(canvas, rowY, StatusGlyph::Wifi, model.wifiConnected);
+    rowY += rowStride;
     if constexpr (KawaiiUiProfile::kShowBattery) {
-        drawStatusRow(canvas, rowY, "Battery", safeText(battery, "--"), battery[0] != '\0');
+        drawCompactStatusRow(canvas, rowY, StatusGlyph::Battery,
+                             batteryKnown, safeText(battery, "--"));
         rowY += rowStride;
     }
-    if constexpr (KawaiiUiProfile::kShowWifiRssi) {
-        drawStatusRow(canvas, rowY, "Signal", signalText(model),
-                      model.wifiConnected && model.wifiRssi < 0);
-    }
+    drawCompactStatusRow(canvas, rowY, StatusGlyph::Ready, cameraReady);
 
-    drawFooterPanel(canvas);
-    canvas.setTextSize(1);
-    canvas.setTextColor(KawaiiTheme::kText, KawaiiTheme::kPanelSoft);
-    canvas.setCursor(9, 121);
-    canvas.print(model.cameraStandby ? "A Wake" : model.shutterReady ? "A Shoot" : "A Retry");
-    drawPaw(canvas, 120, 124, KawaiiTheme::kPrimary);
-    canvas.setCursor(154, 121);
-    canvas.print("Hold B Reset");
+    const char* primaryAction = model.cameraStandby ? "Wake"
+                                : model.shutterReady ? "Shoot"
+                                                     : "Retry";
+    drawButtonHint(canvas, KawaiiLayout::kButtonX, KawaiiLayout::kButtonY,
+                   KawaiiLayout::kButtonW, 'A', primaryAction);
+    drawButtonHint(canvas,
+                   KawaiiLayout::kButtonX,
+                   KawaiiLayout::kButtonY +
+                       KawaiiLayout::kButtonH + KawaiiLayout::kButtonGap,
+                   KawaiiLayout::kButtonW,
+                   'B',
+                   "Reset Pair");
 }
 
 void KawaiiUiRenderer::renderSettings(LovyanGFX& canvas, const UiModel& model) {
