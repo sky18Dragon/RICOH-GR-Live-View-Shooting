@@ -4,6 +4,7 @@
 #define UI_VARIANT_MINIMAL 2
 #define UI_VARIANT_DEBUG 3
 #define UI_VARIANT_KAWAII 4
+#define UI_VARIANT_RABBIT 5
 
 #ifndef UI_VARIANT
 #define UI_VARIANT UI_VARIANT_RICOH
@@ -39,6 +40,14 @@ using ActiveUiRenderer = DebugUiRenderer;
 
 namespace rvf::ui {
 using ActiveUiRenderer = KawaiiUiRenderer;
+}
+
+#elif UI_VARIANT == UI_VARIANT_RABBIT
+
+#include "../variants/rabbit/RabbitUiRenderer.h"
+
+namespace rvf::ui {
+using ActiveUiRenderer = RabbitUiRenderer;
 }
 
 #else

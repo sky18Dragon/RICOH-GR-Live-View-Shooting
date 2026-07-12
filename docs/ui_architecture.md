@@ -14,7 +14,7 @@ flowchart TD
     B --> C["UiPresenter"]
     C -->|"UiModel"| D["UiManager&lt;ActiveUiRenderer&gt;"]
     E["UiVariant.h<br/>编译期选择"] -->|"ActiveUiRenderer 类型别名"| D
-    D --> F["ActiveUiRenderer<br/>Ricoh / Minimal / Debug / Kawaii"]
+    D --> F["ActiveUiRenderer<br/>Ricoh / Minimal / Debug / Kawaii / Rabbit"]
     F -->|"绘制到 surface.canvas()"| G["M5DisplaySurface"]
     D -->|"统一提交非 LiveView 页面"| G
     G --> H["M5Canvas / M5.Display"]
@@ -106,7 +106,8 @@ JpegDecoder::drawFrame(&displaySurface.canvas(), data, len)
 | Ricoh | `UI_VARIANT_RICOH=1` | `sticks3-ui-ricoh` | 默认的 Ricoh 视觉界面 |
 | Minimal | `UI_VARIANT_MINIMAL=2` | `sticks3-ui-minimal` | 简洁状态页和轻量 Overlay |
 | Debug | `UI_VARIANT_DEBUG=3` | `sticks3-ui-debug` | 显示阶段、连接和帧统计等诊断信息 |
-| Kawaii | `UI_VARIANT_KAWAII=4` | `sticks3-ui-kawaii` | 代码绘制的柔和紫色背景、角色和装饰性 HUD |
+| Kawaii | `UI_VARIANT_KAWAII=4` | `sticks3-ui-kawaii` | 紫色插画背景、角色和装饰性 HUD |
+| Rabbit | `UI_VARIANT_RABBIT=5` | `sticks3-ui-rabbit` | 右侧像素兔子背景、左侧安全文本区和轻量 LiveView HUD |
 
 兼容环境 `m5stack-sticks3` 继承 Ricoh Variant。最小编译矩阵：
 
@@ -115,6 +116,7 @@ pio run -e sticks3-ui-ricoh
 pio run -e sticks3-ui-minimal
 pio run -e sticks3-ui-debug
 pio run -e sticks3-ui-kawaii
+pio run -e sticks3-ui-rabbit
 pio run -e m5stack-sticks3
 ```
 
@@ -189,4 +191,4 @@ Renderer 接口依赖应限于 `UiModel`、Variant 自身的 Theme/Layout/Profil
 
 ## 回归验证
 
-Native 三套测试由 `pio test -e native` 统一运行：基础逻辑、Presenter 映射和 Variant Profile 契约。固件还必须编译 Ricoh、Minimal、Debug、Kawaii 和旧兼容环境。Kawaii 的编译或 Native 契约测试不能替代 StickS3 实机视觉、性能与相机链路验证；完整命令和待验证项目见 [test_plan.md](./test_plan.md)。
+Native 三套测试由 `pio test -e native` 统一运行：基础逻辑、Presenter 映射和 Variant Profile 契约。固件还必须编译 Ricoh、Minimal、Debug、Kawaii、Rabbit 和旧兼容环境。主题编译或 Native 契约测试不能替代 StickS3 实机视觉、性能与相机链路验证；完整命令和待验证项目见 [test_plan.md](./test_plan.md)。

@@ -4,6 +4,7 @@
 #include "ui/variants/debug/DebugUiProfile.h"
 #include "ui/variants/kawaii/KawaiiUiProfile.h"
 #include "ui/variants/minimal/MinimalUiProfile.h"
+#include "ui/variants/rabbit/RabbitUiProfile.h"
 #include "ui/variants/ricoh/RicohUiProfile.h"
 
 void setUp(void) {}
@@ -49,6 +50,16 @@ void testKawaiiProfileDefaults() {
     TEST_ASSERT_TRUE(rvf::ui::KawaiiUiProfile::kShowPatternBackground);
 }
 
+void testRabbitProfileDefaults() {
+    TEST_ASSERT_TRUE(rvf::ui::RabbitUiProfile::kShowFps);
+    TEST_ASSERT_FALSE(rvf::ui::RabbitUiProfile::kShowFrameStats);
+    TEST_ASSERT_TRUE(rvf::ui::RabbitUiProfile::kShowWifiRssi);
+    TEST_ASSERT_TRUE(rvf::ui::RabbitUiProfile::kShowBattery);
+    TEST_ASSERT_FALSE(rvf::ui::RabbitUiProfile::kShowCameraModel);
+    TEST_ASSERT_TRUE(rvf::ui::RabbitUiProfile::kShowFocusBracket);
+    TEST_ASSERT_TRUE(rvf::ui::RabbitUiProfile::kShowRabbitBackground);
+}
+
 void testSettingsScreenContract() {
     TEST_ASSERT_EQUAL_STRING("SETTINGS", rvf::ui::uiScreenName(rvf::ui::UiScreen::Settings));
 }
@@ -61,6 +72,7 @@ int main() {
     RUN_TEST(testMinimalProfileDefaults);
     RUN_TEST(testDebugProfileDefaults);
     RUN_TEST(testKawaiiProfileDefaults);
+    RUN_TEST(testRabbitProfileDefaults);
     RUN_TEST(testSettingsScreenContract);
     return UNITY_END();
 }

@@ -21,7 +21,7 @@ git diff -- README.md docs/ui_architecture.md docs/ui_kawaii_theme.md docs/wifi_
 检查：
 
 - UI Variant 修改没有意外改变 GATT 句柄、BLE 安全配对、Wi-Fi 缓存、MJPEG 帧解析或 JPEG scale 策略。
-- Ricoh、Minimal、Debug、Kawaii 没有各自复制业务流程。
+- Ricoh、Minimal、Debug、Kawaii、Rabbit 没有各自复制业务流程。
 - 新旧环境名都仍存在。
 
 ## 2. 固件编译矩阵
@@ -33,13 +33,14 @@ pio run -e sticks3-ui-ricoh
 pio run -e sticks3-ui-minimal
 pio run -e sticks3-ui-debug
 pio run -e sticks3-ui-kawaii
+pio run -e sticks3-ui-rabbit
 pio run -e m5stack-sticks3
 ```
 
 通过条件：
 
 - 五个环境均为 `SUCCESS`。
-- Ricoh、Minimal、Debug、Kawaii 分别使用 `UI_VARIANT=1/2/3/4`。
+- Ricoh、Minimal、Debug、Kawaii、Rabbit 分别使用 `UI_VARIANT=1/2/3/4/5`。
 - 旧兼容环境 `m5stack-sticks3` 仍能构建，并选择 Ricoh Renderer。
 - 没有新增编译 error；新增 warning 需要说明原因和影响。
 
@@ -67,7 +68,7 @@ pio test -e native --filter test_ui_variant_contract
 | --- | --- |
 | `test_native` | MJPEG 组帧/丢帧、相机身份、BLE 重连身份和 Supervisor 健康判断 |
 | `test_ui_presenter` | `AppState` 到 `UiScreen` / `UiPhase` 的映射、待机与错误优先级、空文本安全、展示字符串不影响状态 |
-| `test_ui_variant_contract` | Ricoh、Minimal、Debug、Kawaii Profile 默认值；Kawaii 还覆盖角色、图案背景与 `UiScreen::Settings` 名称 |
+| `test_ui_variant_contract` | Ricoh、Minimal、Debug、Kawaii、Rabbit Profile 默认值，以及 `UiScreen::Settings` 名称 |
 
 通过条件：三套测试均完成且无失败。Native 不包含 M5Unified 屏幕、真实 BLE、Wi-Fi 或 HTTP 实测。
 
@@ -98,15 +99,16 @@ Kawaii 烧录命令：
 
 ```bash
 pio run -e sticks3-ui-kawaii --target upload
+pio run -e sticks3-ui-rabbit --target upload
 ```
 
-对 `sticks3-ui-minimal`、`sticks3-ui-debug` 和 `sticks3-ui-kawaii` 重复同样步骤。每个 Variant 检查：
+对 `sticks3-ui-minimal`、`sticks3-ui-debug`、`sticks3-ui-kawaii` 和 `sticks3-ui-rabbit` 重复同样步骤。每个 Variant 检查：
 
 1. Boot 页面方向、尺寸和文字正常，无异常重启。
 2. BLE 扫描/连接、Wi-Fi 连接、错误、恢复和 Shutdown 页面能随强类型状态切换。
 3. 进入 LiveView 后底图持续存在，Overlay 不清屏、不整屏闪烁、不明显残留。
 4. 每个成功 JPEG 帧仅发生一次硬件上屏；如需确认，使用临时低频计数或逻辑分析方式，避免每帧打印干扰性能。
-5. Ricoh、Minimal、Debug、Kawaii 显示各自风格，但相同按键和业务状态产生相同行为。
+5. Ricoh、Minimal、Debug、Kawaii、Rabbit 显示各自风格，但相同按键和业务状态产生相同行为。
 6. 六个通用 Feature Flag 的默认元素与 Profile 一致；Kawaii 的角色和代码图案背景默认开启，关闭对应专用 Flag 后只改变绘制。
 7. Kawaii 的 Boot、Status、LiveView、Error、Shutdown 画面方向、裁切与文本可读性正常；角色、爱心、爪印和背景图案均来自代码绘制。
 8. 当前正常按键流程不应进入 Settings。若使用专门测试入口预览该页面，只验证静态布局；Shutter、Filter、Exposure、Wi-Fi、Pair、Sleep 等固定文本不应被当作真实设置值或交互能力。
@@ -176,6 +178,7 @@ Build sticks3-ui-ricoh: PASS / FAIL / NOT RUN
 Build sticks3-ui-minimal: PASS / FAIL / NOT RUN
 Build sticks3-ui-debug: PASS / FAIL / NOT RUN
 Build sticks3-ui-kawaii: PASS / FAIL / NOT RUN
+Build sticks3-ui-rabbit: PASS / FAIL / NOT RUN
 Build m5stack-sticks3: PASS / FAIL / NOT RUN
 
 Native test_native: PASS / FAIL / NOT RUN

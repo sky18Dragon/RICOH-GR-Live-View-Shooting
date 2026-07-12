@@ -15,7 +15,7 @@
 | `gr_wifi.{cpp,h}` | 189 / 28 | Wi-Fi | ESP32 STA 连相机 AP |
 | `gr_api.{cpp,h}` | 342 / 35 | HTTP | `/v1/props` + `/v1/liveview` MJPEG |
 | `camera_identity.{cpp,h}` | 49 / 5 | 相机身份 | 从 Wi-Fi SSID 推导候选 BLE 名称 |
-| `display/` + `ui/` | 分层目录 | 渲染 | Surface、强类型 Model/Presenter、UiManager 与四套 Renderer |
+| `display/` + `ui/` | 分层目录 | 渲染 | Surface、强类型 Model/Presenter、UiManager 与五套 Renderer |
 | `jpeg_decoder.{cpp,h}` | 172 / 49 | 渲染 | JPEGDEC 解码到 RGB565 画布 |
 | `mjpeg_stream.{cpp,h}` | 110 / 39 | 渲染 | MJPEG 字节流切分为单帧 |
 | `camera_profile_store.{cpp,h}` | 62 / 31 | 持久化 | NVS 相机身份存储 |
@@ -156,7 +156,7 @@ BleScan → BleReady → WifiConnecting → HttpProbe → LiveViewRunning
 
 ### `display/` 与 `ui/`
 
-`M5DisplaySurface` 独占 M5 初始化、`M5Canvas` 生命周期和 `present()`。`UiPresenter` 将结构化运行态映射为 `UiModel`，`UiManager<ActiveUiRenderer>` 负责页面、Dirty/节流与非 LiveView 上屏；Ricoh、Minimal、Debug、Kawaii Renderer 只绘图。LiveView Overlay 不清屏、不自行上屏；`Settings` 当前仅具备静态渲染契约，尚无 Presenter 或按键导航入口。
+`M5DisplaySurface` 独占 M5 初始化、`M5Canvas` 生命周期和 `present()`。`UiPresenter` 将结构化运行态映射为 `UiModel`，`UiManager<ActiveUiRenderer>` 负责页面、Dirty/节流与非 LiveView 上屏；Ricoh、Minimal、Debug、Kawaii、Rabbit Renderer 只绘图。LiveView Overlay 不清屏、不自行上屏；`Settings` 当前仅具备静态渲染契约，尚无 Presenter 或按键导航入口。
 
 ---
 
