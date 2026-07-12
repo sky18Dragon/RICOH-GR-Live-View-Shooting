@@ -52,12 +52,12 @@ struct KawaiiLayout {
 
     static constexpr int16_t kBootMascotX = 211;
     static constexpr int16_t kBootMascotY = 72;
-    static constexpr uint8_t kBootMascotScale = 2;
-    static constexpr int16_t kStatusMascotX = 180;
-    static constexpr int16_t kStatusMascotY = 94;
-    static constexpr uint8_t kStatusMascotScale = 3;
-    static constexpr int16_t kLiveMascotX = 220;
-    static constexpr int16_t kLiveMascotY = 99;
+    static constexpr uint8_t kBootMascotScale = 1;
+    static constexpr int16_t kStatusMascotX = 178;
+    static constexpr int16_t kStatusMascotY = 73;
+    static constexpr uint8_t kStatusMascotScale = 2;
+    static constexpr int16_t kLiveMascotX = 213;
+    static constexpr int16_t kLiveMascotY = 92;
     static constexpr uint8_t kLiveMascotScale = 1;
 
     static constexpr int16_t kSettingsLeftX = 8;

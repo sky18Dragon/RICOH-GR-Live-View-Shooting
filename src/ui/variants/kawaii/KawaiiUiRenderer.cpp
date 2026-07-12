@@ -161,61 +161,97 @@ void KawaiiUiRenderer::drawMascot(LovyanGFX& canvas,
                                    bool crying,
                                    uint8_t scale) {
     const int16_t s = scale == 0 ? 1 : static_cast<int16_t>(scale);
-    canvas.fillRoundRect(centerX - 12 * s, centerY + 10 * s,
-                         24 * s, 25 * s, 8 * s, KawaiiTheme::kSuit);
-    canvas.fillCircle(centerX - 9 * s, centerY + 29 * s, 6 * s, KawaiiTheme::kSuit);
-    canvas.fillCircle(centerX + 9 * s, centerY + 29 * s, 6 * s, KawaiiTheme::kSuit);
-    canvas.fillCircle(centerX - 8 * s, centerY + 21 * s, 3 * s, KawaiiTheme::kSuitSpot);
-    canvas.fillCircle(centerX + 7 * s, centerY + 27 * s, 4 * s, KawaiiTheme::kSuitSpot);
+    // Wide cat hood and raised paws follow the approved character silhouette.
+    canvas.fillRoundRect(centerX - 24 * s, centerY + 10 * s,
+                         48 * s, 26 * s, 13 * s, KawaiiTheme::kSuit);
+    canvas.fillCircle(centerX - 20 * s, centerY + 30 * s, 8 * s, KawaiiTheme::kSuit);
+    canvas.fillCircle(centerX + 20 * s, centerY + 30 * s, 8 * s, KawaiiTheme::kSuit);
 
-    canvas.fillTriangle(centerX - 18 * s, centerY - 8 * s,
-                        centerX - 12 * s, centerY - 24 * s,
-                        centerX - 4 * s, centerY - 9 * s,
+    canvas.fillTriangle(centerX - 31 * s, centerY - 10 * s,
+                        centerX - 24 * s, centerY - 34 * s,
+                        centerX - 7 * s, centerY - 15 * s,
                         KawaiiTheme::kSuit);
-    canvas.fillTriangle(centerX + 4 * s, centerY - 9 * s,
-                        centerX + 12 * s, centerY - 24 * s,
-                        centerX + 18 * s, centerY - 8 * s,
+    canvas.fillTriangle(centerX + 7 * s, centerY - 15 * s,
+                        centerX + 24 * s, centerY - 34 * s,
+                        centerX + 31 * s, centerY - 10 * s,
                         KawaiiTheme::kSuit);
-    canvas.fillCircle(centerX, centerY - 3 * s, 19 * s, KawaiiTheme::kSuit);
-    canvas.fillCircle(centerX - 13 * s, centerY - 9 * s, 4 * s, KawaiiTheme::kSuitSpot);
-    canvas.fillCircle(centerX + 12 * s, centerY - 2 * s, 5 * s, KawaiiTheme::kSuitSpot);
-    canvas.fillCircle(centerX, centerY - 2 * s, 13 * s, KawaiiTheme::kSkin);
+    canvas.fillTriangle(centerX - 25 * s, centerY - 12 * s,
+                        centerX - 22 * s, centerY - 27 * s,
+                        centerX - 12 * s, centerY - 15 * s,
+                        KawaiiTheme::kWhite);
+    canvas.fillTriangle(centerX + 12 * s, centerY - 15 * s,
+                        centerX + 22 * s, centerY - 27 * s,
+                        centerX + 25 * s, centerY - 12 * s,
+                        KawaiiTheme::kWhite);
+    canvas.fillEllipse(centerX, centerY - 1 * s,
+                       30 * s, 31 * s, KawaiiTheme::kSuit);
 
-    canvas.fillCircle(centerX, centerY - 10 * s, 11 * s, KawaiiTheme::kHair);
+    // Leopard-like hood patches remain deliberately bold at 240 x 135.
+    canvas.fillEllipse(centerX - 20 * s, centerY - 18 * s,
+                       7 * s, 5 * s, KawaiiTheme::kSuitSpot);
+    canvas.fillEllipse(centerX + 10 * s, centerY - 23 * s,
+                       8 * s, 5 * s, KawaiiTheme::kSuitSpot);
+    canvas.fillEllipse(centerX + 23 * s, centerY - 5 * s,
+                       6 * s, 8 * s, KawaiiTheme::kSuitSpot);
+    canvas.fillEllipse(centerX - 25 * s, centerY + 8 * s,
+                       5 * s, 7 * s, KawaiiTheme::kSuitSpot);
+    canvas.fillCircle(centerX - 15 * s, centerY + 29 * s,
+                      5 * s, KawaiiTheme::kSuitSpot);
+    canvas.fillCircle(centerX + 18 * s, centerY + 27 * s,
+                      5 * s, KawaiiTheme::kSuitSpot);
+
+    // Face, orange fringe, closed eyes and puffed cheeks.
+    canvas.fillEllipse(centerX, centerY + 2 * s,
+                       21 * s, 22 * s, KawaiiTheme::kSkin);
+    canvas.fillEllipse(centerX, centerY - 9 * s,
+                       20 * s, 14 * s, KawaiiTheme::kHair);
     if (mirrored) {
-        canvas.fillTriangle(centerX - 12 * s, centerY - 7 * s,
-                            centerX + 8 * s, centerY - 11 * s,
-                            centerX + 12 * s, centerY - 4 * s,
+        canvas.fillTriangle(centerX - 19 * s, centerY - 8 * s,
+                            centerX + 7 * s, centerY - 15 * s,
+                            centerX + 18 * s, centerY - 2 * s,
                             KawaiiTheme::kHair);
     } else {
-        canvas.fillTriangle(centerX + 12 * s, centerY - 7 * s,
-                            centerX - 8 * s, centerY - 11 * s,
-                            centerX - 12 * s, centerY - 4 * s,
+        canvas.fillTriangle(centerX + 19 * s, centerY - 8 * s,
+                            centerX - 7 * s, centerY - 15 * s,
+                            centerX - 18 * s, centerY - 2 * s,
                             KawaiiTheme::kHair);
     }
 
-    canvas.drawLine(centerX - 8 * s, centerY - 2 * s,
-                    centerX - 3 * s, centerY + s,
+    canvas.drawLine(centerX - 13 * s, centerY - 1 * s,
+                    centerX - 6 * s, centerY + 3 * s,
                     KawaiiTheme::kPrimaryDark);
-    canvas.drawLine(centerX + 3 * s, centerY + s,
-                    centerX + 8 * s, centerY - 2 * s,
+    canvas.drawLine(centerX - 12 * s, centerY + s,
+                    centerX - 6 * s, centerY + 3 * s,
                     KawaiiTheme::kPrimaryDark);
-    canvas.fillCircle(centerX, centerY + 4 * s, 2 * s, KawaiiTheme::kDanger);
-    canvas.fillCircle(centerX - 8 * s, centerY + 5 * s, 3 * s, KawaiiTheme::kCheek);
-    canvas.fillCircle(centerX + 8 * s, centerY + 5 * s, 3 * s, KawaiiTheme::kCheek);
+    canvas.drawLine(centerX + 6 * s, centerY + 3 * s,
+                    centerX + 13 * s, centerY - 1 * s,
+                    KawaiiTheme::kPrimaryDark);
+    canvas.drawLine(centerX + 6 * s, centerY + 3 * s,
+                    centerX + 12 * s, centerY + s,
+                    KawaiiTheme::kPrimaryDark);
+    canvas.fillCircle(centerX, centerY + 7 * s, 3 * s, KawaiiTheme::kDanger);
+    canvas.fillCircle(centerX, centerY + 13 * s, 2 * s, KawaiiTheme::kWhite);
+
+    canvas.fillCircle(centerX - 17 * s, centerY + 18 * s,
+                      11 * s, KawaiiTheme::kSkin);
+    canvas.fillCircle(centerX + 17 * s, centerY + 18 * s,
+                      11 * s, KawaiiTheme::kSkin);
+    canvas.fillCircle(centerX - 17 * s, centerY + 18 * s,
+                      5 * s, KawaiiTheme::kCheek);
+    canvas.fillCircle(centerX + 17 * s, centerY + 18 * s,
+                      5 * s, KawaiiTheme::kCheek);
+
     if (crying) {
-        canvas.fillCircle(centerX - 12 * s, centerY + 2 * s, 3 * s,
+        canvas.fillEllipse(centerX - 25 * s, centerY + 5 * s,
+                           7 * s, 5 * s,
                           KawaiiTheme::kAccentGlow);
-        canvas.fillCircle(centerX + 12 * s, centerY + 2 * s, 3 * s,
+        canvas.fillEllipse(centerX + 25 * s, centerY + 5 * s,
+                           7 * s, 5 * s,
                           KawaiiTheme::kAccentGlow);
-        canvas.fillTriangle(centerX - 15 * s, centerY + 3 * s,
-                            centerX - 9 * s, centerY + 3 * s,
-                            centerX - 12 * s, centerY + 9 * s,
-                            KawaiiTheme::kAccentGlow);
-        canvas.fillTriangle(centerX + 9 * s, centerY + 3 * s,
-                            centerX + 15 * s, centerY + 3 * s,
-                            centerX + 12 * s, centerY + 9 * s,
-                            KawaiiTheme::kAccentGlow);
+        canvas.fillCircle(centerX - 27 * s, centerY + 3 * s,
+                          2 * s, KawaiiTheme::kWhite);
+        canvas.fillCircle(centerX + 23 * s, centerY + 3 * s,
+                          2 * s, KawaiiTheme::kWhite);
     }
 }
 
