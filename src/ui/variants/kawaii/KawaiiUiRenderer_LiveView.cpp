@@ -1,9 +1,7 @@
 #include "KawaiiUiRenderer.h"
 
 #include <cstdio>
-#include <cstring>
 
-#include "KawaiiLayout.h"
 #include "KawaiiTheme.h"
 #include "KawaiiUiProfile.h"
 
@@ -11,9 +9,7 @@ namespace rvf::ui {
 
 void KawaiiUiRenderer::renderLiveViewOverlay(LovyanGFX& canvas, const UiModel& model) {
     // The JPEG decoder owns all base pixels. This method intentionally draws
-    // only edge HUD elements and never clears or presents the surface.
-    canvas.drawRoundRect(1, 1, canvas.width() - 2, canvas.height() - 2, 10,
-                         KawaiiTheme::kPanelBorder);
+    // only the top HUD and focus bracket, and never clears or presents.
     drawLiveBadge(canvas, model);
 
     canvas.drawFastHLine(76, 1, 31, KawaiiTheme::kAccentGlow);
@@ -59,26 +55,6 @@ void KawaiiUiRenderer::renderLiveViewOverlay(LovyanGFX& canvas, const UiModel& m
     if constexpr (KawaiiUiProfile::kShowFocusBracket) {
         drawFocusBracket(canvas);
     }
-
-    if constexpr (KawaiiUiProfile::kShowMascots) {
-        drawMascot(canvas,
-                   KawaiiLayout::kLiveMascotX,
-                   KawaiiLayout::kLiveMascotY,
-                   true,
-                   true,
-                   KawaiiLayout::kLiveMascotScale);
-    }
-
-    drawButtonHint(canvas, 6, 120, 54, 'A', "Shoot");
-    canvas.fillRoundRect(76, 120, 46, KawaiiLayout::kButtonH,
-                         KawaiiLayout::kButtonH / 2, KawaiiTheme::kPanelSoft);
-    canvas.drawRoundRect(76, 120, 46, KawaiiLayout::kButtonH,
-                         KawaiiLayout::kButtonH / 2, KawaiiTheme::kPanelBorder);
-    canvas.setTextSize(1);
-    canvas.setTextColor(KawaiiTheme::kText, KawaiiTheme::kPanelSoft);
-    canvas.setCursor(81, 122);
-    canvas.print("+/-0.0");
-    drawButtonHint(canvas, 126, 120, 78, 'B', "Pair Reset");
 }
 
 }  // namespace rvf::ui

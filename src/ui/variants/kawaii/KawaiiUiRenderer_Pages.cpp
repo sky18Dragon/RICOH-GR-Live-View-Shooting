@@ -4,6 +4,7 @@
 #include <cstring>
 
 #include "KawaiiAssets.h"
+#include "KawaiiBootBackground.h"
 #include "KawaiiLayout.h"
 #include "KawaiiStatusBackground.h"
 #include "KawaiiTheme.h"
@@ -12,17 +13,21 @@
 namespace rvf::ui {
 
 void KawaiiUiRenderer::renderBoot(LovyanGFX& canvas, const UiModel& model) {
-    drawPatternBackground(canvas);
-    drawHeader(canvas, "RICOH GR");
-
-    if constexpr (KawaiiUiProfile::kShowMascots) {
-        drawMascot(canvas,
-                   KawaiiLayout::kBootMascotX,
-                   KawaiiLayout::kBootMascotY,
-                   true,
-                   true,
-                   KawaiiLayout::kBootMascotScale);
+    if constexpr (KawaiiUiProfile::kShowMascots &&
+                  KawaiiUiProfile::kShowPatternBackground) {
+        canvas.drawJpg(kKawaiiBootBackgroundJpeg,
+                       kKawaiiBootBackgroundJpeg_len,
+                       0,
+                       0,
+                       KawaiiLayout::kScreenW,
+                       KawaiiLayout::kScreenH);
+    } else {
+        drawPatternBackground(canvas);
+        if constexpr (KawaiiUiProfile::kShowMascots) {
+            drawMascot(canvas, 211, 72, true, true);
+        }
     }
+    drawHeader(canvas, "RICOH GR");
 
     canvas.setTextSize(2);
     canvas.setTextColor(KawaiiTheme::kWhite);
