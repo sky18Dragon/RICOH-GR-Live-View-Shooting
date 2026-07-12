@@ -5,6 +5,7 @@
 
 #include "KawaiiAssets.h"
 #include "KawaiiLayout.h"
+#include "KawaiiStatusBackground.h"
 #include "KawaiiTheme.h"
 #include "KawaiiUiProfile.h"
 
@@ -82,7 +83,18 @@ void KawaiiUiRenderer::renderBoot(LovyanGFX& canvas, const UiModel& model) {
 }
 
 void KawaiiUiRenderer::renderStatus(LovyanGFX& canvas, const UiModel& model) {
-    drawPatternBackground(canvas);
+    // The approved illustration is pre-rendered at the native panel size. UI
+    // controls remain code-drawn below so all lamps and labels stay dynamic.
+    if constexpr (KawaiiUiProfile::kShowMascots) {
+        canvas.drawJpg(kKawaiiStatusBackgroundJpeg,
+                       kKawaiiStatusBackgroundJpeg_len,
+                       0,
+                       0,
+                       KawaiiLayout::kScreenW,
+                       KawaiiLayout::kScreenH);
+    } else {
+        drawPatternBackground(canvas);
+    }
     drawHeader(canvas, "RICOH GR");
 
     canvas.fillRoundRect(KawaiiLayout::kStatusX + 1,
@@ -103,15 +115,6 @@ void KawaiiUiRenderer::renderStatus(LovyanGFX& canvas, const UiModel& model) {
                          KawaiiLayout::kStatusH,
                          9,
                          KawaiiTheme::kPanelBorder);
-
-    if constexpr (KawaiiUiProfile::kShowMascots) {
-        drawMascot(canvas,
-                   KawaiiLayout::kStatusMascotX,
-                   KawaiiLayout::kStatusMascotY,
-                   true,
-                   true,
-                   KawaiiLayout::kStatusMascotScale);
-    }
 
     const char* battery = safeText(model.battery);
     const bool connectionOk = model.bleConnected && model.wifiConnected;
