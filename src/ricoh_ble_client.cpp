@@ -36,6 +36,7 @@ extern "C" {
 namespace {
 constexpr uint32_t HANDLE_WRITE_TIMEOUT_MS = 3000;
 constexpr uint32_t HANDLE_READ_TIMEOUT_MS = 800;
+constexpr uint32_t BLE_SCAN_SLICE_MS = 250;
 std::atomic<int> g_lastDisconnectReason{0};
 std::atomic<int> g_powerOffDisconnectReason{0};
 std::atomic<int> g_powerStateNotifyValue{-1};
@@ -210,6 +211,10 @@ public:
   RicohScanCallbacks(const String& preferredAddress, const String& preferredName)
       : _preferredAddress(preferredAddress), _preferredName(preferredName) {}
 
+  void prepareForScan() {
+    _scanEnded.store(false);
+  }
+
   void onDiscovered(const NimBLEAdvertisedDevice* device) override {
     RicohBleDeviceInfo info = infoFromAdvertisedDevice(device);
     if (addressMatches(info.address, _preferredAddress) && info.connectable) {
@@ -227,13 +232,18 @@ public:
     if (info.connectable &&
         hasRicohIdentitySignal(info) &&
         (addressMatches(info.address, _preferredAddress) || nameMatchesPreferred(info.name, _preferredName))) {
-      _foundPreferred = true;
+      _foundPreferred.store(true);
     }
+  }
+
+  void onScanEnd(const NimBLEScanResults&, int) override {
+    _scanEnded.store(true);
   }
 
   const RicohBleDeviceInfo& best() const { return _best; }
   bool hasBest() const { return _best.found; }
-  bool foundPreferred() const { return _foundPreferred; }
+  bool foundPreferred() const { return _foundPreferred.load(); }
+  bool scanEnded() const { return _scanEnded.load(); }
 
 private:
   void updateBest(const RicohBleDeviceInfo& info, const NimBLEAdvertisedDevice* device) {
@@ -244,11 +254,12 @@ private:
     }
   }
 
-  const String& _preferredAddress;
-  const String& _preferredName;
+  String _preferredAddress;
+  String _preferredName;
   RicohBleDeviceInfo _best;
   int _bestScore = -100000;
-  bool _foundPreferred = false;
+  std::atomic<bool> _foundPreferred{false};
+  std::atomic<bool> _scanEnded{false};
 };
 
 String printableText(const std::vector<uint8_t>& data) {
@@ -850,43 +861,35 @@ RicohBleDeviceInfo RicohBleClient::scanForCamera(const String& preferredAddress,
 
   const uint32_t durationMs = scanSeconds * 1000;
   Serial.printf("BLE: scanning for GR camera (%lus max)\n", static_cast<unsigned long>(scanSeconds));
-  if (!scan->start(durationMs, false, true)) {
-    scan->setScanCallbacks(nullptr, false);
-    scan->clearResults();
-    _lastError = "BLE scan start failed";
-    return RicohBleDeviceInfo{};
-  }
-
   const uint32_t startMs = millis();
-  while (scan->isScanning() && (millis() - startMs) < durationMs + 200) {
+  uint32_t remainingMs = durationMs;
+  bool aborted = false;
+  bool startFailed = false;
+
+  // NimBLE dispatches scan callbacks on its host task. Stopping and clearing
+  // results from this task can delete an advertised device while onResult()
+  // is still parsing it. Use short blocking scan slices instead: getResults()
+  // returns only after onScanEnd(), so the callback and result lifetimes are
+  // quiescent before this task reads them or starts the next slice.
+  while (remainingMs > 0 && !callbacks.foundPreferred()) {
     if (g_serviceCallback != nullptr && g_serviceCallback()) {
-      scan->stop();
-      scan->setScanCallbacks(nullptr, false);
-      scan->clearResults();
-      _lastError = "BLE scan aborted";
-      return RicohBleDeviceInfo{};
-    }
-    if (callbacks.foundPreferred()) {
-      scan->stop();
+      aborted = true;
       break;
     }
-    delay(20);
-    yield();
-  }
-  while (scan->isScanning() && (millis() - startMs) < durationMs + 1000) {
-    if (g_serviceCallback != nullptr && g_serviceCallback()) {
-      scan->stop();
-      scan->setScanCallbacks(nullptr, false);
-      scan->clearResults();
-      _lastError = "BLE scan aborted";
-      return RicohBleDeviceInfo{};
+
+    const uint32_t sliceMs = std::min(remainingMs, BLE_SCAN_SLICE_MS);
+    callbacks.prepareForScan();
+    (void)scan->getResults(sliceMs, false);
+    if (!callbacks.scanEnded()) {
+      startFailed = true;
+      break;
     }
-    delay(10);
-    yield();
-  }
-  if (scan->isScanning()) {
-    scan->stop();
-    delay(20);
+
+    remainingMs -= sliceMs;
+    if (g_serviceCallback != nullptr && g_serviceCallback()) {
+      aborted = true;
+      break;
+    }
     yield();
   }
 
@@ -894,6 +897,14 @@ RicohBleDeviceInfo RicohBleClient::scanForCamera(const String& preferredAddress,
   scan->setScanCallbacks(nullptr, false);
   scan->clearResults();
 
+  if (aborted) {
+    _lastError = "BLE scan aborted";
+    return RicohBleDeviceInfo{};
+  }
+  if (startFailed) {
+    _lastError = "BLE scan start failed";
+    return RicohBleDeviceInfo{};
+  }
   if (!best.found) {
     _lastError = "RICOH BLE not found";
   } else {
