@@ -75,7 +75,7 @@ You can control the viewfinder's behavior using the buttons (Button A, Button B,
 | **Button A** | During LiveView (`LIVEVIEW_RUNNING`) | Triggers BLE Auto-Focus (AF) and shoots (writes `ShootingFlavor=IMMEDIATE`) |
 | **Button A** | Standby Cooldown (`CAMERA_SLEEP_GUARD`) | Manually overrides the guard, resets the BLE stack, and attempts to wake/reconnect |
 | **Button B** | Any State (Long Press for 3s) | Triggers BLE pairing reset: clears stored BLE pairing/bonding information, terminates active Wi-Fi/BLE connections, and restarts scanning for new camera pairing |
-| **Power Button (BtnPWR)** | Any State (Long Press) | Gracefully terminates Wi-Fi/BLE connections, closes LiveView, and powers off the StickS3 |
+| **Power Button (BtnPWR)** | Any State (Double Press) | Gracefully terminates Wi-Fi/BLE connections, closes LiveView, and powers off the StickS3 |
 
 
 ---
