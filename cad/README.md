@@ -10,10 +10,11 @@ whose points face away from the aligned print edge.
 ## Files
 
 - `ricoh_gr_sticks3_hotshoe_adapter.stl` - printable adapter
+- `ricoh_gr_sticks3_hotshoe_adapter.step` - editable neutral CAD solid
 - `generate_adapter.py` - reproducible parametric generator
 
-Running the generator also creates an editable FreeCAD document, a STEP file,
-and a small camera-shoe fit-coupon STL in this directory.
+Running the generator also creates an editable FreeCAD document and a small
+camera-shoe fit-coupon STL in this directory.
 
 ## Verified source dimensions
 
