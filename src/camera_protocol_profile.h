@@ -81,4 +81,3 @@ bool operationModeAllowsWifi(const CameraProtocolProfile& profile,
                              bool operationModeReadSucceeded);
 bool validGr3WifiChannel(uint8_t channel);
 bool validGr3WifiCredentials(const char* ssid, const char* passphrase, uint8_t channel);
-

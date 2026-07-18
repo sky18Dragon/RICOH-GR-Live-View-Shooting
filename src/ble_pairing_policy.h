@@ -54,4 +54,3 @@ private:
   uint32_t _timeoutMs = 0;
   bool _active = false;
 };
-

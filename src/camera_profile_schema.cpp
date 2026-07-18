@@ -57,4 +57,3 @@ StoredCameraProfileMetadata encodeCameraProfileMetadata(const CameraProfileMetad
   stored.legacyWifiValid = metadata.wifiCredentialsValid;
   return stored;
 }
-

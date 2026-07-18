@@ -146,4 +146,3 @@ int32_t PasskeyButtonEntry::code() const {
   }
   return code;
 }
-

@@ -36,4 +36,3 @@ struct CameraProfileMetadata {
 
 CameraProfileMetadata decodeCameraProfileMetadata(const StoredCameraProfileMetadata& stored);
 StoredCameraProfileMetadata encodeCameraProfileMetadata(const CameraProfileMetadata& metadata);
-
