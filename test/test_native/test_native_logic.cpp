@@ -11,6 +11,8 @@ void tearDown(void) {}
 #include "ble_reconnect_policy.h"
 
 #include "camera_identity.h"
+#include "camera_profile_schema.h"
+#include "camera_protocol_profile.h"
 #include "mjpeg_stream.h"
 #include "supervisor/SystemSupervisor.h"
 
@@ -242,10 +244,98 @@ void testSupervisorReportsFrameStallDespiteIncomingBytes() {
   TEST_ASSERT_EQUAL_STRING("supervisor preview frame idle", message.detail);
 }
 
+void testDetectsProtocolOnlyFromSafeEvidence() {
+  ProtocolDetectionEvidence gr3;
+  gr3.hasGr3WlanService = true;
+  gr3.hasGr3NetworkTypeCharacteristic = true;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohProtocolGeneration::Gr3Family),
+                        static_cast<int>(detectRicohProtocol(gr3)));
+
+  ProtocolDetectionEvidence incompleteGr3;
+  incompleteGr3.hasGr3WlanService = true;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohProtocolGeneration::Unknown),
+                        static_cast<int>(detectRicohProtocol(incompleteGr3)));
+
+  ProtocolDetectionEvidence gr4;
+  gr4.gr4PowerHandleReadSucceeded = true;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohProtocolGeneration::Gr4Family),
+                        static_cast<int>(detectRicohProtocol(gr4)));
+}
+
+void testUnknownAndGr2ProfilesBlockBleSideEffects() {
+  const CameraProtocolProfile& unknown = cameraProtocolProfile(RicohProtocolGeneration::Unknown);
+  TEST_ASSERT_FALSE(protocolAllowsBleSideEffect(unknown, BleSideEffect::WifiActivation));
+  TEST_ASSERT_FALSE(protocolAllowsBleSideEffect(unknown, BleSideEffect::CameraPowerWrite));
+  TEST_ASSERT_FALSE(protocolAllowsBleSideEffect(unknown, BleSideEffect::Shutter));
+
+  const CameraProtocolProfile& gr2 = cameraProtocolProfile(RicohProtocolGeneration::Gr2Family);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(WifiActivationMethod::ManualOnly),
+                        static_cast<int>(gr2.wifiActivationMethod));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(WifiCredentialMethod::ManualConfiguration),
+                        static_cast<int>(gr2.wifiCredentialMethod));
+  TEST_ASSERT_FALSE(protocolAllowsBleSideEffect(gr2, BleSideEffect::WifiActivation));
+}
+
+void testOperationModeSafetyIsGenerationSpecific() {
+  const CameraProtocolProfile& gr3 = cameraProtocolProfile(RicohProtocolGeneration::Gr3Family);
+  TEST_ASSERT_TRUE(operationModeAllowsWifi(gr3, RicohCameraOperationMode::Capture, true));
+  TEST_ASSERT_FALSE(operationModeAllowsWifi(gr3, RicohCameraOperationMode::Playback, true));
+  TEST_ASSERT_FALSE(operationModeAllowsWifi(gr3, RicohCameraOperationMode::BleStartup, true));
+  TEST_ASSERT_FALSE(operationModeAllowsWifi(gr3, RicohCameraOperationMode::Capture, false));
+
+  const CameraProtocolProfile& gr4 = cameraProtocolProfile(RicohProtocolGeneration::Gr4Family);
+  TEST_ASSERT_TRUE(operationModeAllowsWifi(gr4, RicohCameraOperationMode::Playback, true));
+  TEST_ASSERT_TRUE(operationModeAllowsWifi(gr4, RicohCameraOperationMode::Unknown, false));
+  TEST_ASSERT_FALSE(operationModeAllowsWifi(gr4, RicohCameraOperationMode::PowerOffTransfer, true));
+}
+
+void testGr3CredentialShapeAllowsOptionalChannel() {
+  TEST_ASSERT_TRUE(validGr3WifiCredentials("GR_TEST", "secret", 0));
+  TEST_ASSERT_TRUE(validGr3WifiCredentials("GR_TEST", "secret", 11));
+  TEST_ASSERT_FALSE(validGr3WifiCredentials("GR_TEST", "secret", 12));
+  TEST_ASSERT_FALSE(validGr3WifiCredentials("", "secret", 1));
+  TEST_ASSERT_FALSE(validGr3WifiCredentials("GR_TEST", "", 1));
+}
+
+void testOldProfileMetadataUpgradesWithoutAssumingProtocol() {
+  StoredCameraProfileMetadata old;
+  old.schemaVersion = 3;
+  old.legacyWifiValid = true;
+  const CameraProfileMetadata decoded = decodeCameraProfileMetadata(old);
+  TEST_ASSERT_EQUAL_UINT32(CAMERA_PROFILE_SCHEMA_VERSION, decoded.schemaVersion);
+  TEST_ASSERT_FALSE(decoded.protocolGenerationKnown);
+  TEST_ASSERT_TRUE(decoded.wifiCredentialsValid);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(WifiCredentialSource::Unknown),
+                        static_cast<int>(decoded.wifiSource));
+}
+
+void testNewProfileMetadataRoundTrips() {
+  CameraProfileMetadata metadata;
+  metadata.protocolGeneration = static_cast<uint8_t>(RicohProtocolGeneration::Gr3Family);
+  metadata.protocolGenerationKnown = true;
+  metadata.capabilityVersion = CAMERA_CAPABILITY_SCHEMA_VERSION;
+  metadata.wifiSource = WifiCredentialSource::BleUuidCharacteristics;
+  metadata.wifiCredentialsValid = true;
+
+  const StoredCameraProfileMetadata stored = encodeCameraProfileMetadata(metadata);
+  const CameraProfileMetadata decoded = decodeCameraProfileMetadata(stored);
+  TEST_ASSERT_TRUE(decoded.protocolGenerationKnown);
+  TEST_ASSERT_EQUAL_UINT8(metadata.protocolGeneration, decoded.protocolGeneration);
+  TEST_ASSERT_EQUAL_UINT16(metadata.capabilityVersion, decoded.capabilityVersion);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(metadata.wifiSource), static_cast<int>(decoded.wifiSource));
+  TEST_ASSERT_TRUE(decoded.wifiCredentialsValid);
+}
+
 }  // namespace
 
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(testDetectsProtocolOnlyFromSafeEvidence);
+  RUN_TEST(testUnknownAndGr2ProfilesBlockBleSideEffects);
+  RUN_TEST(testOperationModeSafetyIsGenerationSpecific);
+  RUN_TEST(testGr3CredentialShapeAllowsOptionalChannel);
+  RUN_TEST(testOldProfileMetadataUpgradesWithoutAssumingProtocol);
+  RUN_TEST(testNewProfileMetadataRoundTrips);
   RUN_TEST(testBeginRejectsInvalidInputs);
   RUN_TEST(testDeliversFrameSplitAcrossChunks);
   RUN_TEST(testDropsShortFrame);

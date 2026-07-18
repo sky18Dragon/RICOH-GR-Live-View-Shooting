@@ -2,6 +2,8 @@
 
 #include <Arduino.h>
 
+#include "camera_protocol_profile.h"
+
 struct RicohBleDeviceInfo {
   bool found = false;
   String name;
@@ -37,15 +39,6 @@ enum class RicohCameraPowerState {
   Unknown,
   On,
   OffOrShuttingDown,
-};
-
-enum class RicohCameraOperationMode {
-  Unknown,
-  Capture,
-  Playback,
-  BleStartup,
-  Other,
-  PowerOffTransfer,
 };
 
 class RicohBleClient {
