@@ -24,6 +24,7 @@ public:
     void showStatus(const String& line1, const String& line2, const String& line3, const String& line4);
     void showError(const char* message, const char* detail = nullptr);
     void showError(const String& message, const String& detail = String());
+    void showPasskeyEntry(const uint8_t digits[6], uint8_t activeIndex);
     void drawOverlay(const String& wifiStatus,
                      const String& liveviewStatus,
                      const String& model,

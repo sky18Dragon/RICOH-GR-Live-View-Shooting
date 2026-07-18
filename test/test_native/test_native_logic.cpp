@@ -8,6 +8,7 @@
 void setUp(void) {}
 void tearDown(void) {}
 
+#include "ble_pairing_policy.h"
 #include "ble_reconnect_policy.h"
 
 #include "camera_identity.h"
@@ -326,6 +327,78 @@ void testNewProfileMetadataRoundTrips() {
   TEST_ASSERT_TRUE(decoded.wifiCredentialsValid);
 }
 
+void testNormalizesResolvedPeerAddressTypes() {
+  TEST_ASSERT_EQUAL_UINT8(0x00, normalizedPeerAddressType(0x00));
+  TEST_ASSERT_EQUAL_UINT8(0x01, normalizedPeerAddressType(0x01));
+  TEST_ASSERT_EQUAL_UINT8(0x00, normalizedPeerAddressType(0x02));
+  TEST_ASSERT_EQUAL_UINT8(0x01, normalizedPeerAddressType(0x03));
+}
+
+void testPairingRecoveryCountsOnlyExplicitSecurityFailures() {
+  PairingRecoveryPolicy policy;
+  TEST_ASSERT_FALSE(policy.onBondedSecurityFailure(0x213));
+  TEST_ASSERT_FALSE(policy.onBondedSecurityFailure(0x213));
+  TEST_ASSERT_FALSE(policy.onBondedSecurityFailure(0x208));
+  TEST_ASSERT_FALSE(policy.onBondedSecurityFailure(0x213));
+  TEST_ASSERT_FALSE(policy.onBondedSecurityFailure(0x213));
+  TEST_ASSERT_TRUE(policy.onBondedSecurityFailure(0x213));
+}
+
+void testPairingRecoveryDropsUnauthenticatedBondAfterTwoReads() {
+  PairingRecoveryPolicy policy;
+  TEST_ASSERT_FALSE(policy.onInsufficientAuthRead(0x105));
+  TEST_ASSERT_FALSE(policy.onInsufficientAuthRead(0x101));
+  TEST_ASSERT_FALSE(policy.onInsufficientAuthRead(0x10F));
+  TEST_ASSERT_TRUE(policy.onInsufficientAuthRead(0x108));
+  policy.onAuthenticatedRead();
+  TEST_ASSERT_FALSE(policy.onInsufficientAuthRead(0x105));
+}
+
+void testPasskeySerialCollectorCompletesWithoutLoggingValue() {
+  PasskeyDigitCollector collector;
+  int32_t code = -1;
+  const char* input = "2x5 6\r4:45";
+  for (const char* c = input; *c != '\0'; ++c) {
+    const int32_t result = collector.feed(*c);
+    if (result >= 0) {
+      code = result;
+    }
+  }
+  TEST_ASSERT_EQUAL_INT32(256445, code);
+  TEST_ASSERT_EQUAL_INT32(-1, collector.feed('1'));
+}
+
+void testPasskeyButtonEntryCompletesResetsAndTimesOut() {
+  PasskeyButtonEntry entry;
+  entry.start(1000, 45000);
+  for (int i = 0; i < 5; ++i) {
+    entry.shortPress();
+  }
+  TEST_ASSERT_EQUAL_UINT8(5, entry.digits()[0]);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(PasskeyEntryStatus::Editing),
+                        static_cast<int>(entry.confirmDigit()));
+  for (int i = 0; i < 11; ++i) {
+    entry.shortPress();
+  }
+  TEST_ASSERT_EQUAL_UINT8(1, entry.digits()[1]);
+  for (int i = 0; i < 5; ++i) {
+    entry.confirmDigit();
+  }
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(PasskeyEntryStatus::Complete),
+                        static_cast<int>(entry.status(2000)));
+  TEST_ASSERT_EQUAL_INT32(510000, entry.code());
+
+  entry.start(5000, 100);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(PasskeyEntryStatus::Editing),
+                        static_cast<int>(entry.status(5099)));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(PasskeyEntryStatus::TimedOut),
+                        static_cast<int>(entry.status(5100)));
+  entry.reset();
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(PasskeyEntryStatus::Idle),
+                        static_cast<int>(entry.status(6000)));
+  TEST_ASSERT_EQUAL_INT32(0, entry.code());
+}
+
 }  // namespace
 
 int main() {
@@ -336,6 +409,11 @@ int main() {
   RUN_TEST(testGr3CredentialShapeAllowsOptionalChannel);
   RUN_TEST(testOldProfileMetadataUpgradesWithoutAssumingProtocol);
   RUN_TEST(testNewProfileMetadataRoundTrips);
+  RUN_TEST(testNormalizesResolvedPeerAddressTypes);
+  RUN_TEST(testPairingRecoveryCountsOnlyExplicitSecurityFailures);
+  RUN_TEST(testPairingRecoveryDropsUnauthenticatedBondAfterTwoReads);
+  RUN_TEST(testPasskeySerialCollectorCompletesWithoutLoggingValue);
+  RUN_TEST(testPasskeyButtonEntryCompletesResetsAndTimesOut);
   RUN_TEST(testBeginRejectsInvalidInputs);
   RUN_TEST(testDeliversFrameSplitAcrossChunks);
   RUN_TEST(testDropsShortFrame);

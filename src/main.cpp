@@ -3,6 +3,7 @@
 #include <Wire.h>
 #include <esp_heap_caps.h>
 
+#include "ble_pairing_policy.h"
 #include "ble_reconnect_policy.h"
 #include "buttons.h"
 #include "camera_identity.h"
@@ -78,6 +79,8 @@ String lastStatusLine3;
 String lastStatusLine4;
 bool wifiCacheRefreshPending = false;
 uint32_t wifiCacheRefreshAfter = 0;
+PasskeyButtonEntry passkeyEntry;
+bool passkeyEntryActive = false;
 
 constexpr uint32_t STATUS_MIN_REDRAW_MS = 1500;
 constexpr bool DRAW_LIVE_OVERLAY = true;
@@ -85,6 +88,7 @@ constexpr bool DRAW_LIVE_OVERLAY = true;
 void requestManualCameraWake(const char* source);
 void resetBlePairingFromKey2();
 rvf::AppFlowActions makeAppFlowActions();
+int32_t pollPasskeyButtonEntry(RicohPasskeyPollAction action);
 
 bool beginStickPower() {
   const int8_t sda = M5.getPin(m5::pin_name_t::in_i2c_sda);
@@ -734,6 +738,51 @@ void saveConnectedBleIdentity(const String& connectedName, const RicohBleDeviceI
                                cameraProfile.bleAddress,
                                cameraProfile.bleAddressType,
                                cameraProfile.bleBonded);
+}
+
+int32_t pollPasskeyButtonEntry(RicohPasskeyPollAction action) {
+  if (action == RicohPasskeyPollAction::Cancel) {
+    passkeyEntry.reset();
+    passkeyEntryActive = false;
+    return -1;
+  }
+  if (action == RicohPasskeyPollAction::Start || !passkeyEntryActive) {
+    passkeyEntry.start(millis(), RICOH_BLE_PASSKEY_ENTRY_WAIT_MS);
+    passkeyEntryActive = true;
+    ui.showPasskeyEntry(passkeyEntry.digits(), passkeyEntry.activeIndex());
+    return -1;
+  }
+
+  const ButtonEvents events = buttons.poll();
+  if (events.resetPairing) {
+    key2PairingResetRequested = true;
+    passkeyEntry.reset();
+    passkeyEntryActive = false;
+    Serial.println("BLE pairing: canceled by pairing reset request");
+    return -2;
+  }
+  if (passkeyEntry.status(millis()) == PasskeyEntryStatus::TimedOut) {
+    passkeyEntry.reset();
+    passkeyEntryActive = false;
+    Serial.println("BLE pairing: passkey entry timed out");
+    return -2;
+  }
+
+  bool changed = false;
+  if (M5.BtnA.wasClicked()) {
+    passkeyEntry.shortPress();
+    changed = true;
+  } else if (M5.BtnA.wasHold()) {
+    changed = true;
+    if (passkeyEntry.confirmDigit() == PasskeyEntryStatus::Complete) {
+      ui.showPasskeyEntry(passkeyEntry.digits(), passkeyEntry.activeIndex());
+      return passkeyEntry.code();
+    }
+  }
+  if (changed) {
+    ui.showPasskeyEntry(passkeyEntry.digits(), passkeyEntry.activeIndex());
+  }
+  return -1;
 }
 
 bool serviceButtonsDuringBleOperation() {
@@ -1593,6 +1642,7 @@ void setup() {
   beginStickPower();
   buttons.begin();
   ricohBle.setServiceCallback(serviceButtonsDuringBleOperation);
+  ricohBle.setPasskeyPoller(pollPasskeyButtonEntry);
   decoder.begin();
   grWifi.begin();
 

@@ -33,6 +33,20 @@ struct RicohBleConnectOptions {
   uint32_t securityWaitMs = 0;
   uint32_t preConnectDelayMs = 0;
   bool exchangeMtu = true;
+  RicohProtocolGeneration protocolHint = RicohProtocolGeneration::Unknown;
+};
+
+enum class RicohPasskeyPollAction : uint8_t {
+  Start,
+  Poll,
+  Cancel,
+};
+
+struct RicohBleSecurityState {
+  bool bonded = false;
+  bool encrypted = false;
+  bool authenticated = false;
+  uint8_t keySize = 0;
 };
 
 enum class RicohCameraPowerState {
@@ -44,9 +58,13 @@ enum class RicohCameraPowerState {
 class RicohBleClient {
 public:
   using ServiceCallback = bool (*)();
+  // Returns a completed six-digit code for Poll, -1 while pending, or -2 when
+  // the local entry UI canceled/timed out. Start and Cancel reset UI state.
+  using PasskeyPoller = int32_t (*)(RicohPasskeyPollAction action);
 
   void begin();
   void setServiceCallback(ServiceCallback callback);
+  void setPasskeyPoller(PasskeyPoller poller);
   RicohBleDeviceInfo scanForCamera(const String& preferredAddress, const String& preferredName, uint32_t scanSeconds);
   bool connect(const RicohBleDeviceInfo& info, uint32_t timeoutMs);
   bool connect(const RicohBleDeviceInfo& info, const RicohBleConnectOptions& options);
@@ -66,6 +84,8 @@ public:
   bool deleteAllBonds();
   void resetStack(bool clearObjects = false);
   bool lastFailureWasResourceExhausted() const;
+  const CameraProtocolProfile& protocolProfile() const;
+  RicohBleSecurityState securityState() const;
 
   String statusText() const;
   const String& lastError() const;
@@ -76,4 +96,5 @@ private:
   bool _lastFailureResourceExhausted = false;
   String _lastError;
   void* _client = nullptr;
+  RicohProtocolGeneration _protocolGeneration = RicohProtocolGeneration::Unknown;
 };
