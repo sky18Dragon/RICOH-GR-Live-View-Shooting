@@ -2,6 +2,16 @@
 
 本文件记录对后续 AI/Codex 有帮助的项目级事实变化。代码提交日志仍以 Git 为准。
 
+## 2026-07-18 — GR III Family 协议 Profile 实现（待实机验证）
+
+- 新增 `Gr2Family` / `Gr3Family` / `Gr4Family` / `Unknown` 能力模型；Unknown 默认拒绝 WLAN、Power、Shutter 副作用写入，GR II 仅预留 ManualOnly/ManualConfiguration。
+- GR IV 保留固定 Handle 路径；GR III WLAN/Power/凭据正式路径只使用 Service + Characteristic UUID，不做跨代盲写回退。
+- 新增 GR III 六位 Passkey 设备端输入、地址类型归一化、受保护读取触发配对，以及只按明确安全错误删除旧 Bond 的恢复策略。
+- NVS Profile schema 升至 v4，旧 v3 身份/Bond/Wi-Fi 数据可读取，缺少代际字段时安全地重新识别。
+- GR III WLAN 必须 authenticated encryption + fresh `CAPTURE`；待机后断开，以 Profile 的 8 秒最小间隔建立只读探测连接。
+- 2026-07-18 自动化结果：Native 27/27，StickS3 发布构建成功。GR III/IIIx 实机矩阵和本次 GR IV/IV HDF 回归尚未执行，不得标记为本分支已实机验证。
+- 实机记录模板：`docs/gr3_family_test_record.md`。
+
 ## 2026-07-03 — 建立 Codex 嵌入式项目记忆系统
 
 新增/完善：
