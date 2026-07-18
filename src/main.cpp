@@ -294,9 +294,20 @@ uint32_t cameraPowerProbeBackoffRemainingMs() {
 }
 
 void scheduleCameraPowerProbeBackoff(const char* source) {
-  cameraPowerProbeBackoffUntil = millis() + CAMERA_POWER_OFF_PROBE_BACKOFF_MS;
+  const CameraProtocolProfile& connectedProfile = bleCamera.protocolProfile();
+  const CameraProtocolProfile& storedProfile = cameraProtocolProfile(
+      cameraProfile.protocolGenerationKnown
+        ? cameraProfile.protocolGeneration
+        : RicohProtocolGeneration::Unknown);
+  const uint32_t profileInterval = connectedProfile.standbyModeRequiresFreshReconnect
+                                     ? connectedProfile.standbyProbeIntervalMs
+                                     : storedProfile.standbyProbeIntervalMs;
+  const uint32_t intervalMs = profileInterval > 0
+                                ? profileInterval
+                                : CAMERA_POWER_OFF_PROBE_BACKOFF_MS;
+  cameraPowerProbeBackoffUntil = millis() + intervalMs;
   Serial.printf("BLE guard: next power probe in %lums (%s)\n",
-                static_cast<unsigned long>(CAMERA_POWER_OFF_PROBE_BACKOFF_MS),
+                static_cast<unsigned long>(intervalMs),
                 source != nullptr ? source : "camera standby");
 }
 
@@ -407,7 +418,10 @@ bool cameraSleepGuardBlocksFlow(const char* action) {
 }
 
 bool hasUsableCachedWifiCredentials() {
-  return cameraProfile.wifi.cached && cameraProfile.wifi.ssid.length() > 0 && cameraProfile.bleAddress.length() > 0;
+  return cameraProfile.wifi.cached &&
+         cameraProfile.wifi.credentialsValid &&
+         cameraProfile.wifi.ssid.length() > 0 &&
+         cameraProfile.bleAddress.length() > 0;
 }
 
 bool wifiCredentialsMatchProfile(const RicohBleWifiCredentials& credentials) {
@@ -425,7 +439,9 @@ bool wifiCredentialsMatchProfile(const RicohBleWifiCredentials& credentials) {
 }
 
 void saveWifiCredentialCache(const char* source) {
-  if (cameraProfile.bleAddress.length() == 0 || cameraProfile.wifi.ssid.length() == 0) {
+  if (cameraProfile.bleAddress.length() == 0 ||
+      cameraProfile.wifi.ssid.length() == 0 ||
+      !cameraProfile.wifi.credentialsValid) {
     return;
   }
   if (profileStore.saveWifiCredentials(cameraProfile.bleAddress, cameraProfile.wifi)) {
@@ -453,6 +469,13 @@ void saveConnectedWifiBssidToCache(const char* source) {
     }
     cameraProfile.wifi.bssid = connectedBssid;
   }
+  const uint8_t connectedChannel = grWifi.channel();
+  if (connectedChannel >= 1 && connectedChannel <= 14) {
+    cameraProfile.wifi.channel = connectedChannel;
+    cameraProfile.wifi.frequencyMhz = connectedChannel == 14
+                                        ? 2484
+                                        : static_cast<uint16_t>(2407 + connectedChannel * 5);
+  }
   saveWifiCredentialCache(source != nullptr ? source : "connected");
 }
 
@@ -468,6 +491,11 @@ void applyBleWifiCredentials(const RicohBleWifiCredentials& credentials, const c
   cameraProfile.wifi.bssid = credentials.bssid;
   cameraProfile.wifi.frequencyMhz = credentials.frequencyMhz;
   cameraProfile.wifi.channel = credentials.channel;
+  cameraProfile.wifi.credentialsValid = credentials.valid;
+  cameraProfile.wifi.source = bleCamera.protocolProfile().wifiCredentialMethod ==
+                                      WifiCredentialMethod::BleUuidCharacteristics
+                                ? WifiCredentialSource::BleUuidCharacteristics
+                                : WifiCredentialSource::BleFixedHandles;
 
   Serial.printf("WiFi params: %s ssid='%s' channel=%u freq=%u changed=%d\n",
                 source != nullptr ? source : "BLE",
@@ -522,9 +550,11 @@ void applyDefaultProfile() {
   }
   wifiPreview.setEndpoint(cameraProfile.wifi.cameraIp.c_str(), GR_PORT);
 
-  Serial.printf("Profile: camera='%s' ble='%s' ip='%s'\n",
+  Serial.printf("Profile: camera='%s' ble='%s' protocol=%s known=%d ip='%s'\n",
                 cameraProfile.cameraName.c_str(),
                 cameraProfile.bleAddress.c_str(),
+                ricohProtocolGenerationName(cameraProfile.protocolGeneration),
+                cameraProfile.protocolGenerationKnown ? 1 : 0,
                 cameraProfile.wifi.cameraIp.c_str());
 }
 
@@ -594,6 +624,28 @@ bool ensureCameraPowerReadyForWifi(const char* source) {
                           "Auto scan active",
                           true);
       enterCameraSleepGuard("BLE operation mode standby", RICOH_BLE_DISCONNECT_REMOTE_POWER_OFF);
+      return false;
+    }
+  }
+
+  const CameraProtocolProfile& protocol = bleCamera.protocolProfile();
+  if (protocol.generation == RicohProtocolGeneration::Gr3Family) {
+    const RicohBleSecurityState security = bleCamera.securityState();
+    const bool safeMode = operationModeAllowsWifi(protocol,
+                                                  cameraOperationMode,
+                                                  operationModeReadOk);
+    if (!security.encrypted || !security.authenticated || !safeMode) {
+      Serial.printf("WiFi blocked: profile=GR3_FAMILY encrypted=%d authenticated=%d operation_mode=%s read_ok=%d\n",
+                    security.encrypted ? 1 : 0,
+                    security.authenticated ? 1 : 0,
+                    cameraOperationModeName(cameraOperationMode),
+                    operationModeReadOk ? 1 : 0);
+      showStatusIfChanged("Camera not ready",
+                          cameraOperationModeName(cameraOperationMode),
+                          "GR3 requires CAPTURE",
+                          "BtnA: retry",
+                          true);
+      enterCameraSleepGuard("GR3 operation/security gate", RICOH_BLE_DISCONNECT_REMOTE_POWER_OFF);
       return false;
     }
   }
@@ -734,10 +786,16 @@ void saveConnectedBleIdentity(const String& connectedName, const RicohBleDeviceI
   cameraProfile.bleAddressType = info.addressType;
   cameraProfile.bleAddressTypeKnown = true;
   cameraProfile.bleBonded = bleCamera.isBonded(info);
+  cameraProfile.protocolGeneration = bleCamera.protocolProfile().generation;
+  cameraProfile.protocolGenerationKnown =
+      cameraProfile.protocolGeneration != RicohProtocolGeneration::Unknown;
+  cameraProfile.capabilityVersion = bleCamera.protocolProfile().capabilityVersion;
+  cameraProfile.profileVersion = CAMERA_PROFILE_SCHEMA_VERSION;
   profileStore.saveBleIdentity(cameraProfile.cameraName,
                                cameraProfile.bleAddress,
                                cameraProfile.bleAddressType,
                                cameraProfile.bleBonded);
+  profileStore.save(cameraProfile);
 }
 
 int32_t pollPasskeyButtonEntry(RicohPasskeyPollAction action) {
@@ -910,6 +968,9 @@ bool runBleDiscoveryAtBoot() {
                                  : RICOH_BLE_SECURITY_WAIT_MS;
       options.preConnectDelayMs = BLE_SCAN_TO_CONNECT_DELAY_MS;
       options.exchangeMtu = false;
+      options.protocolHint = cameraProfile.protocolGenerationKnown
+                               ? cameraProfile.protocolGeneration
+                               : RicohProtocolGeneration::Unknown;
 
       Serial.printf("BLE: connect policy bonded=%d fast_security=%d security_wait=%lums\n",
                     bonded ? 1 : 0,

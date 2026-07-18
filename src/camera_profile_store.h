@@ -3,6 +3,9 @@
 #include <Arduino.h>
 #include <Preferences.h>
 
+#include "camera_profile_schema.h"
+#include "camera_protocol_profile.h"
+
 struct WifiCredential {
   String ssid;
   String passphrase;
@@ -11,6 +14,8 @@ struct WifiCredential {
   uint16_t frequencyMhz = 0;
   uint8_t channel = 0;
   bool cached = false;
+  bool credentialsValid = false;
+  WifiCredentialSource source = WifiCredentialSource::Unknown;
 };
 
 struct CameraProfile {
@@ -19,8 +24,11 @@ struct CameraProfile {
   uint8_t bleAddressType = 0;
   bool bleAddressTypeKnown = false;
   bool bleBonded = false;
+  RicohProtocolGeneration protocolGeneration = RicohProtocolGeneration::Unknown;
+  bool protocolGenerationKnown = false;
+  uint16_t capabilityVersion = CAMERA_CAPABILITY_SCHEMA_VERSION;
   WifiCredential wifi;
-  uint32_t profileVersion = 3;
+  uint32_t profileVersion = CAMERA_PROFILE_SCHEMA_VERSION;
 };
 
 class CameraProfileStore {

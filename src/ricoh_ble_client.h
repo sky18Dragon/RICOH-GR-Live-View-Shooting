@@ -97,4 +97,6 @@ private:
   String _lastError;
   void* _client = nullptr;
   RicohProtocolGeneration _protocolGeneration = RicohProtocolGeneration::Unknown;
+  RicohCameraOperationMode _lastOperationMode = RicohCameraOperationMode::Unknown;
+  bool _lastOperationModeValid = false;
 };
