@@ -386,6 +386,7 @@ void DisplayUi::drawStatusLines(const char* line1, const char* line2, const char
     _canvas.setCursor(titleX, y + 14);
     _canvas.print(title);
     _canvas.fillCircle(titleX + titleW + 11, y + 21, 4, bleConnected ? COLOR_GREEN : COLOR_RED);
+    drawDeviceBatteryStatus(x + w - 10, y + 17);
 
     _canvas.setTextSize(2);
     const int16_t statusW = static_cast<int16_t>(strlen(bleStatus) * 12);
@@ -394,6 +395,31 @@ void DisplayUi::drawStatusLines(const char* line1, const char* line2, const char
     _canvas.setCursor(statusX, y + h - 29);
     _canvas.print(bleStatus);
 }
+
+// StickS3 battery indicator for the BLE pairing/connection status screen.
+void DisplayUi::drawDeviceBatteryStatus(int16_t rightX, int16_t y) {
+    int32_t batteryLevel = M5.Power.getBatteryLevel();
+    if (batteryLevel > 100) batteryLevel = 100;
+
+    char batteryText[8];
+    if (batteryLevel >= 0) {
+        snprintf(batteryText, sizeof(batteryText), "%ld%%", static_cast<long>(batteryLevel));
+    } else {
+        snprintf(batteryText, sizeof(batteryText), "--%%");
+    }
+
+    constexpr int16_t iconWidth = 15;
+    constexpr int16_t textGap = 4;
+    const int16_t textWidth = static_cast<int16_t>(strlen(batteryText) * 6);
+    const int16_t iconX = rightX - iconWidth - textGap - textWidth;
+
+    drawBatteryIcon(iconX, y, batteryText);
+    _canvas.setTextSize(1);
+    _canvas.setTextColor(COLOR_WHITE, COLOR_CARD);
+    _canvas.setCursor(iconX + iconWidth + textGap, y);
+    _canvas.print(batteryText);
+}
+
 // Graphic helper to draw WiFi RSSI strength bars
 void DisplayUi::drawWifiIcon(int16_t x, int16_t y, int32_t rssi) {
     uint8_t bars = 0;
