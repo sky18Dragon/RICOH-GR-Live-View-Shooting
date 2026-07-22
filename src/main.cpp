@@ -23,6 +23,10 @@
 #include "services/WifiPreviewService.h"
 #include "supervisor/SystemSupervisor.h"
 #include "ui/ButtonInput.h"
+#include "ui/OrientationTracker.h"
+#include "ui/UiCoordinator.h"
+#include "ui/UiSoundPlayer.h"
+#include "ui/UiTheme.h"
 
 namespace {
 
@@ -41,6 +45,9 @@ rvf::CameraPowerPolicy cameraPowerPolicy;
 rvf::WifiPreviewService wifiPreview(grWifi, grApi, mjpeg);
 rvf::PreviewFrameBuffer previewFrameBuffer;
 rvf::SystemSupervisor systemSupervisor;
+rvf::UiCoordinator uiCoordinator;
+rvf::OrientationTracker orientationTracker(rvf::UiOrientation::Portrait);
+rvf::UiSoundPlayer uiSound;
 using CameraFlowState = rvf::AppState;
 rvf::AppController appController(CameraFlowState::BleScan);
 uint8_t* frameBuffer = nullptr;
@@ -78,12 +85,17 @@ String lastStatusLine3;
 String lastStatusLine4;
 bool wifiCacheRefreshPending = false;
 uint32_t wifiCacheRefreshAfter = 0;
+uint32_t lastOrientationSampleAt = 0;
+bool imuAvailable = false;
+bool uiResettingPairing = false;
+ButtonEvents currentUiInput;
 
 constexpr uint32_t STATUS_MIN_REDRAW_MS = 1500;
-constexpr bool DRAW_LIVE_OVERLAY = true;
 
 void requestManualCameraWake(const char* source);
 void resetBlePairingFromKey2();
+void updateUi();
+void updateUi(const ButtonEvents& input);
 rvf::AppFlowActions makeAppFlowActions();
 
 bool beginStickPower() {
@@ -228,12 +240,12 @@ void showStatusIfChanged(const String& line1,
     return;
   }
 
-  ui.showStatus(line1, line2, line3, line4);
   lastStatusLine1 = line1;
   lastStatusLine2 = line2;
   lastStatusLine3 = line3;
   lastStatusLine4 = line4;
   lastStatusDrawAt = now;
+  updateUi();
 }
 
 void waitForSerialConsole() {
@@ -738,6 +750,7 @@ void saveConnectedBleIdentity(const String& connectedName, const RicohBleDeviceI
 
 bool serviceButtonsDuringBleOperation() {
   const ButtonEvents events = buttons.poll();
+  updateUi(events);
   if (!events.resetPairing) {
     return false;
   }
@@ -1085,17 +1098,23 @@ void showShutterBleNotReadyForController() {
 
 bool shootAutofocusForController() {
   showStatusIfChanged("Button A shutter", "BLE shooting...", cameraProps.model, cameraProps.battery, true);
+  uiCoordinator.notifyShutterStarted(millis());
+  updateUi();
   const rvf::Result shootResult = bleCamera.shoot(true);
   return shootResult.ok();
 }
 
 void onShutterOkForController() {
+  uiCoordinator.notifyShutterResult(true, millis());
   showStatusIfChanged("Button A shutter", "BLE SHOT OK", cameraProps.model, cameraProps.battery, true);
+  updateUi();
 }
 
 void onShutterFailedForController() {
   Serial.printf("Button A: BLE shutter failed: %s\n", bleCamera.lastError().c_str());
+  uiCoordinator.notifyShutterResult(false, millis());
   showStatusIfChanged("Button A BLE failed", bleCamera.lastError(), "Preview kept", "", true);
+  updateUi();
 }
 
 bool previewKeptAfterShutterFailureForController() {
@@ -1321,28 +1340,94 @@ void updateFps() {
   }
 }
 
+rvf::UiSnapshot makeUiSnapshot() {
+  rvf::UiSnapshot snapshot;
+  snapshot.appState = appController.state();
+  snapshot.bleConnected = bleCamera.isConnected();
+  snapshot.wifiConnected = grWifi.isConnected();
+  snapshot.previewRunning = wifiPreview.isPreviewRunning();
+  snapshot.shutterReady = bleCamera.shutterReady();
+  snapshot.cameraSleepLike = cameraSleepGuardActive() ||
+                             snapshot.appState == rvf::AppState::CameraSleepGuard ||
+                             snapshot.appState == rvf::AppState::CameraPowerOff;
+  snapshot.resettingPairing = uiResettingPairing;
+  snapshot.hasFrame = decodedFrames > 0;
+  snapshot.fps = currentFps;
+  snapshot.rssi = grWifi.rssi();
+  snapshot.decodedFrames = decodedFrames;
+  snapshot.droppedFrames = mjpeg.droppedFrames();
+  const int32_t battery = M5.Power.getBatteryLevel();
+  snapshot.deviceBatteryPercent = static_cast<int8_t>(battery > 100 ? 100 : battery);
+  snapshot.cameraModel = cameraProps.model.c_str();
+  snapshot.cameraBattery = cameraProps.battery.c_str();
+  snapshot.errorTitle = lastStatusLine1.c_str();
+  snapshot.errorDetail = lastStatusLine2.c_str();
+  return snapshot;
+}
+
+rvf::UiOrientation sampleUiOrientation(const rvf::UiSnapshot& snapshot, uint32_t nowMs) {
+  if (!rvf::UiTheme::kOrientationEnabled || !imuAvailable) {
+    return snapshot.previewRunning ? rvf::UiOrientation::Landscape : rvf::UiOrientation::Portrait;
+  }
+  if ((nowMs - lastOrientationSampleAt) >= rvf::UiTheme::kOrientationSampleMs) {
+    lastOrientationSampleAt = nowMs;
+    M5.Imu.update();
+    float accelX = 0.0f;
+    float accelY = 0.0f;
+    float accelZ = 0.0f;
+    if (M5.Imu.getAccel(&accelX, &accelY, &accelZ)) {
+      orientationTracker.update(accelX, accelY, accelZ, nowMs);
+    }
+  }
+  return orientationTracker.orientation();
+}
+
+void updateUi(const ButtonEvents& input) {
+  currentUiInput = input;
+  const uint32_t nowMs = millis();
+  const rvf::UiSnapshot snapshot = makeUiSnapshot();
+  const rvf::UiOrientation orientation = sampleUiOrientation(snapshot, nowMs);
+  uiCoordinator.update(snapshot, input, orientation, nowMs);
+  ui.render(uiCoordinator.viewModel());
+  uiSound.play(uiCoordinator.consumeSound(), nowMs);
+  uiSound.update(nowMs);
+  currentUiInput.buttonA = false;
+  currentUiInput.buttonADown = false;
+  currentUiInput.buttonAReleased = false;
+  currentUiInput.resetPairing = false;
+  currentUiInput.powerOff = false;
+}
+
+void updateUi() {
+  updateUi(currentUiInput);
+}
+
 void onJpegFrame(const uint8_t* data, size_t len, void*) {
   lastFrameAt = millis();
   decodedFrames++;
   updateFps();
   previewFrameBuffer.recordFrame(len);
 
+  if (!uiCoordinator.shouldRenderLivePreview()) {
+    // The stream remains active and all watchdog/frame timestamps continue to
+    // advance while portrait UI intentionally skips JPEG decode and display.
+    lastFrameAt = millis();
+    return;
+  }
+
   const uint32_t renderStartMs = millis();
-  if (!decoder.drawFrame(ui.getCanvas(), data, len)) {
+  LovyanGFX* canvas = ui.beginLiveFrame();
+  if (canvas == nullptr) {
+    lastFrameAt = millis();
+    return;
+  }
+  if (!decoder.drawFrame(canvas, data, len)) {
     Serial.printf("JPEG decode failed len=%u err=%s\n", static_cast<unsigned>(len), decoder.lastError().c_str());
+    ui.finishLiveFrame(false);
     wifiPreview.recordRenderedFrame(decoder.lastDecodeMs(), millis() - renderStartMs);
   } else {
-    if (DRAW_LIVE_OVERLAY) {
-      ui.drawOverlay(grWifi.statusText(),
-                     wifiPreview.isPreviewRunning() ? "LIVE" : "IDLE",
-                     cameraProps.model,
-                     cameraProps.battery,
-                     currentFps,
-                     grWifi.rssi(),
-                     decodedFrames,
-                     mjpeg.droppedFrames());
-    }
-    ui.pushCanvas();
+    ui.renderLiveFrameOverlay(uiCoordinator.viewModel());
+    ui.finishLiveFrame(true);
     wifiPreview.recordRenderedFrame(decoder.lastDecodeMs(), millis() - renderStartMs);
   }
   lastFrameAt = millis();
@@ -1354,6 +1439,9 @@ void resetBlePairingFromKey2() {
     return;
   }
   resettingPairing = true;
+  uiResettingPairing = true;
+  uiCoordinator.notifyResetTriggered(millis());
+  updateUi();
   cameraRecoveryInProgress = true;
 
   Serial.println("BLE pairing reset: Button B / KEY2 long press");
@@ -1391,11 +1479,15 @@ void resetBlePairingFromKey2() {
   lastLiveViewActivityAt = lastFrameAt;
   lastCameraRecoveryAt = 0;
   cameraRecoveryInProgress = false;
+  uiResettingPairing = false;
   resettingPairing = false;
+  updateUi();
 }
 
 void requestManualCameraWake(const char* source) {
   const char* wakeSource = source != nullptr ? source : "manual retry";
+  uiCoordinator.notifyManualWake(millis());
+  updateUi();
   clearCameraSleepGuard(wakeSource);
   liveviewEnabled = true;
   closeLiveView(wakeSource);
@@ -1456,6 +1548,7 @@ void shutdownStickS3() {
 
 void handleButtons() {
   const ButtonEvents events = buttons.poll();
+  updateUi(events);
   const rvf::UserCommand command = rvf::ButtonInput::commandFromEvents(events);
 
   if (command == rvf::UserCommand::PowerOff || pollStickPowerHold()) {
@@ -1576,6 +1669,7 @@ void runAppTick() {
   if (tickPlan.updateStatusUi) {
     updateStatusUiIfDue();
   }
+  updateUi();
   delay(1);
 }
 
@@ -1586,7 +1680,17 @@ void setup() {
   appController.begin(CameraFlowState::BleScan);
   systemSupervisor.begin(millis());
 
-  ui.begin();
+  if (!ui.begin()) {
+    Serial.println("UI: initial Canvas creation failed");
+  }
+  uiCoordinator.begin(millis());
+  orientationTracker.reset(rvf::UiOrientation::Portrait, millis());
+  imuAvailable = rvf::UiTheme::kOrientationEnabled && M5.Imu.isEnabled();
+  orientationTracker.setAvailable(imuAvailable);
+  Serial.printf("UI: IMU %s; fallback=%s\n",
+                imuAvailable ? "ready" : "unavailable",
+                imuAvailable ? "none" : "preview landscape / status portrait");
+  Serial.printf("UI: sound %s\n", uiSound.begin() ? "ready" : "disabled/unavailable");
   ui.showBoot(rvf::AppConfig::Ui::kBootMessage);
   waitForSerialConsole();
 
