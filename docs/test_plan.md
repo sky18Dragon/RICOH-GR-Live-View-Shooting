@@ -82,6 +82,16 @@ COM 端口按实际设备替换。
     - 验证低亮过渡、A 唤醒提亮、声音；再模拟 IMU/扬声器不可用。
     - 期望：失败时静默降级，不影响连接、预览和拍摄。
 
+11. **竖屏启动的 Wi-Fi 门控**
+    - 保持 StickS3 竖屏启动，等待 BLE 和相机 Wi-Fi 参数准备完成。
+    - 期望：状态停在 `WIFI_CREDENTIALS_READY`，日志有 `WiFi cache: saved`，StickS3 不连接相机 AP，也不发起 HTTP/LiveView。
+12. **竖转横恢复流程**
+    - 从 `WIFI_CREDENTIALS_READY` 转为横屏。
+    - 期望：不重新 BLE 扫描，直接进入 `CONNECTING_WIFI -> HTTP_PROBING -> PREVIEW_RUNNING`。
+13. **横转竖断开流程**
+    - LiveView 运行时转为竖屏。
+    - 期望：关闭 LiveView、断开相机 Wi-Fi、回到 `WIFI_CREDENTIALS_READY`，BLE 保持连接；重新横屏可再次恢复。
+
 ## Preview 性能测试
 
 记录：

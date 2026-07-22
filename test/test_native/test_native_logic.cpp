@@ -10,6 +10,7 @@ void tearDown(void) {}
 
 #include "ble_reconnect_policy.h"
 
+#include "app/AppController.h"
 #include "camera_identity.h"
 #include "mjpeg_stream.h"
 #include "supervisor/SystemSupervisor.h"
@@ -34,6 +35,187 @@ void captureFrame(const uint8_t* data, size_t len, void* user) {
 void assertDerivedBleName(const char* ssid, const char* expected) {
   const std::string actual = deriveBleNameFromWifiSsid(ssid);
   TEST_ASSERT_EQUAL_STRING(expected, actual.c_str());
+}
+
+struct FlowHarness {
+  static bool bleConnected;
+  static bool wifiConnected;
+  static bool previewRunning;
+  static bool cachedCredentials;
+  static uint32_t lastRecoveryAt;
+  static uint32_t activateCalls;
+  static uint32_t readCredentialsCalls;
+  static uint32_t applyCredentialsCalls;
+  static uint32_t connectCalls;
+  static uint32_t disconnectCalls;
+  static uint32_t fetchPropsCalls;
+  static uint32_t openPreviewCalls;
+
+  static void reset() {
+    bleConnected = true;
+    wifiConnected = false;
+    previewRunning = false;
+    cachedCredentials = false;
+    lastRecoveryAt = 0;
+    activateCalls = 0;
+    readCredentialsCalls = 0;
+    applyCredentialsCalls = 0;
+    connectCalls = 0;
+    disconnectCalls = 0;
+    fetchPropsCalls = 0;
+    openPreviewCalls = 0;
+  }
+
+  static bool noGuard(const char*) { return false; }
+  static bool guardInactive() { return false; }
+  static bool isBleConnected() { return bleConnected; }
+  static bool isWifiConnected() { return wifiConnected; }
+  static bool runBleDiscovery() { return bleConnected; }
+  static bool activateWifi() {
+    ++activateCalls;
+    return true;
+  }
+  static bool hasCredentials() { return cachedCredentials; }
+  static bool readCredentials() {
+    ++readCredentialsCalls;
+    return true;
+  }
+  static void applyCredentials() {
+    ++applyCredentialsCalls;
+    cachedCredentials = true;
+  }
+  static bool connectWifi() {
+    ++connectCalls;
+    wifiConnected = true;
+    return true;
+  }
+  static void disconnectWifi() {
+    ++disconnectCalls;
+    wifiConnected = false;
+    previewRunning = false;
+  }
+  static bool fetchProps() {
+    ++fetchPropsCalls;
+    return wifiConnected;
+  }
+  static bool openPreview() {
+    ++openPreviewCalls;
+    previewRunning = wifiConnected;
+    return previewRunning;
+  }
+  static bool isPreviewRunning() { return previewRunning; }
+  static bool recoveryInactive() { return false; }
+  static uint32_t getLastRecoveryAt() { return lastRecoveryAt; }
+  static void setLastRecoveryAt(uint32_t value) { lastRecoveryAt = value; }
+
+  static rvf::AppFlowActions actions() {
+    rvf::AppFlowActions result;
+    result.cameraSleepGuardBlocksFlow = noGuard;
+    result.cameraSleepGuardActive = guardInactive;
+    result.isBleConnected = isBleConnected;
+    result.isWifiConnected = isWifiConnected;
+    result.disconnectWifi = disconnectWifi;
+    result.runBleDiscovery = runBleDiscovery;
+    result.activateCameraWifiOverBle = activateWifi;
+    result.hasUsableCachedWifiCredentials = hasCredentials;
+    result.connectCachedWifiFromProfile = connectWifi;
+    result.readFreshWifiCredentials = readCredentials;
+    result.applyFreshWifiCredentials = applyCredentials;
+    result.connectFreshWifiFromProfile = connectWifi;
+    result.fetchCameraProps = fetchProps;
+    result.openLiveView = openPreview;
+    result.previewStreamRunning = isPreviewRunning;
+    result.cameraRecoveryInProgress = recoveryInactive;
+    result.lastCameraRecoveryAt = getLastRecoveryAt;
+    result.setLastCameraRecoveryAt = setLastRecoveryAt;
+    result.liveviewEnabled = true;
+    result.wifiOpenAttempts = 1;
+    result.bleScanRetryIntervalMs = 1000;
+    result.liveViewStallTimeoutMs = 5000;
+    return result;
+  }
+};
+
+bool FlowHarness::bleConnected = true;
+bool FlowHarness::wifiConnected = false;
+bool FlowHarness::previewRunning = false;
+bool FlowHarness::cachedCredentials = false;
+uint32_t FlowHarness::lastRecoveryAt = 0;
+uint32_t FlowHarness::activateCalls = 0;
+uint32_t FlowHarness::readCredentialsCalls = 0;
+uint32_t FlowHarness::applyCredentialsCalls = 0;
+uint32_t FlowHarness::connectCalls = 0;
+uint32_t FlowHarness::disconnectCalls = 0;
+uint32_t FlowHarness::fetchPropsCalls = 0;
+uint32_t FlowHarness::openPreviewCalls = 0;
+
+void testPortraitStartupCachesWifiWithoutConnecting() {
+  FlowHarness::reset();
+  rvf::AppController controller(rvf::AppState::BleScan);
+  controller.begin(rvf::AppState::BleScan);
+  const rvf::AppFlowActions actions = FlowHarness::actions();
+
+  TEST_ASSERT_TRUE(controller.runCameraFlowOnce(actions, 100));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::AppState::WifiCredentialsReady),
+                        static_cast<int>(controller.state()));
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::activateCalls);
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::readCredentialsCalls);
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::applyCredentialsCalls);
+  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::connectCalls);
+  TEST_ASSERT_FALSE(FlowHarness::wifiConnected);
+  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::fetchPropsCalls);
+  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::openPreviewCalls);
+}
+
+void testLandscapeStartupRunsOriginalFullFlow() {
+  FlowHarness::reset();
+  rvf::AppController controller(rvf::AppState::BleScan);
+  controller.begin(rvf::AppState::BleScan);
+  controller.setPreviewRequested(true);
+  const rvf::AppFlowActions actions = FlowHarness::actions();
+
+  TEST_ASSERT_TRUE(controller.runCameraFlowOnce(actions, 100));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::AppState::PreviewRunning),
+                        static_cast<int>(controller.state()));
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::activateCalls);
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::connectCalls);
+  TEST_ASSERT_TRUE(FlowHarness::wifiConnected);
+  TEST_ASSERT_TRUE(FlowHarness::previewRunning);
+}
+
+void testPortraitToLandscapeResumesAfterCredentialCache() {
+  FlowHarness::reset();
+  rvf::AppController controller(rvf::AppState::BleScan);
+  controller.begin(rvf::AppState::BleScan);
+  const rvf::AppFlowActions actions = FlowHarness::actions();
+  TEST_ASSERT_TRUE(controller.runCameraFlowOnce(actions, 100));
+  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::connectCalls);
+
+  controller.setPreviewRequested(true);
+  controller.serviceCameraFlowIfNeeded(actions, 200);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::AppState::PreviewRunning),
+                        static_cast<int>(controller.state()));
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::connectCalls);
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::fetchPropsCalls);
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::openPreviewCalls);
+}
+
+void testLandscapeToPortraitDisconnectsWifiAndKeepsBleReady() {
+  FlowHarness::reset();
+  rvf::AppController controller(rvf::AppState::BleScan);
+  controller.begin(rvf::AppState::BleScan);
+  controller.setPreviewRequested(true);
+  const rvf::AppFlowActions actions = FlowHarness::actions();
+  TEST_ASSERT_TRUE(controller.runCameraFlowOnce(actions, 100));
+
+  controller.setPreviewRequested(false);
+  controller.serviceCameraFlowIfNeeded(actions, 200);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::AppState::WifiCredentialsReady),
+                        static_cast<int>(controller.state()));
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::disconnectCalls);
+  TEST_ASSERT_FALSE(FlowHarness::wifiConnected);
+  TEST_ASSERT_FALSE(FlowHarness::previewRunning);
+  TEST_ASSERT_TRUE(FlowHarness::bleConnected);
 }
 
 void testBeginRejectsInvalidInputs() {
@@ -432,6 +614,10 @@ void testErrorSceneOverridesEveryOrdinaryScene() {
 
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(testPortraitStartupCachesWifiWithoutConnecting);
+  RUN_TEST(testLandscapeStartupRunsOriginalFullFlow);
+  RUN_TEST(testPortraitToLandscapeResumesAfterCredentialCache);
+  RUN_TEST(testLandscapeToPortraitDisconnectsWifiAndKeepsBleReady);
   RUN_TEST(testBeginRejectsInvalidInputs);
   RUN_TEST(testDeliversFrameSplitAcrossChunks);
   RUN_TEST(testDropsShortFrame);

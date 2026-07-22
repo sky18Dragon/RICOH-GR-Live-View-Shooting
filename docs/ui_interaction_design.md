@@ -79,6 +79,25 @@ Error > ResetPairing > CameraSleep > Pairing/Connecting
 
 拍摄是当前场景上的临时 overlay，不替换 `AppState`，也不改变控制器状态迁移。
 
+## 姿态驱动的网络流程
+
+`AppController` 使用 `WifiCredentialsReady` 表示“相机 Wi-Fi 已通过 BLE 开启，参数已写入缓存，但 StickS3 尚未连接相机 AP”。姿态只控制 Wi-Fi/LiveView 阶段，BLE 锚点和相机电源保护仍沿用原流程。
+
+```text
+竖屏启动
+  BLE 扫描/连接 -> 电源检查 -> BLE 开启相机 Wi-Fi
+  -> 读取并持久化 Wi-Fi 参数 -> WifiCredentialsReady（停驻）
+
+WifiCredentialsReady + 转为横屏
+  -> 连接缓存的相机 Wi-Fi -> HTTP Probe -> PreviewRunning
+
+PreviewRunning + 转为竖屏
+  -> 关闭 LiveView -> 断开相机 Wi-Fi -> WifiCredentialsReady
+  （BLE 保持连接，缓存保持有效）
+```
+
+横屏启动仍执行原完整流程。如果 IMU 不可用，流程降级为允许完整连接，避免因无法获得姿态而永久停在缓存阶段。
+
 ## 姿态识别
 
 `OrientationTracker` 使用 M5Unified 加速度计的 X/Y 绝对值判断静态方向，不使用陀螺仪角速度。
@@ -92,7 +111,7 @@ Error > ResetPairing > CameraSleep > Pairing/Connecting
 - StickS3 实机 `abs(X) > abs(Y) + 0.18 g` 为竖握；
 - StickS3 实机 `abs(Y) > abs(X) + 0.18 g` 为横握。
 
-连接、错误和休眠页保持竖屏。只有预览已经在底层运行时，姿态才在 `RemoteReady` 与 `LivePreview` 之间选择显示模式。IMU 不可用时自动降级为“预览运行时横屏，其余状态竖屏”，不停止业务流程。
+连接、错误和休眠页保持竖屏。预览运行时，姿态在 `RemoteReady` 与 `LivePreview` 之间选择显示模式；预览启动前，同一姿态还会门控上述 Wi-Fi 流程。IMU 不可用时自动允许原完整连接流程。
 
 方向轴已按 StickS3 实机校准；若后续硬件修订改变 IMU 安装方向，只调整姿态适配，不修改相机流程。
 

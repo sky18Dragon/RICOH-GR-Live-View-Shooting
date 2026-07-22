@@ -25,6 +25,7 @@ public:
     AppTickPlan planTick(uint32_t nowMs) const;
     bool runCameraFlowOnce(const AppFlowActions& actions, uint32_t nowMs);
     bool resumeFromBleReady(const AppFlowActions& actions, const char* reason);
+    bool resumeFromWifiCredentialsReady(const AppFlowActions& actions);
     bool connectWifiAfterBleReady(const AppFlowActions& actions);
     bool httpProbeCamera(const AppFlowActions& actions);
     bool startLiveViewFromProbe(const AppFlowActions& actions);
@@ -36,12 +37,16 @@ public:
     void triggerShutterFromButtonA(const AppFlowActions& actions);
     void dispatch(const AppMessage& message);
     bool transitionTo(AppState nextState, const char* reason, uint32_t nowMs);
+    void setPreviewRequested(bool requested);
+    bool previewRequested() const;
     AppState state() const;
     bool isBleReady() const;
     bool isPowerProtectedFlowState() const;
     bool isPreviewActive() const;
 private:
     AppState _state = AppState::Booting;
+    bool _previewRequested = false;
+    bool _previewRequestChanged = false;
 };
 
 }  // namespace rvf

@@ -59,16 +59,16 @@ platformio run --target upload --upload-port COM6
 2. 将 StickS3 上电，屏幕将显示扫描状态。它会自动搜寻以 `GR_` 开头的理光相机 BLE 广播。
 3. 发现设备后，StickS3 将与其发起安全绑定配对（Bonding），并将配对标识与相机物理地址存入 NVS。
 
-### 3. Wi-Fi 连接与 LiveView 启动
+### 3. 姿态控制的 Wi-Fi 与 LiveView
 1. 蓝牙建立配对后，StickS3 自动发送 Wi-Fi 开启指令，并通过 BLE 实时读取相机动态生成的 Wi-Fi 密码、信道等信息。
-2. 随后 StickS3 自动加入相机的 Wi-Fi AP 局域网。
-3. 连接成功后，固件从 `/v1/liveview` 拉取 MJPEG 预览流，并在屏幕上流畅渲染取景画面。
+2. 竖握时参数写入缓存后停在 `WIFI_CREDENTIALS_READY`，不加入相机 Wi-Fi；转为横握后才继续连接相机 AP。
+3. 横握连接成功后，固件从 `/v1/liveview` 拉取 MJPEG 预览流；重新竖握会关闭 LiveView 并断开相机 Wi-Fi，同时保留 BLE 与参数缓存。
 
 ### 4. 横竖屏交互
 
 - 竖握设备：显示 135×240 的中央遥控光圈；按住 Button A 超过 300 ms 后光圈收缩并变绿，松开时拍摄。
 - 横握设备：显示 240×135 满屏实时取景，仅保留微型电量图标；拍摄时出现快速白色快门边框。
-- 姿态需要稳定约 500 ms 才切换，并带滞回和最短保持时间。IMU 不可用时，预览运行中保持横屏，其余状态保持竖屏。
+- 姿态需要稳定约 500 ms 才切换，并带滞回和最短保持时间。IMU 不可用时允许原完整连接流程，避免永久停在参数缓存阶段。
 
 ---
 
@@ -115,14 +115,16 @@ graph TD
     I --> J{Operation Mode 状态?}
     J -->|CAPTURE / PLAYBACK| K[写入 0x0135 开启相机 Wi-Fi]
     J -->|BLE_STARTUP / POWER_OFF_TRANSFER| L[进入 CAMERA_SLEEP_GUARD]
-    K --> M{有 Wi-Fi 参数缓存?}
-    M -->|是| N[使用 BSSID + 信道极速连接 <短超时>]
-    M -->|否| O[通过 BLE 读取最新 Wi-Fi 参数并连接]
+    K --> M[通过 BLE 读取并缓存 Wi-Fi 参数]
+    M --> U{当前为横屏?}
+    U -->|否| V[WIFI_CREDENTIALS_READY]
+    V -->|转为横屏| N[使用缓存参数连接相机 Wi-Fi]
+    U -->|是| N
     N --> P{连接成功?}
-    P -->|是| Q[延迟刷新 BLE 缓存并启动 LiveView]
-    P -->|否| O
-    O --> Q
+    P -->|是| Q[HTTP Probe 并启动 LiveView]
+    P -->|否| K
     Q --> R[LIVEVIEW_RUNNING 实时预览]
+    R -->|转为竖屏: 关闭预览并断开 Wi-Fi| V
     L --> S[防误唤醒状态: 15s冷却期后等待 Button A 手动唤醒]
     S -->|按 Button A| T[重建 BLE 栈并重新连接]
     T --> D

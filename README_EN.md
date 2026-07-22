@@ -60,16 +60,16 @@ platformio run --target upload --upload-port COM6
 2. Power on the StickS3. The screen will display scanning status. It automatically looks for BLE advertisements starting with `GR_`.
 3. Once found, the StickS3 initiates secure pairing (Bonding) and persists the bonded identity in NVS.
 
-### 3. Automatic LiveView Startup
+### 3. Orientation-gated Wi-Fi and LiveView
 1. After pairing completes, the StickS3 requests Wi-Fi ON and reads the dynamically generated passphrase and BSSID over BLE.
-2. The StickS3 joins the camera's Wi-Fi Access Point.
-3. Once connected, it initiates a stream from `/v1/liveview` and starts displaying the camera view on the LCD screen.
+2. In portrait, it persists those parameters and parks in `WIFI_CREDENTIALS_READY` without joining the camera AP. Turning landscape resumes the Wi-Fi connection.
+3. In landscape, it starts `/v1/liveview`; turning portrait closes LiveView and disconnects camera Wi-Fi while retaining BLE and the credential cache.
 
 ### 4. Portrait and Landscape Interaction
 
 - Hold the device vertically for the 135×240 remote aperture. Holding Button A for 300 ms contracts the aperture; releasing it shoots.
 - Hold it horizontally for the 240×135 full-screen LiveView with only a tiny battery indicator and a fast shutter-frame overlay.
-- Orientation must remain stable for about 500 ms and uses hysteresis plus a minimum hold time. If the IMU is unavailable, active preview falls back to landscape and status/remote scenes to portrait.
+- Orientation must remain stable for about 500 ms and uses hysteresis plus a minimum hold time. If the IMU is unavailable, the original full connection flow remains enabled so the device cannot become permanently parked at the credential stage.
 
 ---
 
@@ -116,14 +116,16 @@ graph TD
     I --> J{Operation Mode?}
     J -->|CAPTURE / PLAYBACK| K[Write 0x0135 to request Wi-Fi ON]
     J -->|BLE_STARTUP / POWER_OFF_TRANSFER| L[Enter CAMERA_SLEEP_GUARD]
-    K --> M{Wi-Fi Params Cached?}
-    M -->|Yes| N[Fast Connect using BSSID + Channel <Short Timeout>]
-    M -->|No| O[Read Fresh BLE Wi-Fi Params & Connect]
+    K --> M[Read and Cache Wi-Fi Params over BLE]
+    M --> U{Landscape?}
+    U -->|No| V[WIFI_CREDENTIALS_READY]
+    V -->|Turn Landscape| N[Connect Camera Wi-Fi from Cache]
+    U -->|Yes| N
     N --> P{Connect Success?}
-    P -->|Yes| Q[Defer Cache Refresh & Start LiveView]
-    P -->|No| O
-    O --> Q
+    P -->|Yes| Q[HTTP Probe and Start LiveView]
+    P -->|No| K
     Q --> R[LIVEVIEW_RUNNING]
+    R -->|Turn Portrait: Close Preview and Disconnect Wi-Fi| V
     L --> S[Standby Guard: 15s Cooldown, Wait for Button A Manual Wake]
     S -->|Press Button A| T[Rebuild BLE Stack & Reconnect]
     T --> D

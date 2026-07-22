@@ -937,6 +937,13 @@ bool bleStillConnectedForWifi() {
   return bleCamera.isConnected();
 }
 
+bool cameraWifiConnectGuard() {
+  // GrWifi polls this guard during a blocking STA connection attempt. Keep the
+  // IMU/UI sampler alive so a stable turn to portrait can cancel the attempt.
+  updateUi();
+  return bleCamera.isConnected() && appController.previewRequested();
+}
+
 bool wifiStillConnectedForController() {
   return grWifi.isConnected();
 }
@@ -962,10 +969,10 @@ bool connectWifiFromProfile(bool forceStatus, bool requireBleAnchor = false, uin
                                         cameraProfile.wifi.bssid.c_str(),
                                         channel,
                                         hintTimeout,
-                                        requireBleAnchor ? bleStillConnectedForWifi : nullptr)
+                                        requireBleAnchor ? cameraWifiConnectGuard : nullptr)
                   .ok();
 
-    if (allowFullScanFallback && !connected && (!requireBleAnchor || bleStillConnectedForWifi())) {
+    if (allowFullScanFallback && !connected && (!requireBleAnchor || cameraWifiConnectGuard())) {
       uint32_t fallbackTimeout = totalTimeoutMs > hintTimeout ? totalTimeoutMs - hintTimeout : totalTimeoutMs;
       if (fallbackTimeout < 1000) {
         fallbackTimeout = totalTimeoutMs;
@@ -978,7 +985,7 @@ bool connectWifiFromProfile(bool forceStatus, bool requireBleAnchor = false, uin
                                           cameraProfile.wifi.bssid.c_str(),
                                           0,
                                           fallbackTimeout,
-                                          requireBleAnchor ? bleStillConnectedForWifi : nullptr)
+                                          requireBleAnchor ? cameraWifiConnectGuard : nullptr)
                     .ok();
     }
   } else {
@@ -987,7 +994,7 @@ bool connectWifiFromProfile(bool forceStatus, bool requireBleAnchor = false, uin
                                         cameraProfile.wifi.bssid.c_str(),
                                         0,
                                         totalTimeoutMs,
-                                        requireBleAnchor ? bleStillConnectedForWifi : nullptr)
+                                        requireBleAnchor ? cameraWifiConnectGuard : nullptr)
                   .ok();
   }
 
@@ -1238,7 +1245,9 @@ bool readFreshWifiCredentialsForController() {
 }
 
 void applyFreshWifiCredentialsForController() {
-  applyBleWifiCredentials(pendingFreshWifiCredentials, "fresh BLE", false);
+  // Persist before any station connection attempt so portrait mode can stop
+  // here and resume from the same parameters when the device turns landscape.
+  applyBleWifiCredentials(pendingFreshWifiCredentials, "fresh BLE", true);
 }
 
 bool connectFreshWifiFromProfileForController() {
@@ -1369,8 +1378,10 @@ rvf::UiSnapshot makeUiSnapshot() {
 }
 
 rvf::UiOrientation sampleUiOrientation(const rvf::UiSnapshot& snapshot, uint32_t nowMs) {
+  (void)snapshot;
   if (!rvf::UiTheme::kOrientationEnabled || !imuAvailable) {
-    return snapshot.previewRunning ? rvf::UiOrientation::Landscape : rvf::UiOrientation::Portrait;
+    // Without posture input, preserve the historical full connection flow.
+    return rvf::UiOrientation::Landscape;
   }
   if ((nowMs - lastOrientationSampleAt) >= rvf::UiTheme::kOrientationSampleMs) {
     lastOrientationSampleAt = nowMs;
@@ -1390,6 +1401,7 @@ void updateUi(const ButtonEvents& input) {
   const uint32_t nowMs = millis();
   const rvf::UiSnapshot snapshot = makeUiSnapshot();
   const rvf::UiOrientation orientation = sampleUiOrientation(snapshot, nowMs);
+  appController.setPreviewRequested(orientation == rvf::UiOrientation::Landscape);
   uiCoordinator.update(snapshot, input, orientation, nowMs);
   ui.render(uiCoordinator.viewModel());
   uiSound.play(uiCoordinator.consumeSound(), nowMs);
