@@ -30,6 +30,8 @@ platformio test -e native
 
 UI 纯逻辑测试覆盖状态到场景映射、优先级、姿态稳定/滞回、动画和 `millis()` 溢出、Button A 单次 Shoot、Button B 进度/取消/单次重置，以及快门 overlay 生命周期。
 
+`src/ui/NativeBuildMain.cpp` 只在 `RVF_NATIVE_BUILD && !PIO_UNIT_TESTING` 时提供 smoke `main()`，使 `platformio run -e native` 可验证全部纯逻辑对象的独立链接；Unity 测试和 StickS3 固件均不会使用该入口。
+
 ## 固件构建
 
 ```powershell
