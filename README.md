@@ -14,230 +14,255 @@
 <h1 align="center">RICOH GR Live View Shooting</h1>
 
 <p align="center">
-  运行在 M5Stack StickS3 上的理光 (RICOH) GR 远程实时取景器与 BLE 遥控快门固件。
+  运行在 M5Stack StickS3 上的理光（RICOH）GR 姿态感知遥控快门与无线实时取景固件。
 </p>
 
 <p align="center">
-  固件以 <strong>BLE 作为相机发现、配对、唤醒和控制入口</strong>，动态获取 Wi-Fi 参数，通过 HTTP API 在 StickS3 上极速流畅渲染 MJPEG 实时取景画面并支持遥控快门。
+  固件以 <strong>BLE 作为相机发现、配对、唤醒与控制入口</strong>，动态读取并缓存相机 Wi-Fi 参数；竖握时保持低功耗遥控界面，横握时才连接相机 Wi-Fi 并通过 HTTP 渲染 MJPEG LiveView。
 </p>
 
 > [!NOTE]
-> 正在寻找硬件通信协议和状态机细节？请阅读 [docs/project_overview.md](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/docs/project_overview.md) 了解整体架构，以及 [docs/ricoh_ble_protocol.md](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/docs/ricoh_ble_protocol.md) 了解 BLE 协议详情。
+> 通信协议和状态机细节请参阅 [项目架构概览](docs/project_overview.md) 与 [RICOH BLE 协议说明](docs/ricoh_ble_protocol.md)。UI 架构、姿态阈值和实机验证清单见 [UI 与交互设计](docs/ui_interaction_design.md)。
 
 > [!NOTE]
-> **关于开发背景**：本项目作者本身不具备嵌入式开发能力，本仓库的全部固件代码、架构设计及相关文档均由 AI 助手 (Codex) 协作编写与整理。若您在代码设计、逻辑实现或稳定性上发现任何问题，敬请见谅。非常欢迎您提交 [Issues](https://github.com/sky18Dragon/RicohViewfinder/issues) 共同讨论或发起 Pull Request 予以完善！
+> **开发背景**：本仓库的固件代码、架构设计和文档由作者与 AI 助手（Codex）协作完成。欢迎通过 [Issues](https://github.com/sky18Dragon/RICOH-GR-Live-View-Shooting/issues) 或 Pull Request 反馈问题与改进建议。
 
 ---
 
-## 核心交付内容 (What Ships)
+## 核心能力
 
-* **高帧率 LiveView 渲染**：基于 ESP32-S3 硬件加速解码的 MJPEG 流处理器，直接输出到 LovyanGFX / M5Canvas，提供流畅的预览体验。
-* **分层解耦架构**：重构了传统单文件嵌入式结构，引入了 Supervisor-Controller-Service 设计模式，大大提升了连接稳健度与可维护性。
-* **智能休眠防误唤醒**：读取相机 `Power State` 和 `Operation Mode` 以确认真实运行状态，防止意外唤醒关机状态下的相机。
-* **WLAN 动态参数缓存**：首次连接后，将相机的 Wi-Fi SSID、BSSID、信道及加密参数持久化写入 NVS，在下次启动时最快以 `<0.5s` 的极速完成直连。
-* **物理按键 AF 遥控快门**：支持理光官方 BLE Shooting Service 协议，通过 Button A 进行高精度自动对焦与瞬间抓拍。
-* **一键重置蓝牙配对**：支持长按 Button B 一键清除旧的蓝牙配对及绑定数据，方便快速切换并配对新相机。
-* **姿态感知极简界面**：竖握显示纯遥控光圈，横握显示满屏 LiveView；连接、快门、重置和休眠使用轻量非阻塞动画及声音反馈。
-* **完整 Native 测试套件**：无需依赖 StickS3 硬件，即可在 Host 端运行核心数据解析和状态转换的本地测试。
+- **姿态门控的连接生命周期**：竖握只完成 BLE 连接、相机 Wi-Fi 开启和参数缓存，不建立 Wi-Fi STA 连接；横握才继续 HTTP Probe 与 LiveView。
+- **横竖屏专属界面**：竖握显示 135×240 遥控光圈，横握显示 240×135 满屏预览；姿态切换采用低通滤波、滞回、稳定时间和最短保持时间抑制抖动。
+- **流畅的 LiveView 渲染**：MJPEG 流解析后由 JPEGDEC（含 ESP32-S3 优化）解码到 LovyanGFX / M5Canvas，并在 Canvas 尺寸变化后同步 JPEG 视口。
+- **PSRAM 安全画布与帧缓冲**：16 位 Canvas 优先显式分配到 PSRAM；分配失败时保留原画布并每 2 秒重试。MJPEG 使用独立的 256 KB 帧缓冲降低内存碎片风险。
+- **相机待机保护**：读取 `Power State` 和 `Operation Mode`，在相机待机或关机状态下进入 `CAMERA_SLEEP_GUARD`，避免自动流程反复唤醒相机。
+- **WLAN 参数缓存**：将 SSID、BSSID、信道、密码和加密信息持久化到 NVS，用于后续横握连接的缓存快速路径；BLE 仍是连接与相机 Wi-Fi 激活的控制锚点。
+- **BLE AF 遥控快门**：Button A 每次完整按下/松开最多发送一次 AF+拍摄命令，长按阶段只提供视觉和声音反馈。
+- **可恢复的运行监控**：周期性检查 Wi-Fi、HTTP 流和有效 JPEG 帧健康度，LiveView 卡死时触发连接恢复。
+- **Host Native 测试**：34 项本地测试覆盖姿态门控状态机、MJPEG 解析、Supervisor、按键输入、姿态判断和 UI 动画。
 
 ---
 
-## 快速开始 (Quick Start)
+## 快速开始
 
-### 1. 编译并烧录 StickS3 固件
-将 M5Stack StickS3 通过 USB 连接至电脑，确保已安装 PlatformIO 环境，运行以下命令编译并烧录固件：
+### 1. 编译并烧录
+
+将 M5Stack StickS3 通过 USB 连接至电脑，安装 PlatformIO Core 后执行：
+
 ```bash
-# 自动编译并烧录固件
-platformio run --target upload
+# 编译并烧录默认 StickS3 环境
+platformio run -e m5stack-sticks3 --target upload
 
-# 如有需要，可指定特定的串口（例如 COM6）
-platformio run --target upload --upload-port COM6
+# 查看 115200 波特率串口日志
+pio device monitor -b 115200
 ```
+
+自动识别串口失败时可追加 `--upload-port <串口>`。
 
 ### 2. 首次扫描与安全配对
-1. 打开理光 GR 相机，并在菜单设置中启用 **蓝牙连接 (Bluetooth)**。
-2. 将 StickS3 上电，屏幕将显示扫描状态。它会自动搜寻以 `GR_` 开头的理光相机 BLE 广播。
-3. 发现设备后，StickS3 将与其发起安全绑定配对（Bonding），并将配对标识与相机物理地址存入 NVS。
+
+1. 打开 RICOH GR 相机，并在菜单中启用蓝牙连接。
+2. StickS3 上电后自动扫描以 `GR_` 开头的 BLE 广播。
+3. 找到相机后进行安全绑定（Bonding），并将相机身份和 BLE 地址保存到 NVS。
 
 ### 3. 姿态控制的 Wi-Fi 与 LiveView
-1. 蓝牙建立配对后，StickS3 自动发送 Wi-Fi 开启指令，并通过 BLE 实时读取相机动态生成的 Wi-Fi 密码、信道等信息。
-2. 竖握时参数写入缓存后停在 `WIFI_CREDENTIALS_READY`，不加入相机 Wi-Fi；转为横握后才继续连接相机 AP。
-3. 横握连接成功后，固件从 `/v1/liveview` 拉取 MJPEG 预览流；重新竖握会关闭 LiveView 并断开相机 Wi-Fi，同时保留 BLE 与参数缓存。
 
-### 4. 横竖屏交互
+1. BLE 建立后，固件读取相机电源与运行模式；允许连接时，通过 BLE 请求开启相机 Wi-Fi 并读取最新参数。
+2. **竖握启动**：参数写入缓存后停在 `WIFI_CREDENTIALS_READY`，不加入相机 AP。
+3. **横握启动**：读取并缓存参数后继续连接相机 AP，完成 HTTP Probe，进入 `PREVIEW_RUNNING`。
+4. **竖握转横握**：从已缓存参数继续后续流程，无需重新扫描 BLE。
+5. **横握转竖握**：关闭 LiveView、断开相机 Wi-Fi，回到 `WIFI_CREDENTIALS_READY`；BLE 与参数缓存继续保留。
 
-- 竖握设备：显示 135×240 的中央遥控光圈；按住 Button A 超过 300 ms 后光圈收缩并变绿，松开时拍摄。
-- 横握设备：显示 240×135 满屏实时取景，仅保留微型电量图标；拍摄时出现快速白色快门边框。
-- 姿态需要稳定约 500 ms 才切换，并带滞回和最短保持时间。IMU 不可用时允许原完整连接流程，避免永久停在参数缓存阶段。
+在 Wi-Fi 连接等待过程中如果设备转回竖握，连接 Guard 会取消本次连接并回到参数就绪状态。IMU 不可用时按横握处理，保留原完整连接流程。
+
+### 4. 验证构建与测试
+
+```bash
+# 编译 Host Native 目标
+platformio run -e native
+
+# 运行 34 项 Native 测试
+platformio test -e native
+
+# 编译 StickS3 固件
+platformio run -e m5stack-sticks3
+```
+
+当前基线构建占用：RAM 76,196 / 327,680 bytes（23.3%），Flash 1,301,497 / 3,342,336 bytes（38.9%）。
 
 ---
 
-## 控制操作指南 (Controls)
+## 控制与交互
 
-您可以通过 StickS3 的按键（Button A、Button B、电源键）来控制固件的行为：
-
-| 实体按键 | 状态场景 | 触发行为描述 |
+| 实体按键 | 状态场景 | 行为 |
 | :--- | :--- | :--- |
-| **Button A** | 相机可拍摄状态（短按或长按后松开） | 每次完整按下/松开最多产生一次现有 AF+拍摄命令；长按仅增加光圈与提示音反馈，不发送额外相机指令 |
-| **Button A** | 防误唤醒休眠状态 (`CAMERA_SLEEP_GUARD`) | 保留手动清除 Guard、重建 BLE 栈并唤醒/重连相机的原有语义，不拍摄 |
-| **Button B** | 任意状态下（长按 3 秒） | 底部进度条连续显示长按进度；达到阈值一次性触发原蓝牙配对重置流程，中途松开不重置 |
-| **电源键 (BtnPWR)** | 任意状态下 (双击) | StickS3 关机/开机 |
+| **Button A** | 相机可拍摄状态 | 松开时最多发送一次 AF+拍摄命令；按住超过 300 ms 后光圈收缩、变绿并播放提示音，但不会额外发送相机指令 |
+| **Button A** | `CAMERA_SLEEP_GUARD` | 在保护策略允许时执行手动唤醒、重建 BLE 栈并重连，不触发拍摄 |
+| **Button B** | 任意状态，长按 3 秒 | 显示连续进度；达到阈值后只触发一次 BLE 配对与缓存重置，中途松开则取消 |
+| **电源键（BtnPWR）** | 任意状态，长按约 1.2 秒 | 关闭 StickS3 电源 |
 
-完整 UI 架构、原型参数映射、姿态阈值和实机验证清单见 [`docs/ui_interaction_design.md`](docs/ui_interaction_design.md)。原始交互原型归档于 [`docs/ui-reference/StickS3_Interaction_Prototype.html`](docs/ui-reference/StickS3_Interaction_Prototype.html)。
+交互规则：
 
+- 竖握显示中央遥控光圈；横握显示满屏 LiveView 和微型电量图标。
+- 拍摄时，竖屏显示 300 ms 快门闪烁，横屏显示 100 ms 白色快门边框。
+- 姿态每 40 ms 采样，需要稳定 500 ms 才切换，并至少保持 500 ms。
+- 活跃背光为 180，休眠背光为 24；变暗动画 900 ms，唤醒提亮 180 ms。
+- 遥控动画目标帧率 25 FPS，休眠动画 8 FPS，提示音音量 40。
+
+原始交互原型归档于 [StickS3 Interaction Prototype](docs/ui-reference/StickS3_Interaction_Prototype.html)。
 
 ---
 
-## 核心架构与流转逻辑 (Core Architecture & Flow)
+## 核心架构与状态机
 
-### 1. 软件架构设计
-本项目经过重构，实现了清晰的分层和异步事件通知机制：
-* **[SystemSupervisor](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/supervisor/SystemSupervisor.h)**：健康监视器，运行独立的健康轮询任务，负责检测 Wi-Fi/LiveView 连接是否卡死或掉线，并向控制器发送恢复指令。
-* **[AppController](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/app/AppController.h)**：核心业务状态机，统一控制连接生命周期、保护态流转、手动唤醒和全局事件分发。
-* **[BleCameraService](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/services/BleCameraService.h)**：BLE 协议驱动层，处理扫描、安全配对绑定、电量状态/操作模式读取及快门触发。
-* **[WifiPreviewService](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/services/WifiPreviewService.h)**：Wi-Fi 取景服务层，管理 Wi-Fi 状态切换与 HTTP MJPEG 预览数据流的读取。
+### 软件分层
 
-### 2. 状态机流转流程
-以下是系统的核心连接流转图，展示了从上电到 LiveView 运行的整个生命周期：
+- **[AppController](src/app/AppController.h)**：核心业务状态机，统一处理连接生命周期、姿态门控、保护态和恢复事件。
+- **[SystemSupervisor](src/supervisor/SystemSupervisor.h)**：由主循环周期调用的健康监视器，检测预览关闭、流停滞和有效帧超时。
+- **[BleCameraService](src/services/BleCameraService.h)**：负责 BLE 扫描、绑定、重连、相机状态与 Wi-Fi 参数读取，以及快门控制。
+- **[WifiPreviewService](src/services/WifiPreviewService.h)**：负责 Wi-Fi STA、HTTP Probe、MJPEG 流和 LiveView 生命周期。
+- **[UiCoordinator](src/ui/UiCoordinator.h)**：将应用状态、姿态和用户输入映射为 UI 场景与命令。
+- **[OrientationTracker](src/ui/OrientationTracker.h)**：根据 StickS3 实机坐标轴完成低通、滞回和稳定时间判断。
+
+### 状态机流转
 
 ```mermaid
-graph TD
-    A[StickS3 上电初始化] --> B[系统外设与NVS加载]
-    B --> C{NVS中有已存相机?}
-    C -->|是| D[读取已存 BLE 地址直连]
-    C -->|否| E[扫描 GR_ 蓝牙广播设备并配对]
+flowchart TD
+    A[StickS3 上电] --> B[加载外设与 NVS]
+    B --> C{存在已保存相机?}
+    C -->|是| D[按 BLE 地址直连]
+    C -->|否| E[扫描 GR_ 广播并配对]
     D --> F{直连成功?}
     F -->|否| E
-    E --> G[BLE 握手与配对成功]
-    F -->|是| H[BLE 连接建立]
-    G --> H
-    H --> I[读取 Power State 和 Operation Mode]
-    I --> J{Operation Mode 状态?}
-    J -->|CAPTURE / PLAYBACK| K[写入 0x0135 开启相机 Wi-Fi]
-    J -->|BLE_STARTUP / POWER_OFF_TRANSFER| L[进入 CAMERA_SLEEP_GUARD]
-    K --> M[通过 BLE 读取并缓存 Wi-Fi 参数]
-    M --> U{当前为横屏?}
-    U -->|否| V[WIFI_CREDENTIALS_READY]
-    V -->|转为横屏| N[使用缓存参数连接相机 Wi-Fi]
-    U -->|是| N
-    N --> P{连接成功?}
-    P -->|是| Q[HTTP Probe 并启动 LiveView]
-    P -->|否| K
-    Q --> R[LIVEVIEW_RUNNING 实时预览]
-    R -->|转为竖屏: 关闭预览并断开 Wi-Fi| V
-    L --> S[防误唤醒状态: 15s冷却期后等待 Button A 手动唤醒]
-    S -->|按 Button A| T[重建 BLE 栈并重新连接]
-    T --> D
+    F -->|是| G[BLE_READY]
+    E --> G
+    G --> H[读取 Power State 与 Operation Mode]
+    H --> I{允许启动相机 Wi-Fi?}
+    I -->|否| J[CAMERA_SLEEP_GUARD]
+    I -->|是| K[通过 BLE 请求 Wi-Fi ON]
+    K --> L[读取并缓存最新 Wi-Fi 参数]
+    L --> M{设备姿态}
+    M -->|竖握| N[WIFI_CREDENTIALS_READY]
+    M -->|横握| O[CONNECTING_WIFI]
+    N -->|稳定转为横握| O
+    O --> P{连接成功且仍为横握?}
+    P -->|否| N
+    P -->|是| Q[HTTP_PROBING]
+    Q --> R[PREVIEW_STARTING]
+    R --> S[PREVIEW_RUNNING]
+    S -->|稳定转为竖握| T[关闭预览并断开 Wi-Fi]
+    T --> N
+    J -->|冷却后按 Button A| U[手动唤醒并重建 BLE]
+    U --> D
 ```
 
-### 3. 相机关机与休眠保护 (Standby Guard)
-理光相机在被动关机（如超时关机或插拔电池）时，或者在 StickS3 上电发现相机处于 `BLE_STARTUP` 待机广播状态时，为了不打扰用户的正常拍摄：
-1. 系统会立即主动切断 Wi-Fi 连接和 BLE 物理层，避免占用通道。
-2. 自动状态机流转到 `CAMERA_SLEEP_GUARD`，并开启 **15 秒安全冷却期**。
-3. 在冷却期及后续静默状态中，**绝不会自动唤醒相机**，直到用户物理按下 StickS3 的 Button A 触发主动唤醒。
+### 相机关机与休眠保护
+
+当相机报告 `BLE_STARTUP`、`POWER_OFF_TRANSFER` 或关机状态时，固件清理 Wi-Fi/预览连接并进入 `CAMERA_SLEEP_GUARD`。自动流程在 15 秒冷却期内暂停；后续由 Button A 发起明确的手动唤醒与 BLE 重连，避免后台连接循环持续打扰相机。
 
 ---
 
-## 关键配置参数 (Configuration)
+## 关键配置
 
-您可以通过修改 [src/config.h](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/config.h) 或 `platformio.ini` 来调整固件表现：
+连接与保护参数位于 [src/config.h](src/config.h)，UI 和姿态参数位于 [src/ui/UiTheme.h](src/ui/UiTheme.h)：
 
-| 参数名称 | 默认值 | 作用与说明 |
+| 参数 | 默认值 | 说明 |
 | :--- | :---: | :--- |
-| `BLE_SCAN_SECONDS` | `2` | 单轮蓝牙扫描寻找相机的时间 (秒) |
-| `BLE_FAST_CONNECT_TIMEOUT_MS` | `3000` | 使用已保存的相机地址直连时的超时 (毫秒) |
-| `BLE_CONNECT_TIMEOUT_MS` | `8000` | 扫描到设备后建立 BLE 连接的超时 (毫秒) |
-| `BLE_CONNECT_ATTEMPTS` | `12` | 存在已配对身份时的最大直连尝试轮数 |
-| `RICOH_BLE_BONDED_SECURITY_WAIT_MS` | `1500` | 已绑定设备建立连接后，等待安全加密完成的等待延时 |
-| `RICOH_BLE_SECURITY_WAIT_MS` | `7000` | 首次配对时，等待安全加密完成的最大超时 |
-| `RICOH_BLE_POWER_NOTIFY_SETTLE_MS` | `30` | 开启 Power Notify 后的短暂等待窗口，用于在 Wi-Fi ON 前捕获立即到来的关机通知 |
-| `WIFI_CACHED_CONNECT_GRACE_MS` | `700` | 发出 Wi-Fi 开启请求后，进行缓存快速连接前的过渡等待 |
-| `WIFI_CACHED_CONNECT_TIMEOUT_MS` | `1200` | 缓存 Wi-Fi 参数连接时的超短超时时间 (用于极速直连) |
-| `WIFI_CONNECT_TIMEOUT_MS` | `15000` | Wi-Fi 连接建立的全局超时时间上限 |
-| `CAMERA_POWER_OFF_COOLDOWN_MS` | `15000` | 进入相机关机保护后的安全冷却期时间 |
+| `BLE_SCAN_SECONDS` | `2` | 单轮 BLE 扫描时长（秒） |
+| `BLE_FAST_CONNECT_TIMEOUT_MS` | `3000` | 已保存 BLE 地址直连超时 |
+| `BLE_CONNECT_TIMEOUT_MS` | `8000` | 扫描后 BLE 建连超时 |
+| `WIFI_CACHED_CONNECT_GRACE_MS` | `700` | 请求 Wi-Fi ON 后的缓存连接等待时间 |
+| `WIFI_CACHED_CONNECT_TIMEOUT_MS` | `1200` | 使用缓存 BSSID 与信道的快速连接超时 |
+| `WIFI_CONNECT_TIMEOUT_MS` | `15000` | Wi-Fi STA 总连接超时 |
+| `LIVEVIEW_STALL_TIMEOUT_MS` | `5000` | 有效预览帧停滞阈值 |
+| `CAMERA_POWER_OFF_COOLDOWN_MS` | `15000` | 关机保护冷却时间 |
+| `POWER_BUTTON_HOLD_MS` | `1200` | 电源键关机长按阈值 |
+| `KEY2_PAIRING_RESET_HOLD_MS` | `3000` | Button B 配对重置长按阈值 |
+| `kOrientationSampleMs` | `40` | IMU 姿态采样周期 |
+| `kOrientationStableMs` | `500` | 姿态候选稳定时间 |
+| `kOrientationMinHoldMs` | `500` | 姿态切换后的最短保持时间 |
+| `kOrientationHysteresisG` | `0.18f` | 横竖屏切换滞回 |
+| `kOrientationMinAxisG` | `0.35f` | 有效主轴最小重力分量 |
+
+StickS3 实机轴映射为：`abs(X)` 主导时判定竖握，`abs(Y)` 主导时判定横握。
 
 ---
 
-## 相机兼容性状态 (Camera Compatibility)
+## 相机兼容性
 
 > [!NOTE]
-> 本固件和协议参数已在 **RICOH GR IV** 与 **RICOH GR IV HDF** 上完成实机验证。
+> 当前固件与协议参数已在 **RICOH GR IV** 和 **RICOH GR IV HDF** 上完成实机验证。
 
-| 相机系列 | 兼容状态 | 兼容性说明 |
+| 相机系列 | 状态 | 说明 |
 | :--- | :---: | :--- |
-| **RICOH GR IV HDF** | **已验证可用** | 固件核心开发和实机测试靶机，提供最完美的支持。 |
-| **RICOH GR IV** | **已验证可用** | 已完成 BLE 配对与重连、Wi-Fi 激活、LiveView 和 BLE AF 快门实机验证。 |
-| **RICOH GR III / GR IIIx** | **当前不可用** | BLE 交互时序与相机唤醒逻辑存在代际协议差异，非本固件设计支持目标。 |
-| **RICOH GR II** | **当前不可用** | 缺乏低功耗蓝牙 (BLE) 先行广播和按需激活 Wi-Fi AP 的交互链路。 |
+| **RICOH GR IV HDF** | **已验证** | 核心开发与实机测试目标，支持 BLE 快门和 LiveView |
+| **RICOH GR IV** | **已验证** | 已验证 BLE 配对/重连、Wi-Fi 激活、LiveView 和 BLE AF 快门 |
+| **RICOH GR III / GR IIIx** | **不支持** | BLE 握手与唤醒时序存在代际差异，不属于当前设计目标 |
+| **RICOH GR II** | **不支持** | 缺少当前固件依赖的 BLE 优先广播和按需 Wi-Fi AP 控制链路 |
 
 ---
 
-## 项目源码结构 (Project Structure)
+## 项目结构
 
-* [platformio.ini](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/platformio.ini) — PlatformIO 环境配置文件与依赖项管理
-* [src/main.cpp](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/main.cpp) — 硬件层及主循环初始化入口
-* [src/app/](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/app/) — 状态机管理
-  * [AppController.cpp](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/app/AppController.cpp) / [AppController.h](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/app/AppController.h) — 状态调度中控
-  * [AppState.h](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/app/AppState.h) — 核心流转状态定义
-  * [AppFlowActions.h](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/app/AppFlowActions.h) — 状态转换转换动作映射
-* [src/supervisor/](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/supervisor/) — 运行健康监护
-  * [SystemSupervisor.cpp](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/supervisor/SystemSupervisor.cpp) / [SystemSupervisor.h](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/supervisor/SystemSupervisor.h) — 监测任务运行状态并执行故障恢复
-* [src/services/](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/services/) — 协议层与流传输层服务
-  * [BleCameraService.cpp](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/services/BleCameraService.cpp) / [BleCameraService.h](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/services/BleCameraService.h) — NimBLE 蓝牙连接驱动与协议点读写
-  * [WifiPreviewService.cpp](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/services/WifiPreviewService.cpp) / [WifiPreviewService.h](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/services/WifiPreviewService.h) — ESP32 STA 连接及 HTTP LiveView 接收驱动
-  * [PreviewFrameBuffer.cpp](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/services/PreviewFrameBuffer.cpp) / [PreviewFrameBuffer.h](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/services/PreviewFrameBuffer.h) — 预览帧内存缓冲区管理，防止碎片化并优化渲染延迟
-* [src/camera_profile_store.cpp](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/camera_profile_store.cpp) — ESP32 NVS 相机配对及 AP 连接缓存序列化
-* [src/jpeg_decoder.cpp](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/jpeg_decoder.cpp) / [mjpeg_stream.cpp](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/mjpeg_stream.cpp) — 高帧率 JPEG 硬件加速解码与字节边界切割
-* [test/test_native/](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/test/test_native/) — 运行在本地主机的架构与关键解析逻辑单元测试
+- [platformio.ini](platformio.ini) — StickS3 与 Native 构建环境、依赖和 PSRAM 配置
+- [src/main.cpp](src/main.cpp) — 硬件初始化、主循环、状态机动作和连接 Guard
+- [src/app/](src/app/) — 应用状态、流转动作和 `AppController`
+- [src/services/](src/services/) — BLE、相机电源策略、快门、Wi-Fi 与预览服务
+- [src/supervisor/](src/supervisor/) — 运行健康监视与恢复事件
+- [src/ui/](src/ui/) — 姿态检测、按键命令、动画、声音和 UI 场景协调
+- [src/display.cpp](src/display.cpp) — 16 位旋转 Canvas、PSRAM 分配与显示提交
+- [src/camera_profile_store.cpp](src/camera_profile_store.cpp) — BLE 身份和 Wi-Fi 参数的 NVS 持久化
+- [src/jpeg_decoder.cpp](src/jpeg_decoder.cpp) / [src/mjpeg_stream.cpp](src/mjpeg_stream.cpp) — JPEG 解码与 MJPEG 帧边界解析
+- [src/services/PreviewFrameBuffer.cpp](src/services/PreviewFrameBuffer.cpp) — 256 KB 预览帧缓冲与统计
+- [test/test_native/](test/test_native/) — 34 项 Host Native 单元测试
 
 ---
 
-## 配件与致谢 (Accessories & Acknowledgements)
+## 故障排查与典型日志
 
-* 刚合并的 PR 新增了可用于将 StickS3 安装到相机热靴的 3D 打印安装件。
-* 特别感谢 [wjhrdy](https://github.com/wjhrdy) 对 [**GR IV monochrome**](https://github.com/sky18Dragon/RICOH-GR-Live-View-Shooting/issues/2) 的实机验证，以及热靴打印件的提供。
+### 竖握启动：缓存参数但不连接 Wi-Fi
 
----
-
-## 故障排查与典型日志 (Troubleshooting)
-
-### 1. 正常开机直连并启动 LiveView
 ```text
-BLE: connected secure connect_ms=2800
-Flow: BLE_SCAN -> BLE_READY (BLE connected)
-BLE: power handle=0x00EB read value=0x01
-BLE: operation mode read value=0x00 state=CAPTURE
-BLE: power notify enabled cccd=0x00EC
-BLE: Wi-Fi open requested
-BLE: Wi-Fi parameters received ssid='GR_H264456' bssid='F2:3E:05:26:45:56' freq=2412 channel=1
-WiFi cache: waiting 700ms for camera AP before cached connect
-WiFi cache: trying cached params ssid='GR_H264456' bssid='F2:3E:05:26:45:56' channel=1 short_timeout=1200ms
-WiFi: connect completed in 450ms channel=1 status=CONNECTED
-Flow: WIFI_CONNECTING -> LIVEVIEW_RUNNING (LiveView opened)
-LiveView: connected
+Flow: CONNECTING_BLE -> BLE_READY (BLE connected)
+Flow: BLE_READY -> CHECKING_CAMERA_POWER
+Flow: CHECKING_CAMERA_POWER -> ACTIVATING_WIFI
+WiFi cache: saved (fresh BLE) ...
+Flow: ACTIVATING_WIFI -> WIFI_CREDENTIALS_READY (portrait cached WiFi params; connection paused)
 ```
 
-### 2. 相机处于待机状态 (防止意外唤醒)
-```text
-BLE: power handle=0x00EB read value=0x01
-BLE: operation mode read value=0x02 state=BLE_STARTUP
-WiFi blocked: camera operation mode=BLE_STARTUP while power=ON source=WiFi open
-Flow: BLE_READY -> CAMERA_SLEEP_GUARD (BLE operation mode standby)
-BLE guard: remote disconnect reason=533; auto wake paused for 15s, then manual wake required
-```
-*(此时固件自动断开并挂起，不唤醒相机，防止电池被不必要地消耗)*
+### 竖握转横握：继续完整预览流程
 
-### 3. 故障恢复：LiveView 无效帧卡死 (SystemSupervisor 自动介入)
 ```text
-SystemSupervisor: checking preview health...
-SystemSupervisor: liveview last frame time 5200 ms ago, threshold is 5000 ms
-SystemSupervisor: liveview stall detected! Requesting system recovery.
-Flow: LIVEVIEW_RUNNING -> BLE_READY (Resetting connections)
-...
+Flow: WIFI_CREDENTIALS_READY -> CONNECTING_WIFI (landscape resumes cached WiFi params)
+Flow: CONNECTING_WIFI -> HTTP_PROBING
+Flow: HTTP_PROBING -> PREVIEW_STARTING
+JPEG: viewport synced 240x135
+Flow: PREVIEW_STARTING -> PREVIEW_RUNNING
+```
+
+### 横握转竖握：关闭预览并断开 Wi-Fi
+
+```text
+Flow: PREVIEW_RUNNING -> WIFI_CREDENTIALS_READY (portrait disconnects camera WiFi)
+```
+
+### LiveView 有效帧停滞恢复
+
+```text
+LiveView stall: frame_idle_ms=5200 stream_idle_ms=120 timeout_ms=5000
+Supervisor: event=PreviewTimeout state=PREVIEW_RUNNING code=... detail=supervisor preview frame idle
+Camera recovery: LiveView frame stall watchdog
 ```
 
 ---
 
-## 开源许可证 (License)
+## 配件与致谢
 
-本项目采用 [GNU General Public License v3.0 (GPL-3.0)](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/LICENSE) 开源许可证。您可以自由修改、使用和二次发布本固件，但必须根据 GPL-3.0 要求对衍生工程开源。
+- 项目包含可将 StickS3 安装到相机热靴的 3D 打印安装件。
+- 特别感谢 [wjhrdy](https://github.com/wjhrdy) 对 [GR IV monochrome](https://github.com/sky18Dragon/RICOH-GR-Live-View-Shooting/issues/2) 的实机验证以及热靴打印件支持。
+
+---
+
+## 开源许可证
+
+本项目采用 [GNU General Public License v3.0（GPL-3.0）](LICENSE)。您可以修改、使用和再发布本固件，但衍生工程必须遵守 GPL-3.0 的开源要求。

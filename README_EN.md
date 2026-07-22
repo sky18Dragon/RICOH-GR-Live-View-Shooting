@@ -14,231 +14,255 @@
 <h1 align="center">RICOH GR Live View Shooting</h1>
 
 <p align="center">
-  A wireless live-view shooting and BLE remote shutter firmware running on the M5Stack StickS3 for RICOH GR cameras.
+  An orientation-aware BLE remote shutter and wireless live-view firmware for RICOH GR cameras, running on the M5Stack StickS3.
 </p>
 
 <p align="center">
-  The firmware uses <strong>BLE as the entry point for camera discovery, pairing, wake control, and shutter control</strong>. It dynamically obtains Wi-Fi credentials over BLE and requests MJPEG live-view streams via HTTP API to render preview frames smoothly on the StickS3.
+  The firmware uses <strong>BLE for camera discovery, pairing, wake control, and shutter control</strong>. It reads and caches camera Wi-Fi parameters dynamically, keeps the low-power remote interface in portrait, and joins camera Wi-Fi for HTTP MJPEG LiveView only in landscape.
 </p>
 
 > [!NOTE]
-> Looking for details on the communication protocol or state machine? Read [docs/project_overview.md](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/docs/project_overview.md) for the architecture overview, and [docs/ricoh_ble_protocol.md](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/docs/ricoh_ble_protocol.md) for detailed BLE characteristics and handles.
+> For protocol and state-machine details, see the [architecture overview](docs/project_overview.md) and [RICOH BLE protocol notes](docs/ricoh_ble_protocol.md). See [UI and interaction design](docs/ui_interaction_design.md) for the UI architecture, orientation thresholds, and hardware verification checklist.
 
 > [!NOTE]
-> **Project Development Note**: The author of this repository does not have an embedded development background. All firmware code, system architecture design, and documentation in this repository were entirely developed and structured in collaboration with the AI assistant (Codex). Please excuse any code design issues or inefficiencies. You are highly welcome to open [Issues](https://github.com/sky18Dragon/RicohViewfinder/issues) or submit Pull Requests for discussion and improvement!
+> **Development note**: The firmware, architecture, and documentation in this repository were developed collaboratively by the author and the AI assistant Codex. Feedback and improvements are welcome through [Issues](https://github.com/sky18Dragon/RICOH-GR-Live-View-Shooting/issues) or Pull Requests.
 
 ---
 
-## What Ships (Core Capabilities)
+## Core Capabilities
 
-* **High-framerate LiveView Rendering**: A dedicated MJPEG stream parser backed by ESP32-S3 hardware JPEG decoding directly onto LovyanGFX / M5Canvas, minimizing display latency.
-* **Restructured Layered Architecture**: Transitioned from a single-file codebase to a clean Supervisor-Controller-Service pattern, significantly improving reliability and maintenance.
-* **Camera Standby & Wake Guard**: Queries the camera's `Power State` and `Operation Mode` before enabling Wi-Fi to prevent waking up a camera that is explicitly powered down or in standby.
-* **WLAN Parameter Caching**: Caches SSID, BSSID, channel, and encryption details in ESP32 NVS. Subsequent boots achieve ultra-fast connections in `<0.5s` by skipping BLE renegotiation.
-* **Physical Button AF Shutter**: Fully implements the official RICOH BLE Shooting Service protocol, using Button A to trigger high-precision auto-focus (AF) and instant capture.
-* **One-Click BLE Reset**: Long press Button B to clear stored BLE pairing and bonding data, allowing quick pairing with a new camera.
-* **Orientation-aware Minimal UI**: Portrait mode becomes a pure remote aperture, while landscape mode becomes full-screen LiveView. Pairing, shutter, reset, and sleep feedback use lightweight non-blocking animation and sound.
-* **Host-side Native Test Suite**: Allows compiling and running data parser and state transition tests directly on your host machine without hardware.
-
+- **Orientation-gated connection lifecycle**: Portrait completes BLE connection, camera Wi-Fi activation, and credential caching without starting a Wi-Fi STA connection. Landscape continues to HTTP Probe and LiveView.
+- **Dedicated portrait and landscape interfaces**: Portrait shows a 135×240 remote aperture; landscape shows a 240×135 full-screen preview. Low-pass filtering, hysteresis, stabilization, and minimum hold time prevent orientation chatter.
+- **Smooth LiveView rendering**: The MJPEG parser feeds JPEGDEC, including ESP32-S3 optimizations, into LovyanGFX / M5Canvas. The JPEG viewport is synchronized whenever the Canvas dimensions change.
+- **PSRAM-safe Canvas and frame buffer**: The 16-bit Canvas is explicitly allocated in PSRAM when available. A failed resize preserves the previous Canvas and retries every two seconds. MJPEG uses a separate 256 KB frame buffer to reduce fragmentation risk.
+- **Camera standby protection**: `Power State` and `Operation Mode` are checked before connection work. A standby or powered-off camera enters `CAMERA_SLEEP_GUARD` to avoid repeated automatic wake attempts.
+- **WLAN parameter caching**: SSID, BSSID, channel, passphrase, and security data are persisted in NVS for the landscape fast path. BLE remains the control anchor for connection and camera Wi-Fi activation.
+- **BLE AF remote shutter**: Button A sends at most one AF+shoot command per complete press/release. Holding only adds visual and sound feedback.
+- **Recoverable runtime monitoring**: Wi-Fi, HTTP stream, and valid JPEG frame health are checked periodically; a stalled LiveView triggers connection recovery.
+- **Host-side Native tests**: 34 tests cover the orientation-gated state machine, MJPEG parsing, Supervisor, button input, orientation tracking, and UI animation.
 
 ---
 
 ## Quick Start
 
-### 1. Build and Flash the Firmware
-Connect the M5Stack StickS3 to your PC using a USB cable. Ensure PlatformIO Core is installed, then run:
-```bash
-# Build and upload the firmware
-platformio run --target upload
+### 1. Build and Flash
 
-# Optionally, specify the upload port if automatic detection fails
-platformio run --target upload --upload-port COM6
+Connect the M5Stack StickS3 over USB, install PlatformIO Core, and run:
+
+```bash
+# Build and upload the default StickS3 environment
+platformio run -e m5stack-sticks3 --target upload
+
+# Monitor serial output at 115200 baud
+pio device monitor -b 115200
 ```
 
-### 2. First-time Scan and Pairing
-1. Turn on your RICOH GR camera, and enable **Bluetooth** in the settings menu.
-2. Power on the StickS3. The screen will display scanning status. It automatically looks for BLE advertisements starting with `GR_`.
-3. Once found, the StickS3 initiates secure pairing (Bonding) and persists the bonded identity in NVS.
+If port detection fails, append `--upload-port <port>`.
+
+### 2. First-time Scan and Secure Pairing
+
+1. Turn on the RICOH GR camera and enable Bluetooth in its settings.
+2. Power on the StickS3. It scans automatically for BLE advertisements beginning with `GR_`.
+3. Once found, the StickS3 performs secure bonding and saves the camera identity and BLE address in NVS.
 
 ### 3. Orientation-gated Wi-Fi and LiveView
-1. After pairing completes, the StickS3 requests Wi-Fi ON and reads the dynamically generated passphrase and BSSID over BLE.
-2. In portrait, it persists those parameters and parks in `WIFI_CREDENTIALS_READY` without joining the camera AP. Turning landscape resumes the Wi-Fi connection.
-3. In landscape, it starts `/v1/liveview`; turning portrait closes LiveView and disconnects camera Wi-Fi while retaining BLE and the credential cache.
 
-### 4. Portrait and Landscape Interaction
+1. After BLE connects, the firmware reads camera power and operation mode. When connection is allowed, it requests camera Wi-Fi ON over BLE and reads the latest parameters.
+2. **Portrait startup**: Credentials are persisted, then the flow parks at `WIFI_CREDENTIALS_READY` without joining the camera AP.
+3. **Landscape startup**: After caching the parameters, the firmware joins the camera AP, performs HTTP Probe, and enters `PREVIEW_RUNNING`.
+4. **Portrait to landscape**: The flow resumes from the cached parameters without another BLE scan.
+5. **Landscape to portrait**: LiveView closes, camera Wi-Fi disconnects, and the state returns to `WIFI_CREDENTIALS_READY`; BLE and the credential cache remain available.
 
-- Hold the device vertically for the 135×240 remote aperture. Holding Button A for 300 ms contracts the aperture; releasing it shoots.
-- Hold it horizontally for the 240×135 full-screen LiveView with only a tiny battery indicator and a fast shutter-frame overlay.
-- Orientation must remain stable for about 500 ms and uses hysteresis plus a minimum hold time. If the IMU is unavailable, the original full connection flow remains enabled so the device cannot become permanently parked at the credential stage.
+If the device turns portrait during a blocking Wi-Fi connection attempt, the connection guard cancels that attempt and returns to credentials-ready. If the IMU is unavailable, the firmware treats the device as landscape so the original full connection flow remains available.
 
----
+### 4. Verify Builds and Tests
 
-## Controls
+```bash
+# Build the host-side Native target
+platformio run -e native
 
-You can control the viewfinder's behavior using the buttons (Button A, Button B, and Power button) on the StickS3:
+# Run all 34 Native tests
+platformio test -e native
 
-| Physical Button | App State / Context | Triggered Action |
-| :--- | :--- | :--- |
-| **Button A** | Camera ready (short press or release after hold) | Produces at most one existing AF+shoot command per complete press/release. Holding adds only aperture/sound feedback and sends no extra camera instruction. |
-| **Button A** | Standby Cooldown (`CAMERA_SLEEP_GUARD`) | Preserves the existing manual guard override and BLE-stack wake/reconnect behavior; it does not shoot. |
-| **Button B** | Any State (Long Press for 3s) | Shows continuous hold progress and invokes the existing pairing-reset path once at the threshold; releasing early cancels it. |
-| **Power Button (BtnPWR)** | Any State (Double Press) | Powers the StickS3 off/on |
-
-See [`docs/ui_interaction_design.md`](docs/ui_interaction_design.md) for architecture, prototype mapping, thresholds, and the hardware test checklist. The original prototype is archived at [`docs/ui-reference/StickS3_Interaction_Prototype.html`](docs/ui-reference/StickS3_Interaction_Prototype.html).
-
-
----
-
-## Core Architecture & Flow
-
-### 1. Software Architecture Layout
-The codebase has been refactored into distinct layers communicating via asynchronous events:
-* **[SystemSupervisor](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/supervisor/SystemSupervisor.h)**: A health monitor running as a background task. It detects stalled Wi-Fi / HTTP LiveView streams and schedules recovery actions.
-* **[AppController](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/app/AppController.h)**: The central business logic state machine, coordinating connections, power guards, manual wake overrides, and event dispatch.
-* **[BleCameraService](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/services/BleCameraService.h)**: Encapsulates BLE tasks, such as scanning, bonding, querying power/shutter services, and writing shutter commands.
-* **[WifiPreviewService](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/services/WifiPreviewService.h)**: Manages Wi-Fi STA connections and reads the HTTP MJPEG stream.
-
-### 2. State Transition Flow
-The diagram below details the application's connection and fallback paths from boot to live preview:
-
-```mermaid
-graph TD
-    A[Power On & Init] --> B[Load Peripherals & NVS Profile]
-    B --> C{Camera Identity Saved?}
-    C -->|Yes| D[Fast Direct Reconnect via Saved Address]
-    C -->|No| E[Scan for GR_ Advertisements & Pair]
-    D --> F{Reconnect Success?}
-    F -->|No| E
-    E --> G[BLE Paired & Bonded]
-    F -->|Yes| H[BLE Connected]
-    G --> H
-    H --> I[Read Power State & Operation Mode]
-    I --> J{Operation Mode?}
-    J -->|CAPTURE / PLAYBACK| K[Write 0x0135 to request Wi-Fi ON]
-    J -->|BLE_STARTUP / POWER_OFF_TRANSFER| L[Enter CAMERA_SLEEP_GUARD]
-    K --> M[Read and Cache Wi-Fi Params over BLE]
-    M --> U{Landscape?}
-    U -->|No| V[WIFI_CREDENTIALS_READY]
-    V -->|Turn Landscape| N[Connect Camera Wi-Fi from Cache]
-    U -->|Yes| N
-    N --> P{Connect Success?}
-    P -->|Yes| Q[HTTP Probe and Start LiveView]
-    P -->|No| K
-    Q --> R[LIVEVIEW_RUNNING]
-    R -->|Turn Portrait: Close Preview and Disconnect Wi-Fi| V
-    L --> S[Standby Guard: 15s Cooldown, Wait for Button A Manual Wake]
-    S -->|Press Button A| T[Rebuild BLE Stack & Reconnect]
-    T --> D
+# Build the StickS3 firmware
+platformio run -e m5stack-sticks3
 ```
 
-### 3. Camera Power-off and Sleep Protection (Standby Guard)
-When the camera turns off (due to auto power-off or manual shutdown), or when the StickS3 boots and finds the camera in BLE standby (`BLE_STARTUP`):
-1. The StickS3 immediately tears down its Wi-Fi and BLE connections to save camera power.
-2. The state machine transitions to `CAMERA_SLEEP_GUARD` and starts a **15-second safety cooldown**.
-3. During this cooldown and subsequent standby phase, **automatic wake requests are completely blocked**. The camera remains in standby until the user presses Button A to wake it intentionally.
+Current baseline build usage: RAM 76,196 / 327,680 bytes (23.3%), Flash 1,301,497 / 3,342,336 bytes (38.9%).
+
+---
+
+## Controls and Interaction
+
+| Physical Button | Context | Action |
+| :--- | :--- | :--- |
+| **Button A** | Camera ready | Sends at most one AF+shoot command on release. After a 300 ms hold, the aperture contracts, turns green, and plays feedback without sending an additional camera command. |
+| **Button A** | `CAMERA_SLEEP_GUARD` | When allowed by the guard policy, performs an explicit wake, rebuilds the BLE stack, and reconnects without shooting. |
+| **Button B** | Any state, hold for 3 seconds | Shows continuous progress and triggers the BLE pairing/cache reset once at the threshold. Releasing early cancels it. |
+| **Power Button (BtnPWR)** | Any state, hold for about 1.2 seconds | Powers off the StickS3. |
+
+Interaction rules:
+
+- Portrait shows the centered remote aperture; landscape shows full-screen LiveView and a tiny battery indicator.
+- A shot produces a 300 ms portrait flash or a 100 ms white shutter frame in landscape.
+- Orientation is sampled every 40 ms, must remain stable for 500 ms, and is then held for at least 500 ms.
+- Active brightness is 180 and sleep brightness is 24; dimming takes 900 ms and wake brightening takes 180 ms.
+- Remote animation targets 25 FPS, sleep animation targets 8 FPS, and sound volume is 40.
+
+The original interaction prototype is archived at [StickS3 Interaction Prototype](docs/ui-reference/StickS3_Interaction_Prototype.html).
+
+---
+
+## Core Architecture and State Machine
+
+### Software Layers
+
+- **[AppController](src/app/AppController.h)**: Central business state machine for the connection lifecycle, orientation gating, guards, and recovery events.
+- **[SystemSupervisor](src/supervisor/SystemSupervisor.h)**: A health monitor called periodically by the main loop to detect a closed preview, stalled stream, or valid-frame timeout.
+- **[BleCameraService](src/services/BleCameraService.h)**: BLE scanning, bonding, reconnect, camera state and Wi-Fi parameter reads, and shutter control.
+- **[WifiPreviewService](src/services/WifiPreviewService.h)**: Wi-Fi STA, HTTP Probe, MJPEG stream, and LiveView lifecycle.
+- **[UiCoordinator](src/ui/UiCoordinator.h)**: Maps application state, orientation, and input into UI scenes and user commands.
+- **[OrientationTracker](src/ui/OrientationTracker.h)**: Applies the StickS3 hardware-axis mapping, low-pass filter, hysteresis, and stabilization timing.
+
+### State Transition Flow
+
+```mermaid
+flowchart TD
+    A[StickS3 Power On] --> B[Initialize Peripherals and Load NVS]
+    B --> C{Saved Camera Identity?}
+    C -->|Yes| D[Reconnect by BLE Address]
+    C -->|No| E[Scan GR_ Advertisements and Pair]
+    D --> F{Reconnect Successful?}
+    F -->|No| E
+    F -->|Yes| G[BLE_READY]
+    E --> G
+    G --> H[Read Power State and Operation Mode]
+    H --> I{Camera Wi-Fi Activation Allowed?}
+    I -->|No| J[CAMERA_SLEEP_GUARD]
+    I -->|Yes| K[Request Wi-Fi ON over BLE]
+    K --> L[Read and Cache Fresh Wi-Fi Parameters]
+    L --> M{Device Orientation}
+    M -->|Portrait| N[WIFI_CREDENTIALS_READY]
+    M -->|Landscape| O[CONNECTING_WIFI]
+    N -->|Stable Landscape| O
+    O --> P{Connected and Still Landscape?}
+    P -->|No| N
+    P -->|Yes| Q[HTTP_PROBING]
+    Q --> R[PREVIEW_STARTING]
+    R --> S[PREVIEW_RUNNING]
+    S -->|Stable Portrait| T[Close Preview and Disconnect Wi-Fi]
+    T --> N
+    J -->|Button A after Cooldown| U[Manual Wake and Rebuild BLE]
+    U --> D
+```
+
+### Camera Power-off and Standby Guard
+
+When the camera reports `BLE_STARTUP`, `POWER_OFF_TRANSFER`, or a powered-off state, the firmware clears the Wi-Fi/preview connection and enters `CAMERA_SLEEP_GUARD`. Automatic flow pauses during the 15-second cooldown. Button A then provides the explicit manual wake and BLE reconnect path, avoiding a background connection loop that repeatedly disturbs the camera.
 
 ---
 
 ## Key Configuration
 
-Customize these constants in [src/config.h](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/config.h) or `platformio.ini` to adjust timing:
+Connection and guard settings live in [src/config.h](src/config.h); UI and orientation settings live in [src/ui/UiTheme.h](src/ui/UiTheme.h):
 
-| Parameter | Default Value | Description |
+| Parameter | Default | Description |
 | :--- | :---: | :--- |
-| `BLE_SCAN_SECONDS` | `2` | Duration of each Bluetooth scan cycle (seconds) |
-| `BLE_FAST_CONNECT_TIMEOUT_MS` | `3000` | Timeout when reconnecting directly to a cached BLE address (ms) |
-| `BLE_CONNECT_TIMEOUT_MS` | `8000` | Timeout when establishing a scanned BLE connection (ms) |
-| `BLE_CONNECT_ATTEMPTS` | `12` | Maximum connection cycles when a cached identity exists |
-| `RICOH_BLE_BONDED_SECURITY_WAIT_MS` | `1500` | Post-connect wait time for BLE security/encryption to settle (ms) |
-| `RICOH_BLE_SECURITY_WAIT_MS` | `7000` | Max timeout for first-time security bonding to complete (ms) |
-| `RICOH_BLE_POWER_NOTIFY_SETTLE_MS` | `30` | Short settle window after enabling power notifications, used to catch immediate power-off notifications before Wi-Fi ON |
-| `WIFI_CACHED_CONNECT_GRACE_MS` | `700` | Warm-up delay after requesting Wi-Fi ON before trying cached credentials |
-| `WIFI_CACHED_CONNECT_TIMEOUT_MS` | `1200` | Aggressive connection timeout for cached BSSID + Channel (ms) |
-| `WIFI_CONNECT_TIMEOUT_MS` | `15000` | Overall connection timeout limit for Wi-Fi STA |
-| `CAMERA_POWER_OFF_COOLDOWN_MS` | `15000` | Mandatory cooldown block duration after camera power-off is detected |
+| `BLE_SCAN_SECONDS` | `2` | Duration of one BLE scan cycle in seconds |
+| `BLE_FAST_CONNECT_TIMEOUT_MS` | `3000` | Direct reconnect timeout for a saved BLE address |
+| `BLE_CONNECT_TIMEOUT_MS` | `8000` | BLE connection timeout after discovery |
+| `WIFI_CACHED_CONNECT_GRACE_MS` | `700` | Delay after requesting Wi-Fi ON before cached connection |
+| `WIFI_CACHED_CONNECT_TIMEOUT_MS` | `1200` | Fast-path timeout using cached BSSID and channel |
+| `WIFI_CONNECT_TIMEOUT_MS` | `15000` | Overall Wi-Fi STA connection timeout |
+| `LIVEVIEW_STALL_TIMEOUT_MS` | `5000` | Valid preview-frame stall threshold |
+| `CAMERA_POWER_OFF_COOLDOWN_MS` | `15000` | Camera power-off guard cooldown |
+| `POWER_BUTTON_HOLD_MS` | `1200` | Power-button shutdown hold threshold |
+| `KEY2_PAIRING_RESET_HOLD_MS` | `3000` | Button B pairing-reset hold threshold |
+| `kOrientationSampleMs` | `40` | IMU orientation sampling interval |
+| `kOrientationStableMs` | `500` | Candidate-orientation stabilization time |
+| `kOrientationMinHoldMs` | `500` | Minimum hold time after an orientation change |
+| `kOrientationHysteresisG` | `0.18f` | Portrait/landscape switch hysteresis |
+| `kOrientationMinAxisG` | `0.35f` | Minimum dominant-axis gravity component |
+
+The StickS3 hardware mapping treats dominant `abs(X)` as portrait and dominant `abs(Y)` as landscape.
 
 ---
 
 ## Camera Compatibility
 
 > [!NOTE]
-> The current code and protocol parameters have been verified on both **RICOH GR IV** and **RICOH GR IV HDF**.
+> The current firmware and protocol parameters have been verified on **RICOH GR IV** and **RICOH GR IV HDF**.
 
-| Camera Series | Status | Compatibility Notes |
+| Camera Series | Status | Notes |
 | :--- | :---: | :--- |
-| **RICOH GR IV HDF** | **Verified Working** | Core development target. Supports BLE shutter and LiveView out of the box. |
-| **RICOH GR IV** | **Verified Working** | Tested with BLE pairing and reconnect, Wi-Fi activation, LiveView, and BLE AF shutter. |
-| **RICOH GR III / GR IIIx** | **Not Supported** | Uses different BLE handshakes and wake sequences. Outside the scope of this project. |
-| **RICOH GR II** | **Not Supported** | Lacks the BLE-first broadcast wake-up and on-demand Wi-Fi AP control interfaces. |
+| **RICOH GR IV HDF** | **Verified** | Core development and hardware test target; supports BLE shutter and LiveView |
+| **RICOH GR IV** | **Verified** | BLE pairing/reconnect, Wi-Fi activation, LiveView, and BLE AF shutter verified |
+| **RICOH GR III / GR IIIx** | **Not supported** | BLE handshake and wake timing differ by generation and are outside the current design target |
+| **RICOH GR II** | **Not supported** | Lacks the BLE-first advertising and on-demand Wi-Fi AP control path required by this firmware |
 
 ---
 
 ## Project Structure
 
-* [platformio.ini](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/platformio.ini) — PlatformIO configuration and dependency mapping
-* [src/main.cpp](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/main.cpp) — Entry point, setup initialization, and main loop
-* [src/app/](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/app/) — Application state and control flow
-  * [AppController.cpp](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/app/AppController.cpp) / [AppController.h](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/app/AppController.h) — State machine coordinator
-  * [AppState.h](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/app/AppState.h) — List of application states
-  * [AppFlowActions.h](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/app/AppFlowActions.h) — Action maps for flow transitions
-* [src/supervisor/](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/supervisor/) — Runtime health watchdog
-  * [SystemSupervisor.cpp](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/supervisor/SystemSupervisor.cpp) / [SystemSupervisor.h](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/supervisor/SystemSupervisor.h) — Monitors stream health and triggers resets on stall
-* [src/services/](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/services/) — Protocol and stream transport layers
-  * [BleCameraService.cpp](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/services/BleCameraService.cpp) / [BleCameraService.h](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/services/BleCameraService.h) — NimBLE client, queries modes/shutter characteristics
-  * [WifiPreviewService.cpp](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/services/WifiPreviewService.cpp) / [WifiPreviewService.h](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/services/WifiPreviewService.h) — Wi-Fi link management and LiveView downloader
-  * [PreviewFrameBuffer.cpp](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/services/PreviewFrameBuffer.cpp) / [PreviewFrameBuffer.h](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/services/PreviewFrameBuffer.h) — Circular double-buffered frame manager to reduce fragmentation and delay
-* [src/camera_profile_store.cpp](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/camera_profile_store.cpp) — Handles NVS profiles and Wi-Fi credential serialization
-* [src/jpeg_decoder.cpp](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/jpeg_decoder.cpp) / [mjpeg_stream.cpp](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/src/mjpeg_stream.cpp) — Splits MJPEG streams and decodes JPEG frames using ESP32-S3 hardware acceleration
-* [test/test_native/](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/test/test_native/) — Local host-side unit tests verifying core logic and stream processing
+- [platformio.ini](platformio.ini) — StickS3 and Native environments, dependencies, and PSRAM configuration
+- [src/main.cpp](src/main.cpp) — Hardware initialization, main loop, state actions, and connection guards
+- [src/app/](src/app/) — Application states, flow actions, and `AppController`
+- [src/services/](src/services/) — BLE, camera power policy, shutter, Wi-Fi, and preview services
+- [src/supervisor/](src/supervisor/) — Runtime health monitoring and recovery events
+- [src/ui/](src/ui/) — Orientation tracking, button commands, animation, sound, and UI scene coordination
+- [src/display.cpp](src/display.cpp) — 16-bit rotating Canvas, PSRAM allocation, and display submission
+- [src/camera_profile_store.cpp](src/camera_profile_store.cpp) — NVS persistence for BLE identity and Wi-Fi parameters
+- [src/jpeg_decoder.cpp](src/jpeg_decoder.cpp) / [src/mjpeg_stream.cpp](src/mjpeg_stream.cpp) — JPEG decoding and MJPEG frame-boundary parsing
+- [src/services/PreviewFrameBuffer.cpp](src/services/PreviewFrameBuffer.cpp) — 256 KB preview frame buffer and statistics
+- [test/test_native/](test/test_native/) — 34 host-side Native tests
 
 ---
 
-## Accessories & Acknowledgements
+## Troubleshooting and Typical Logs
 
-* The recently merged PR adds a 3D-printable hot-shoe mount for attaching the StickS3 to the camera.
-* Special thanks to [wjhrdy](https://github.com/wjhrdy) for validating the [**GR IV monochrome**](https://github.com/sky18Dragon/RICOH-GR-Live-View-Shooting/issues/2) in the field and for providing the hot-shoe print.
+### Portrait Startup: Cache Credentials Without Wi-Fi Connection
+
+```text
+Flow: CONNECTING_BLE -> BLE_READY (BLE connected)
+Flow: BLE_READY -> CHECKING_CAMERA_POWER
+Flow: CHECKING_CAMERA_POWER -> ACTIVATING_WIFI
+WiFi cache: saved (fresh BLE) ...
+Flow: ACTIVATING_WIFI -> WIFI_CREDENTIALS_READY (portrait cached WiFi params; connection paused)
+```
+
+### Portrait to Landscape: Resume the Full Preview Flow
+
+```text
+Flow: WIFI_CREDENTIALS_READY -> CONNECTING_WIFI (landscape resumes cached WiFi params)
+Flow: CONNECTING_WIFI -> HTTP_PROBING
+Flow: HTTP_PROBING -> PREVIEW_STARTING
+JPEG: viewport synced 240x135
+Flow: PREVIEW_STARTING -> PREVIEW_RUNNING
+```
+
+### Landscape to Portrait: Close Preview and Disconnect Wi-Fi
+
+```text
+Flow: PREVIEW_RUNNING -> WIFI_CREDENTIALS_READY (portrait disconnects camera WiFi)
+```
+
+### Recovering from a Valid-frame Stall
+
+```text
+LiveView stall: frame_idle_ms=5200 stream_idle_ms=120 timeout_ms=5000
+Supervisor: event=PreviewTimeout state=PREVIEW_RUNNING code=... detail=supervisor preview frame idle
+Camera recovery: LiveView frame stall watchdog
+```
 
 ---
 
-## Troubleshooting & Logs
+## Accessories and Acknowledgements
 
-### 1. Normal Connect & Launch
-```text
-BLE: connected secure connect_ms=2800
-Flow: BLE_SCAN -> BLE_READY (BLE connected)
-BLE: power handle=0x00EB read value=0x01
-BLE: operation mode read value=0x00 state=CAPTURE
-BLE: power notify enabled cccd=0x00EC
-BLE: Wi-Fi open requested
-BLE: Wi-Fi parameters received ssid='GR_H264456' bssid='F2:3E:05:26:45:56' freq=2412 channel=1
-WiFi cache: waiting 700ms for camera AP before cached connect
-WiFi cache: trying cached params ssid='GR_H264456' bssid='F2:3E:05:26:45:56' channel=1 short_timeout=1200ms
-WiFi: connect completed in 450ms channel=1 status=CONNECTED
-Flow: WIFI_CONNECTING -> LIVEVIEW_RUNNING (LiveView opened)
-LiveView: connected
-```
-
-### 2. Standby Intercept (Auto-wake Blocked)
-```text
-BLE: power handle=0x00EB read value=0x01
-BLE: operation mode read value=0x02 state=BLE_STARTUP
-WiFi blocked: camera operation mode=BLE_STARTUP while power=ON source=WiFi open
-Flow: BLE_READY -> CAMERA_SLEEP_GUARD (BLE operation mode standby)
-BLE guard: remote disconnect reason=533; auto wake paused for 15s, then manual wake required
-```
-*(The firmware shuts down connection elements, blocks automatic wake, and goes quiet)*
-
-### 3. Watchdog Recovery on Stalled LiveView
-```text
-SystemSupervisor: checking preview health...
-SystemSupervisor: liveview last frame time 5200 ms ago, threshold is 5000 ms
-SystemSupervisor: liveview stall detected! Requesting system recovery.
-Flow: LIVEVIEW_RUNNING -> BLE_READY (Resetting connections)
-...
-```
+- The project includes a 3D-printable hot-shoe mount for attaching the StickS3 to the camera.
+- Special thanks to [wjhrdy](https://github.com/wjhrdy) for field verification of the [GR IV monochrome](https://github.com/sky18Dragon/RICOH-GR-Live-View-Shooting/issues/2) and for supporting the hot-shoe print.
 
 ---
 
 ## License
 
-This project is licensed under the [GNU General Public License v3.0 (GPL-3.0)](file:///C:/Users/Administrator/Documents/RICOH%20Viewfinder/LICENSE). You are free to modify, use, and distribute this firmware, provided any modifications or derivative works are also open-sourced under the GPL-3.0.
+This project is licensed under the [GNU General Public License v3.0 (GPL-3.0)](LICENSE). You may modify, use, and redistribute the firmware, provided derivative works comply with GPL-3.0.
