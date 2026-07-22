@@ -282,20 +282,36 @@ void testUiScenePriority() {
 void testOrientationRequiresStableCandidate() {
   rvf::OrientationTracker tracker(rvf::UiOrientation::Portrait);
   tracker.reset(rvf::UiOrientation::Portrait, 0);
-  TEST_ASSERT_FALSE(tracker.update(1.0f, 0.0f, 0.0f, 100));
+  TEST_ASSERT_FALSE(tracker.update(0.0f, 1.0f, 0.0f, 100));
   TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiOrientation::Portrait),
                         static_cast<int>(tracker.orientation()));
-  TEST_ASSERT_FALSE(tracker.update(1.0f, 0.0f, 0.0f, 599));
-  TEST_ASSERT_TRUE(tracker.update(1.0f, 0.0f, 0.0f, 600));
+  TEST_ASSERT_FALSE(tracker.update(0.0f, 1.0f, 0.0f, 599));
+  TEST_ASSERT_TRUE(tracker.update(0.0f, 1.0f, 0.0f, 600));
   TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiOrientation::Landscape),
                         static_cast<int>(tracker.orientation()));
+}
+
+void testOrientationMapsStickS3PhysicalAxes() {
+  rvf::OrientationTracker portraitTracker(rvf::UiOrientation::Landscape);
+  portraitTracker.reset(rvf::UiOrientation::Landscape, 0);
+  portraitTracker.update(1.0f, 0.0f, 0.0f, 100);
+  TEST_ASSERT_TRUE(portraitTracker.update(1.0f, 0.0f, 0.0f, 600));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiOrientation::Portrait),
+                        static_cast<int>(portraitTracker.orientation()));
+
+  rvf::OrientationTracker landscapeTracker(rvf::UiOrientation::Portrait);
+  landscapeTracker.reset(rvf::UiOrientation::Portrait, 0);
+  landscapeTracker.update(0.0f, 1.0f, 0.0f, 100);
+  TEST_ASSERT_TRUE(landscapeTracker.update(0.0f, 1.0f, 0.0f, 600));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiOrientation::Landscape),
+                        static_cast<int>(landscapeTracker.orientation()));
 }
 
 void testOrientationHysteresisPreventsBoundaryChatter() {
   rvf::OrientationTracker tracker(rvf::UiOrientation::Portrait);
   tracker.reset(rvf::UiOrientation::Portrait, 0);
-  tracker.update(1.0f, 0.0f, 0.0f, 100);
-  tracker.update(1.0f, 0.0f, 0.0f, 600);
+  tracker.update(0.0f, 1.0f, 0.0f, 100);
+  tracker.update(0.0f, 1.0f, 0.0f, 600);
   TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiOrientation::Landscape),
                         static_cast<int>(tracker.orientation()));
   TEST_ASSERT_FALSE(tracker.update(0.55f, 0.50f, 0.0f, 1100));
@@ -435,6 +451,7 @@ int main() {
   RUN_TEST(testUiMapsAppStatesToScenes);
   RUN_TEST(testUiScenePriority);
   RUN_TEST(testOrientationRequiresStableCandidate);
+  RUN_TEST(testOrientationMapsStickS3PhysicalAxes);
   RUN_TEST(testOrientationHysteresisPreventsBoundaryChatter);
   RUN_TEST(testAnimationProgressAndCompletion);
   RUN_TEST(testAnimationElapsedIsMillisWrapSafe);

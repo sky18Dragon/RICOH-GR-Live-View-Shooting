@@ -89,6 +89,8 @@ uint32_t lastOrientationSampleAt = 0;
 bool imuAvailable = false;
 bool uiResettingPairing = false;
 ButtonEvents currentUiInput;
+int16_t jpegViewportWidth = 0;
+int16_t jpegViewportHeight = 0;
 
 constexpr uint32_t STATUS_MIN_REDRAW_MS = 1500;
 
@@ -1403,6 +1405,28 @@ void updateUi() {
   updateUi(currentUiInput);
 }
 
+bool syncJpegViewport(LovyanGFX* canvas) {
+  if (canvas == nullptr) {
+    return false;
+  }
+  const int16_t width = canvas->width();
+  const int16_t height = canvas->height();
+  if (width == jpegViewportWidth && height == jpegViewportHeight) {
+    return true;
+  }
+
+  // JpegDecoder caches M5.Display dimensions in begin(). Refresh that cache
+  // after DisplayUi rotates and recreates its Canvas, before the first frame.
+  if (!decoder.begin()) {
+    Serial.println("JPEG: viewport sync failed");
+    return false;
+  }
+  jpegViewportWidth = width;
+  jpegViewportHeight = height;
+  Serial.printf("JPEG: viewport synced %dx%d\n", jpegViewportWidth, jpegViewportHeight);
+  return true;
+}
+
 void onJpegFrame(const uint8_t* data, size_t len, void*) {
   lastFrameAt = millis();
   decodedFrames++;
@@ -1419,6 +1443,11 @@ void onJpegFrame(const uint8_t* data, size_t len, void*) {
   const uint32_t renderStartMs = millis();
   LovyanGFX* canvas = ui.beginLiveFrame();
   if (canvas == nullptr) {
+    lastFrameAt = millis();
+    return;
+  }
+  if (!syncJpegViewport(canvas)) {
+    ui.finishLiveFrame(false);
     lastFrameAt = millis();
     return;
   }
@@ -1699,6 +1728,8 @@ void setup() {
   buttons.begin();
   ricohBle.setServiceCallback(serviceButtonsDuringBleOperation);
   decoder.begin();
+  jpegViewportWidth = M5.Display.width();
+  jpegViewportHeight = M5.Display.height();
   grWifi.begin();
 
   applyDefaultProfile();

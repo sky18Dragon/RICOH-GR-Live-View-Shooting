@@ -29,10 +29,11 @@ UiOrientation OrientationTracker::classify(float x, float y) const {
         return _orientation;
     }
     if (absX > absY + UiTheme::kOrientationHysteresisG) {
-        return UiOrientation::Landscape;
+        // StickS3 is physically portrait when gravity is aligned with its X axis.
+        return UiOrientation::Portrait;
     }
     if (absY > absX + UiTheme::kOrientationHysteresisG) {
-        return UiOrientation::Portrait;
+        return UiOrientation::Landscape;
     }
     return _orientation;
 }
