@@ -63,6 +63,7 @@ constexpr int16_t kResetSplitDistance = 30;
 constexpr uint32_t kOrientationSampleMs = 40;
 constexpr uint32_t kOrientationStableMs = 500;
 constexpr uint32_t kOrientationMinHoldMs = 500;
+constexpr uint32_t kCanvasAllocationRetryMs = 2000;
 constexpr float kOrientationLowPassAlpha = 0.20f;
 constexpr float kOrientationHysteresisG = 0.18f;
 constexpr float kOrientationMinAxisG = 0.35f;

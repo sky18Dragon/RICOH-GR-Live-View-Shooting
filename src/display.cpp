@@ -44,6 +44,14 @@ bool DisplayUi::begin() {
     M5.begin(cfg);
 
     _canvas.setColorDepth(16);
+    _canvasUsePsram = psramFound();
+    _canvas.setPsram(_canvasUsePsram);
+    Serial.printf("UI Canvas: storage=%s free_int=%lu largest_int=%lu free_psram=%lu largest_psram=%lu\n",
+                  _canvasUsePsram ? "psram" : "internal",
+                  static_cast<unsigned long>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+                  static_cast<unsigned long>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+                  static_cast<unsigned long>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)),
+                  static_cast<unsigned long>(heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)));
     _backlight.begin(rvf::UiTheme::kActiveBrightness);
     M5.Display.setBrightness(rvf::UiTheme::kActiveBrightness);
     if (!createCanvasFor(rvf::UiOrientation::Portrait)) return false;
@@ -80,6 +88,12 @@ bool DisplayUi::setOrientation(rvf::UiOrientation orientation) {
     if (_canvasReady && orientation == _orientation) return true;
     if (_frameWriteActive) return false;
 
+    const uint32_t nowMs = millis();
+    if (_canvasReady && _orientationFailurePending && orientation == _failedOrientation &&
+        static_cast<int32_t>(nowMs - _orientationRetryAfterMs) < 0) {
+        return false;
+    }
+
     const rvf::UiOrientation previous = _orientation;
     const bool hadCanvas = _canvasReady;
     Serial.printf("UI Canvas: switch %s -> %s heap=%lu psram=%lu\n",
@@ -93,7 +107,14 @@ bool DisplayUi::setOrientation(rvf::UiOrientation orientation) {
         _canvasReady = false;
     }
     if (!createCanvasFor(orientation)) {
-        Serial.println("UI Canvas: create failed; restoring previous orientation");
+        _failedOrientation = orientation;
+        _orientationRetryAfterMs = nowMs + rvf::UiTheme::kCanvasAllocationRetryMs;
+        _orientationFailurePending = true;
+        Serial.printf("UI Canvas: create failed; restoring previous orientation; retry_in=%lums "
+                      "largest_int=%lu largest_psram=%lu\n",
+                      static_cast<unsigned long>(rvf::UiTheme::kCanvasAllocationRetryMs),
+                      static_cast<unsigned long>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+                      static_cast<unsigned long>(heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM)));
         _canvas.deleteSprite();
         _canvasReady = false;
         if (hadCanvas && createCanvasFor(previous)) {
@@ -103,6 +124,7 @@ bool DisplayUi::setOrientation(rvf::UiOrientation orientation) {
         return false;
     }
 
+    _orientationFailurePending = false;
     clear(rvf::UiTheme::kBlack);
     pushCanvas();
     Serial.printf("UI Canvas: ready %dx%d heap=%lu psram=%lu\n",

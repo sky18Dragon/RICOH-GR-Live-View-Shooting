@@ -60,7 +60,11 @@ private:
     rvf::UiScene _lastScene = rvf::UiScene::Boot;
     rvf::BacklightAnimator _backlight;
     uint32_t _lastRenderAtMs = 0;
+    uint32_t _orientationRetryAfterMs = 0;
+    rvf::UiOrientation _failedOrientation = rvf::UiOrientation::Portrait;
     bool _canvasReady = false;
+    bool _canvasUsePsram = false;
     bool _frameWriteActive = false;
     bool _sceneDrawn = false;
+    bool _orientationFailurePending = false;
 };

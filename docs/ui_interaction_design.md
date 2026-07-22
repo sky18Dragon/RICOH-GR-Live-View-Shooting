@@ -109,6 +109,8 @@ Error > ResetPairing > CameraSleep > Pairing/Connecting
 5. 创建失败则恢复前一方向和尺寸；
 6. 成功后清黑并打印切换后的 heap/PSRAM。
 
+Canvas 在检测到 PSRAM 时显式使用 PSRAM，避免 LiveView、BLE/Wi-Fi 运行后内部 DMA heap 碎片化导致约 64.8 KB 的 16-bit Canvas 无法重建。若分配仍失败，保留并恢复旧方向 Canvas，同一目标方向最多每 2 秒重试一次，避免主循环逐帧重复分配和刷串口。
+
 固件只有主循环线程会调用方向切换和 MJPEG 帧处理，`beginLiveFrame()/finishLiveFrame()` 仍显式标记 JPEG 写入窗口，防止以后引入异步调用时销毁正在写入的 Canvas。
 
 ## LiveView 显示门控
