@@ -3,21 +3,20 @@
 #include <Arduino.h>
 #include <M5Unified.h>
 
-#if __has_include("config.h")
-#include "config.h"
-#endif
-
-#ifndef DISPLAY_WIDTH
-#define DISPLAY_WIDTH 240
-#endif
-
-#ifndef DISPLAY_HEIGHT
-#define DISPLAY_HEIGHT 135
-#endif
+#include "ui/UiAnimator.h"
+#include "ui/UiCoordinator.h"
+#include "ui/UiTypes.h"
 
 class DisplayUi {
 public:
     bool begin();
+    bool setOrientation(rvf::UiOrientation orientation);
+    rvf::UiOrientation orientation() const { return _orientation; }
+
+    void render(const rvf::UiViewModel& view);
+    LovyanGFX* beginLiveFrame();
+    void renderLiveFrameOverlay(const rvf::UiViewModel& view);
+    void finishLiveFrame(bool push);
 
     void showBoot(const char* message = nullptr);
     void showStatus(const char* line1, const char* line2, const char* line3, const char* line4);
@@ -33,20 +32,35 @@ public:
                      uint32_t frames,
                      uint32_t droppedFrames);
 
-    int16_t width() const;
-    int16_t height() const;
-
-    LovyanGFX* getCanvas() { return &_canvas; }
-    void pushCanvas() { _canvas.pushSprite(&M5.Display, 0, 0); }
+    int16_t width() const { return _width; }
+    int16_t height() const { return _height; }
+    LovyanGFX* getCanvas() { return _canvasReady ? &_canvas : nullptr; }
+    void pushCanvas();
 
 private:
-    int16_t _width = DISPLAY_WIDTH;
-    int16_t _height = DISPLAY_HEIGHT;
-    M5Canvas _canvas;
-
+    bool createCanvasFor(rvf::UiOrientation orientation);
     void clear(uint16_t color = 0x0000);
-    void drawStatusLines(const char* line1, const char* line2, const char* line3, const char* line4 = nullptr);
-    void drawDeviceBatteryStatus(int16_t rightX, int16_t y);
-    void drawWifiIcon(int16_t x, int16_t y, int32_t rssi);
-    void drawBatteryIcon(int16_t x, int16_t y, const char* batteryStr);
+    void drawBoot(const rvf::UiViewModel& view);
+    void drawConnecting(const rvf::UiViewModel& view);
+    void drawRemote(const rvf::UiViewModel& view);
+    void drawReset(const rvf::UiViewModel& view);
+    void drawSleep(const rvf::UiViewModel& view);
+    void drawDisconnected(const rvf::UiViewModel& view);
+    void drawError(const rvf::UiViewModel& view);
+    void drawBatteryIndicator(const rvf::UiViewModel& view);
+    void drawShutterOverlay(const rvf::UiViewModel& view);
+    void drawCenteredText(const char* text, int16_t y, uint16_t color);
+    uint32_t renderIntervalMs(rvf::UiScene scene) const;
+    void updateBacklight(const rvf::UiViewModel& view);
+
+    int16_t _width = 0;
+    int16_t _height = 0;
+    M5Canvas _canvas;
+    rvf::UiOrientation _orientation = rvf::UiOrientation::Portrait;
+    rvf::UiScene _lastScene = rvf::UiScene::Boot;
+    rvf::BacklightAnimator _backlight;
+    uint32_t _lastRenderAtMs = 0;
+    bool _canvasReady = false;
+    bool _frameWriteActive = false;
+    bool _sceneDrawn = false;
 };

@@ -16,6 +16,7 @@ struct UiViewModel {
     float sceneProgress = 0.0f;
     float focusProgress = 0.0f;
     float resetProgress = 0.0f;
+    float resetSplitProgress = 0.0f;
     float overlayProgress = 0.0f;
     float sleepProgress = 0.0f;
     bool focusActive = false;

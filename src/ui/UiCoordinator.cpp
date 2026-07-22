@@ -170,6 +170,7 @@ void UiCoordinator::update(const UiSnapshot& snapshot,
     _view.nowMs = nowMs;
     _view.resetProgress = input.resetHoldActive ? input.resetHoldProgress : 0.0f;
     _view.resetSplitActive = _resetSplit.active;
+    _view.resetSplitProgress = _resetSplit.progress(nowMs);
     _view.shutterOverlayActive = _shutterOverlay.active;
     _view.overlayProgress = _shutterOverlay.progress(nowMs);
     _view.hasFrame = snapshot.hasFrame;
