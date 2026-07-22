@@ -6,36 +6,15 @@ void Buttons::begin() {
   M5.update();
   M5.BtnPWR.setHoldThresh(POWER_BUTTON_HOLD_MS);
   pinMode(KEY2_FALLBACK_GPIO, INPUT_PULLUP);
+  _input.reset();
 }
 
 ButtonEvents Buttons::poll() {
   M5.update();
-
-  ButtonEvents events;
-  if (M5.BtnA.wasPressed()) {
-    events.buttonA = true;
-    events.any = true;
-  }
-  if (M5.BtnPWR.wasHold()) {
-    events.powerOff = true;
-    events.any = true;
-  }
-  const bool key2Down = key2Pressed();
-  if (!key2Down) {
-    _key2PressedSince = 0;
-    _key2HoldReported = false;
-  } else {
-    const uint32_t now = millis();
-    if (_key2PressedSince == 0) {
-      _key2PressedSince = now;
-    }
-    if (!_key2HoldReported && (now - _key2PressedSince) >= KEY2_PAIRING_RESET_HOLD_MS) {
-      _key2HoldReported = true;
-      events.resetPairing = true;
-      events.any = true;
-    }
-  }
-  return events;
+  return _input.update(M5.BtnA.isPressed(),
+                       key2Pressed(),
+                       M5.BtnPWR.wasHold(),
+                       millis());
 }
 
 bool Buttons::key2Pressed() const {

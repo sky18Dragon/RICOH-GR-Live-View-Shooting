@@ -3,12 +3,9 @@
 #include <Arduino.h>
 #include <M5Unified.h>
 
-struct ButtonEvents {
-  bool buttonA = false;
-  bool resetPairing = false;
-  bool powerOff = false;
-  bool any = false;
-};
+#include "ui/ButtonInput.h"
+
+using ButtonEvents = rvf::ButtonEvents;
 
 class Buttons {
 public:
@@ -17,7 +14,5 @@ public:
 
 private:
   bool key2Pressed() const;
-
-  uint32_t _key2PressedSince = 0;
-  bool _key2HoldReported = false;
+  rvf::ButtonInput _input;
 };

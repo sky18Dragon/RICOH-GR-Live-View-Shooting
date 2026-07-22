@@ -13,6 +13,10 @@ void tearDown(void) {}
 #include "camera_identity.h"
 #include "mjpeg_stream.h"
 #include "supervisor/SystemSupervisor.h"
+#include "ui/ButtonInput.h"
+#include "ui/OrientationTracker.h"
+#include "ui/UiAnimator.h"
+#include "ui/UiCoordinator.h"
 
 namespace {
 
@@ -242,6 +246,168 @@ void testSupervisorReportsFrameStallDespiteIncomingBytes() {
   TEST_ASSERT_EQUAL_STRING("supervisor preview frame idle", message.detail);
 }
 
+void testUiMapsAppStatesToScenes() {
+  rvf::UiSnapshot snapshot;
+  snapshot.appState = rvf::AppState::BleScan;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiScene::Pairing),
+                        static_cast<int>(rvf::UiCoordinator::selectScene(
+                            snapshot, rvf::UiOrientation::Portrait)));
+
+  snapshot.appState = rvf::AppState::ConnectingBle;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiScene::Connecting),
+                        static_cast<int>(rvf::UiCoordinator::selectScene(
+                            snapshot, rvf::UiOrientation::Portrait)));
+
+  snapshot.appState = rvf::AppState::PreviewRunning;
+  snapshot.previewRunning = true;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiScene::RemoteReady),
+                        static_cast<int>(rvf::UiCoordinator::selectScene(
+                            snapshot, rvf::UiOrientation::Portrait)));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiScene::LivePreview),
+                        static_cast<int>(rvf::UiCoordinator::selectScene(
+                            snapshot, rvf::UiOrientation::Landscape)));
+}
+
+void testUiScenePriority() {
+  rvf::UiSnapshot snapshot;
+  snapshot.appState = rvf::AppState::PreviewRunning;
+  snapshot.previewRunning = true;
+  snapshot.cameraSleepLike = true;
+  snapshot.resettingPairing = true;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiScene::ResetPairing),
+                        static_cast<int>(rvf::UiCoordinator::selectScene(
+                            snapshot, rvf::UiOrientation::Landscape)));
+}
+
+void testOrientationRequiresStableCandidate() {
+  rvf::OrientationTracker tracker(rvf::UiOrientation::Portrait);
+  tracker.reset(rvf::UiOrientation::Portrait, 0);
+  TEST_ASSERT_FALSE(tracker.update(1.0f, 0.0f, 0.0f, 100));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiOrientation::Portrait),
+                        static_cast<int>(tracker.orientation()));
+  TEST_ASSERT_FALSE(tracker.update(1.0f, 0.0f, 0.0f, 599));
+  TEST_ASSERT_TRUE(tracker.update(1.0f, 0.0f, 0.0f, 600));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiOrientation::Landscape),
+                        static_cast<int>(tracker.orientation()));
+}
+
+void testOrientationHysteresisPreventsBoundaryChatter() {
+  rvf::OrientationTracker tracker(rvf::UiOrientation::Portrait);
+  tracker.reset(rvf::UiOrientation::Portrait, 0);
+  tracker.update(1.0f, 0.0f, 0.0f, 100);
+  tracker.update(1.0f, 0.0f, 0.0f, 600);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiOrientation::Landscape),
+                        static_cast<int>(tracker.orientation()));
+  TEST_ASSERT_FALSE(tracker.update(0.55f, 0.50f, 0.0f, 1100));
+  TEST_ASSERT_FALSE(tracker.update(0.50f, 0.55f, 0.0f, 1700));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiOrientation::Landscape),
+                        static_cast<int>(tracker.orientation()));
+}
+
+void testAnimationProgressAndCompletion() {
+  rvf::AnimationState animation;
+  animation.start(1000, 1000);
+  TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.0f, animation.progress(1000));
+  TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.5f, animation.progress(1500));
+  TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.0f, animation.progress(2000));
+  TEST_ASSERT_TRUE(animation.update(2000));
+  TEST_ASSERT_FALSE(animation.active);
+}
+
+void testAnimationElapsedIsMillisWrapSafe() {
+  constexpr uint32_t start = UINT32_MAX - 100U;
+  TEST_ASSERT_EQUAL_UINT32(151U, rvf::uiElapsedMs(50U, start));
+  rvf::AnimationState animation;
+  animation.start(start, 200U);
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.755f, animation.progress(50U));
+}
+
+void testButtonBReportsContinuousProgress() {
+  rvf::ButtonInput input(3000);
+  input.reset();
+  input.update(false, true, false, 100);
+  const rvf::ButtonEvents halfway = input.update(false, true, false, 1600);
+  TEST_ASSERT_TRUE(halfway.resetHoldActive);
+  TEST_ASSERT_EQUAL_UINT32(1500, halfway.resetHoldMs);
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.5f, halfway.resetHoldProgress);
+  TEST_ASSERT_FALSE(halfway.resetPairing);
+}
+
+void testButtonBReleaseBeforeThresholdDoesNotReset() {
+  rvf::ButtonInput input(3000);
+  input.update(false, true, false, 100);
+  const rvf::ButtonEvents released = input.update(false, false, false, 2500);
+  TEST_ASSERT_FALSE(released.resetPairing);
+  TEST_ASSERT_FALSE(released.resetHoldActive);
+}
+
+void testButtonBThresholdTriggersOnlyOnce() {
+  rvf::ButtonInput input(3000);
+  input.update(false, true, false, 100);
+  TEST_ASSERT_TRUE(input.update(false, true, false, 3100).resetPairing);
+  TEST_ASSERT_FALSE(input.update(false, true, false, 4100).resetPairing);
+  TEST_ASSERT_FALSE(input.update(false, true, false, 5100).resetPairing);
+}
+
+void testButtonAOperationTriggersAtMostOneShoot() {
+  rvf::ButtonInput input;
+  const rvf::ButtonEvents pressed = input.update(true, false, false, 100);
+  TEST_ASSERT_TRUE(pressed.buttonADown);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UserCommand::None),
+                        static_cast<int>(rvf::ButtonInput::commandFromEvents(pressed)));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UserCommand::None),
+                        static_cast<int>(rvf::ButtonInput::commandFromEvents(
+                            input.update(true, false, false, 500))));
+  const rvf::ButtonEvents released = input.update(false, false, false, 600);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UserCommand::Shoot),
+                        static_cast<int>(rvf::ButtonInput::commandFromEvents(released)));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UserCommand::None),
+                        static_cast<int>(rvf::ButtonInput::commandFromEvents(
+                            input.update(false, false, false, 700))));
+}
+
+void testShutterOverlaySuccessAndFailureLifecycles() {
+  rvf::UiCoordinator coordinator;
+  coordinator.begin(0);
+  rvf::UiSnapshot snapshot;
+  snapshot.appState = rvf::AppState::PreviewRunning;
+  snapshot.previewRunning = true;
+  rvf::ButtonEvents input;
+  coordinator.update(snapshot, input, rvf::UiOrientation::Portrait, 10);
+  coordinator.notifyShutterResult(true, 100);
+  coordinator.update(snapshot, input, rvf::UiOrientation::Portrait, 100);
+  TEST_ASSERT_TRUE(coordinator.viewModel().shutterOverlayActive);
+  TEST_ASSERT_FALSE(coordinator.viewModel().shutterFailed);
+  coordinator.update(snapshot, input, rvf::UiOrientation::Portrait, 400);
+  TEST_ASSERT_FALSE(coordinator.viewModel().shutterOverlayActive);
+
+  coordinator.notifyShutterResult(false, 500);
+  coordinator.update(snapshot, input, rvf::UiOrientation::Portrait, 500);
+  TEST_ASSERT_TRUE(coordinator.viewModel().shutterOverlayActive);
+  TEST_ASSERT_TRUE(coordinator.viewModel().shutterFailed);
+}
+
+void testSleepSceneOverridesOrientationScene() {
+  rvf::UiSnapshot snapshot;
+  snapshot.appState = rvf::AppState::PreviewRunning;
+  snapshot.previewRunning = true;
+  snapshot.cameraSleepLike = true;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiScene::CameraSleep),
+                        static_cast<int>(rvf::UiCoordinator::selectScene(
+                            snapshot, rvf::UiOrientation::Landscape)));
+}
+
+void testErrorSceneOverridesEveryOrdinaryScene() {
+  rvf::UiSnapshot snapshot;
+  snapshot.appState = rvf::AppState::Error;
+  snapshot.previewRunning = true;
+  snapshot.cameraSleepLike = true;
+  snapshot.resettingPairing = true;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiScene::Error),
+                        static_cast<int>(rvf::UiCoordinator::selectScene(
+                            snapshot, rvf::UiOrientation::Landscape, true)));
+}
+
 }  // namespace
 
 int main() {
@@ -262,5 +428,18 @@ int main() {
   RUN_TEST(testSupervisorIgnoresCameraSleepGuard);
   RUN_TEST(testSupervisorReportsPreviewIdleTimeout);
   RUN_TEST(testSupervisorReportsFrameStallDespiteIncomingBytes);
+  RUN_TEST(testUiMapsAppStatesToScenes);
+  RUN_TEST(testUiScenePriority);
+  RUN_TEST(testOrientationRequiresStableCandidate);
+  RUN_TEST(testOrientationHysteresisPreventsBoundaryChatter);
+  RUN_TEST(testAnimationProgressAndCompletion);
+  RUN_TEST(testAnimationElapsedIsMillisWrapSafe);
+  RUN_TEST(testButtonBReportsContinuousProgress);
+  RUN_TEST(testButtonBReleaseBeforeThresholdDoesNotReset);
+  RUN_TEST(testButtonBThresholdTriggersOnlyOnce);
+  RUN_TEST(testButtonAOperationTriggersAtMostOneShoot);
+  RUN_TEST(testShutterOverlaySuccessAndFailureLifecycles);
+  RUN_TEST(testSleepSceneOverridesOrientationScene);
+  RUN_TEST(testErrorSceneOverridesEveryOrdinaryScene);
   return UNITY_END();
 }
