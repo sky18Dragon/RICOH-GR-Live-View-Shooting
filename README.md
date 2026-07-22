@@ -37,6 +37,7 @@
 * **WLAN 动态参数缓存**：首次连接后，将相机的 Wi-Fi SSID、BSSID、信道及加密参数持久化写入 NVS，在下次启动时最快以 `<0.5s` 的极速完成直连。
 * **物理按键 AF 遥控快门**：支持理光官方 BLE Shooting Service 协议，通过 Button A 进行高精度自动对焦与瞬间抓拍。
 * **一键重置蓝牙配对**：支持长按 Button B 一键清除旧的蓝牙配对及绑定数据，方便快速切换并配对新相机。
+* **姿态感知极简界面**：竖握显示纯遥控光圈，横握显示满屏 LiveView；连接、快门、重置和休眠使用轻量非阻塞动画及声音反馈。
 * **完整 Native 测试套件**：无需依赖 StickS3 硬件，即可在 Host 端运行核心数据解析和状态转换的本地测试。
 
 ---
@@ -63,6 +64,12 @@ platformio run --target upload --upload-port COM6
 2. 随后 StickS3 自动加入相机的 Wi-Fi AP 局域网。
 3. 连接成功后，固件从 `/v1/liveview` 拉取 MJPEG 预览流，并在屏幕上流畅渲染取景画面。
 
+### 4. 横竖屏交互
+
+- 竖握设备：显示 135×240 的中央遥控光圈；按住 Button A 超过 300 ms 后光圈收缩并变绿，松开时拍摄。
+- 横握设备：显示 240×135 满屏实时取景，仅保留微型电量图标；拍摄时出现快速白色快门边框。
+- 姿态需要稳定约 500 ms 才切换，并带滞回和最短保持时间。IMU 不可用时，预览运行中保持横屏，其余状态保持竖屏。
+
 ---
 
 ## 控制操作指南 (Controls)
@@ -71,10 +78,12 @@ platformio run --target upload --upload-port COM6
 
 | 实体按键 | 状态场景 | 触发行为描述 |
 | :--- | :--- | :--- |
-| **Button A** | 实时预览中 (`LIVEVIEW_RUNNING`) | 触发 BLE 自动对焦 (AF) 并进行抓拍 (写入 `ShootingFlavor=IMMEDIATE`) |
-| **Button A** | 防误唤醒休眠状态 (`CAMERA_SLEEP_GUARD`) | 手动清除 Guard 冷却，强行重建 BLE 连接栈并唤醒/重连相机 |
-| **Button B** | 任意状态下 (长按 3 秒) | 触发蓝牙配对重置：清除本地蓝牙配对信息与绑定关系，断开当前 Wi-Fi/BLE 连接，并重新进入 BLE 扫描配对模式 |
+| **Button A** | 相机可拍摄状态（短按或长按后松开） | 每次完整按下/松开最多产生一次现有 AF+拍摄命令；长按仅增加光圈与提示音反馈，不发送额外相机指令 |
+| **Button A** | 防误唤醒休眠状态 (`CAMERA_SLEEP_GUARD`) | 保留手动清除 Guard、重建 BLE 栈并唤醒/重连相机的原有语义，不拍摄 |
+| **Button B** | 任意状态下（长按 3 秒） | 底部进度条连续显示长按进度；达到阈值一次性触发原蓝牙配对重置流程，中途松开不重置 |
 | **电源键 (BtnPWR)** | 任意状态下 (双击) | StickS3 关机/开机 |
+
+完整 UI 架构、原型参数映射、姿态阈值和实机验证清单见 [`docs/ui_interaction_design.md`](docs/ui_interaction_design.md)。原始交互原型归档于 [`docs/ui-reference/StickS3_Interaction_Prototype.html`](docs/ui-reference/StickS3_Interaction_Prototype.html)。
 
 
 ---

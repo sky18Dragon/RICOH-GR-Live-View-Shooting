@@ -37,6 +37,7 @@
 * **WLAN Parameter Caching**: Caches SSID, BSSID, channel, and encryption details in ESP32 NVS. Subsequent boots achieve ultra-fast connections in `<0.5s` by skipping BLE renegotiation.
 * **Physical Button AF Shutter**: Fully implements the official RICOH BLE Shooting Service protocol, using Button A to trigger high-precision auto-focus (AF) and instant capture.
 * **One-Click BLE Reset**: Long press Button B to clear stored BLE pairing and bonding data, allowing quick pairing with a new camera.
+* **Orientation-aware Minimal UI**: Portrait mode becomes a pure remote aperture, while landscape mode becomes full-screen LiveView. Pairing, shutter, reset, and sleep feedback use lightweight non-blocking animation and sound.
 * **Host-side Native Test Suite**: Allows compiling and running data parser and state transition tests directly on your host machine without hardware.
 
 
@@ -64,6 +65,12 @@ platformio run --target upload --upload-port COM6
 2. The StickS3 joins the camera's Wi-Fi Access Point.
 3. Once connected, it initiates a stream from `/v1/liveview` and starts displaying the camera view on the LCD screen.
 
+### 4. Portrait and Landscape Interaction
+
+- Hold the device vertically for the 135×240 remote aperture. Holding Button A for 300 ms contracts the aperture; releasing it shoots.
+- Hold it horizontally for the 240×135 full-screen LiveView with only a tiny battery indicator and a fast shutter-frame overlay.
+- Orientation must remain stable for about 500 ms and uses hysteresis plus a minimum hold time. If the IMU is unavailable, active preview falls back to landscape and status/remote scenes to portrait.
+
 ---
 
 ## Controls
@@ -72,10 +79,12 @@ You can control the viewfinder's behavior using the buttons (Button A, Button B,
 
 | Physical Button | App State / Context | Triggered Action |
 | :--- | :--- | :--- |
-| **Button A** | During LiveView (`LIVEVIEW_RUNNING`) | Triggers BLE Auto-Focus (AF) and shoots (writes `ShootingFlavor=IMMEDIATE`) |
-| **Button A** | Standby Cooldown (`CAMERA_SLEEP_GUARD`) | Manually overrides the guard, resets the BLE stack, and attempts to wake/reconnect |
-| **Button B** | Any State (Long Press for 3s) | Triggers BLE pairing reset: clears stored BLE pairing/bonding information, terminates active Wi-Fi/BLE connections, and restarts scanning for new camera pairing |
+| **Button A** | Camera ready (short press or release after hold) | Produces at most one existing AF+shoot command per complete press/release. Holding adds only aperture/sound feedback and sends no extra camera instruction. |
+| **Button A** | Standby Cooldown (`CAMERA_SLEEP_GUARD`) | Preserves the existing manual guard override and BLE-stack wake/reconnect behavior; it does not shoot. |
+| **Button B** | Any State (Long Press for 3s) | Shows continuous hold progress and invokes the existing pairing-reset path once at the threshold; releasing early cancels it. |
 | **Power Button (BtnPWR)** | Any State (Double Press) | Powers the StickS3 off/on |
+
+See [`docs/ui_interaction_design.md`](docs/ui_interaction_design.md) for architecture, prototype mapping, thresholds, and the hardware test checklist. The original prototype is archived at [`docs/ui-reference/StickS3_Interaction_Prototype.html`](docs/ui-reference/StickS3_Interaction_Prototype.html).
 
 
 ---
