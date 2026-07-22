@@ -1093,6 +1093,7 @@ bool shutterReadyForController() {
 }
 
 void showShutterBleNotReadyForController() {
+  uiCoordinator.notifyShutterResult(false, millis());
   showStatusIfChanged("Button A shutter", "BLE not ready", "Back to BLE scan", "", true);
 }
 

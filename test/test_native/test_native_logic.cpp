@@ -374,6 +374,10 @@ void testShutterOverlaySuccessAndFailureLifecycles() {
   snapshot.previewRunning = true;
   rvf::ButtonEvents input;
   coordinator.update(snapshot, input, rvf::UiOrientation::Portrait, 10);
+  coordinator.notifyShutterStarted(50);
+  coordinator.update(snapshot, input, rvf::UiOrientation::Portrait, 50);
+  TEST_ASSERT_TRUE(coordinator.viewModel().focusActive);
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.0f, coordinator.viewModel().focusProgress);
   coordinator.notifyShutterResult(true, 100);
   coordinator.update(snapshot, input, rvf::UiOrientation::Portrait, 100);
   TEST_ASSERT_TRUE(coordinator.viewModel().shutterOverlayActive);

@@ -234,6 +234,9 @@ void DisplayUi::drawRemote(const rvf::UiViewModel& view) {
                                      view.focusProgress;
     const int16_t radius = static_cast<int16_t>(rvf::UiTheme::kRemoteApertureDiameter * scale / 2.0f);
     const uint16_t ringColor = view.focusProgress > 0.0f ? rvf::UiTheme::kGreen : rvf::UiTheme::kWhite;
+    if (view.focusActive && view.focusProgress <= 0.0f) {
+        _canvas.drawCircle(centerX, centerY, radius + 3, rvf::UiTheme::kDarkGray);
+    }
     _canvas.drawCircle(centerX, centerY, radius, ringColor);
     _canvas.drawCircle(centerX, centerY, radius - 1, ringColor);
     _canvas.fillCircle(centerX,

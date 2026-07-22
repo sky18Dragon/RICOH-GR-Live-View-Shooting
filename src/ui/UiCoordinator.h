@@ -64,6 +64,7 @@ private:
     uint32_t _stateChangedAtMs = 0;
     uint32_t _sceneChangedAtMs = 0;
     bool _focusTickPlayed = false;
+    bool _shutterPreparing = false;
     uint32_t _lastFocusTickAtMs = 0;
     AnimationState _shutterOverlay;
     AnimationState _resetSplit;

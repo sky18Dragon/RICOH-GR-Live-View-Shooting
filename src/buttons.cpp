@@ -2,6 +2,8 @@
 
 #include "config.h"
 
+Buttons::Buttons() : _input(KEY2_PAIRING_RESET_HOLD_MS) {}
+
 void Buttons::begin() {
   M5.update();
   M5.BtnPWR.setHoldThresh(POWER_BUTTON_HOLD_MS);

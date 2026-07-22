@@ -9,6 +9,7 @@ using ButtonEvents = rvf::ButtonEvents;
 
 class Buttons {
 public:
+  Buttons();
   void begin();
   ButtonEvents poll();
 

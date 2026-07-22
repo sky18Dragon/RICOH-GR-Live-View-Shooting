@@ -13,6 +13,7 @@ void UiCoordinator::begin(uint32_t nowMs) {
     _stateChangedAtMs = nowMs;
     _sceneChangedAtMs = nowMs;
     _focusTickPlayed = false;
+    _shutterPreparing = false;
     _lastFocusTickAtMs = nowMs;
     _shutterOverlay.stop();
     _resetSplit.stop();
@@ -99,11 +100,11 @@ UiSound UiCoordinator::consumeSound() {
 }
 
 void UiCoordinator::notifyShutterStarted(uint32_t) {
-    // The actual camera call remains synchronous and unchanged. This notification
-    // allows the renderer to show the prepared focus state before that call.
+    _shutterPreparing = true;
 }
 
 void UiCoordinator::notifyShutterResult(bool success, uint32_t nowMs) {
+    _shutterPreparing = false;
     const uint32_t duration = _view.orientation == UiOrientation::Landscape
                                   ? UiTheme::kLandscapeShutterCurtainMs
                                   : UiTheme::kPortraitShutterFlashMs;
@@ -134,7 +135,7 @@ void UiCoordinator::update(const UiSnapshot& snapshot,
         _focusTickPlayed = false;
         _lastFocusTickAtMs = nowMs;
     }
-    _view.focusActive = input.buttonAHeld;
+    _view.focusActive = input.buttonAHeld || _shutterPreparing;
     if (input.buttonAHeld && input.buttonAHoldMs >= UiTheme::kFocusHoldThresholdMs) {
         const uint32_t focusElapsed = input.buttonAHoldMs - UiTheme::kFocusHoldThresholdMs;
         _view.focusProgress = uiSmoothStep(
@@ -145,11 +146,11 @@ void UiCoordinator::update(const UiSnapshot& snapshot,
             _lastFocusTickAtMs = nowMs;
         }
     } else {
-        _view.focusProgress = 0.0f;
+        _view.focusProgress = _shutterPreparing ? 1.0f : 0.0f;
     }
     if (input.buttonAReleased) {
-        _view.focusActive = false;
-        _view.focusProgress = 0.0f;
+        _view.focusActive = _shutterPreparing;
+        _view.focusProgress = _shutterPreparing ? 1.0f : 0.0f;
     }
 
     if (input.resetPairing) notifyResetTriggered(nowMs);
