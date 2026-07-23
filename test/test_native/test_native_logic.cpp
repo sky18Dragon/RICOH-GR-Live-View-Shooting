@@ -11,6 +11,7 @@ void tearDown(void) {}
 #include "ble_reconnect_policy.h"
 
 #include "camera_identity.h"
+#include "image_transform.h"
 #include "key2_gesture.h"
 #include "mjpeg_stream.h"
 #include "supervisor/SystemSupervisor.h"
@@ -213,6 +214,28 @@ void testKey2LongHoldSuppressesPendingClicks() {
                         static_cast<int>(tracker.update(false, 4000, doublePressMs, longHoldMs)));
 }
 
+void testMirrorsRgb565RowWithoutTouchingOverlayData() {
+  uint16_t cameraRow[] = {0x0001, 0x0002, 0x0003, 0x0004, 0x0005};
+  const uint16_t expected[] = {0x0005, 0x0004, 0x0003, 0x0002, 0x0001};
+  uint16_t overlayRow[] = {0x1001, 0x1002, 0x1003};
+
+  rvf::mirrorRgb565Row(cameraRow, 5);
+
+  TEST_ASSERT_EQUAL_UINT16_ARRAY(expected, cameraRow, 5);
+  TEST_ASSERT_EQUAL_HEX16(0x1001, overlayRow[0]);
+  TEST_ASSERT_EQUAL_HEX16(0x1002, overlayRow[1]);
+  TEST_ASSERT_EQUAL_HEX16(0x1003, overlayRow[2]);
+}
+
+void testMirrorRgb565RowHandlesEmptyAndSinglePixelRows() {
+  uint16_t pixel = 0x1234;
+
+  rvf::mirrorRgb565Row(nullptr, 0);
+  rvf::mirrorRgb565Row(&pixel, 1);
+
+  TEST_ASSERT_EQUAL_HEX16(0x1234, pixel);
+}
+
 rvf::SystemHealthSnapshot healthyPreviewSnapshot() {
   rvf::SystemHealthSnapshot snapshot;
   snapshot.appState = rvf::AppState::PreviewRunning;
@@ -306,6 +329,8 @@ int main() {
   RUN_TEST(testKey2SinglePressWaitsForDoublePressWindow);
   RUN_TEST(testKey2DoublePressSuppressesSinglePress);
   RUN_TEST(testKey2LongHoldSuppressesPendingClicks);
+  RUN_TEST(testMirrorsRgb565RowWithoutTouchingOverlayData);
+  RUN_TEST(testMirrorRgb565RowHandlesEmptyAndSinglePixelRows);
   RUN_TEST(testSupervisorWaitsForIntervalAndIgnoresHealthyPreview);
   RUN_TEST(testSupervisorReportsPreviewClosed);
   RUN_TEST(testSupervisorIgnoresCameraSleepGuard);

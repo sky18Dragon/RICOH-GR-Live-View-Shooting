@@ -1348,7 +1348,7 @@ void onJpegFrame(const uint8_t* data, size_t len, void*) {
   previewFrameBuffer.recordFrame(len);
 
   const uint32_t renderStartMs = millis();
-  if (!decoder.drawFrame(ui.getCanvas(), data, len)) {
+  if (!decoder.drawFrame(ui.getCanvas(), data, len, ui.mirrored())) {
     Serial.printf("JPEG decode failed len=%u err=%s\n", static_cast<unsigned>(len), decoder.lastError().c_str());
     wifiPreview.recordRenderedFrame(decoder.lastDecodeMs(), millis() - renderStartMs);
   } else {

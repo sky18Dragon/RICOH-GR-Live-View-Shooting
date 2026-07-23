@@ -1,5 +1,7 @@
 #include "jpeg_decoder.h"
 
+#include "image_transform.h"
+
 namespace {
 constexpr uint16_t COLOR_BLACK = 0x0000;
 
@@ -35,7 +37,10 @@ bool JpegDecoder::begin() {
     return true;
 }
 
-bool JpegDecoder::drawFrame(LovyanGFX* dst, const uint8_t* data, size_t length) {
+bool JpegDecoder::drawFrame(LovyanGFX* dst,
+                            const uint8_t* data,
+                            size_t length,
+                            bool mirrorHorizontal) {
     if (data == nullptr || length < 4) {
         return setError("empty jpeg frame");
     }
@@ -92,12 +97,36 @@ bool JpegDecoder::drawFrame(LovyanGFX* dst, const uint8_t* data, size_t length) 
     _jpeg.close();
     activeDecoder = nullptr;
 
-    _lastDecodeMs = millis() - started;
     if (rc == 0) {
+        _lastDecodeMs = millis() - started;
         return setError("JPEG decode failed");
     }
+    if (mirrorHorizontal && !mirrorRegion(visibleX, visibleY, visibleW, visibleH)) {
+        _lastDecodeMs = millis() - started;
+        return false;
+    }
 
+    _lastDecodeMs = millis() - started;
     _lastError = "ok";
+    return true;
+}
+
+bool JpegDecoder::mirrorRegion(int16_t x,
+                               int16_t y,
+                               int16_t width,
+                               int16_t height) {
+    if (width <= 1 || height <= 0) {
+        return true;
+    }
+    if (width > static_cast<int16_t>(DISPLAY_WIDTH)) {
+        return setError("mirror region too wide");
+    }
+
+    for (int16_t row = 0; row < height; ++row) {
+        _dst->readRect(x, y + row, width, 1, _mirrorRow);
+        rvf::mirrorRgb565Row(_mirrorRow, static_cast<size_t>(width));
+        _dst->pushImage(x, y + row, width, 1, _mirrorRow);
+    }
     return true;
 }
 

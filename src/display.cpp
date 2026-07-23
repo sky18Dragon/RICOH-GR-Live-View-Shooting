@@ -320,21 +320,11 @@ uint8_t DisplayUi::toggleRotation() {
 
 bool DisplayUi::toggleMirror() {
     _mirrored = !_mirrored;
-    pushCanvas();
     return _mirrored;
 }
 
 void DisplayUi::pushCanvas() {
-    if (!_mirrored) {
-        _canvas.pushSprite(&M5.Display, 0, 0);
-        return;
-    }
-
-    const float mirrorTransform[6] = {
-        -1.0f, 0.0f, static_cast<float>(_width),
-         0.0f, 1.0f, 0.0f,
-    };
-    _canvas.pushAffine(&M5.Display, mirrorTransform);
+    _canvas.pushSprite(&M5.Display, 0, 0);
 }
 
 void DisplayUi::clear(uint16_t color) {
