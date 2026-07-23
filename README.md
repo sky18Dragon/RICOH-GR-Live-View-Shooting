@@ -190,6 +190,13 @@ graph TD
 
 ---
 
+## 配件与致谢 (Accessories & Acknowledgements)
+
+* 刚合并的 PR 新增了可用于将 StickS3 安装到相机热靴的 3D 打印安装件。
+* 特别感谢 [wjhrdy](https://github.com/wjhrdy) 对 [**GR IV monochrome**](https://github.com/sky18Dragon/RICOH-GR-Live-View-Shooting/issues/2) 的实机验证，以及热靴打印件的提供。
+
+---
+
 ## 故障排查与典型日志 (Troubleshooting)
 
 ### 1. 正常开机直连并启动 LiveView（GR IV 结构示例）
