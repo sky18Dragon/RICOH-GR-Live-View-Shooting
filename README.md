@@ -157,14 +157,14 @@ graph TD
 ## 相机兼容性状态 (Camera Compatibility)
 
 > [!NOTE]
-> **RICOH GR IV** 与 **RICOH GR IV HDF** 的状态来自原项目实机记录。本分支已完成 GR III Family 代码、Native 测试和固件编译，但尚未在目标相机上实测；编译通过不等于实机验证。
+> **RICOH GR IV** 与 **RICOH GR IV HDF** 的状态来自原项目实机记录；**RICOH GR IIIx** 已在本分支固件上完成实机验证。**RICOH GR III** 与 HDF 版本仍需独立实机记录，编译通过不等于跨机型验证。
 
 | 相机系列 | 兼容状态 | 兼容性说明 |
 | :--- | :---: | :--- |
 | **RICOH GR IV HDF** | **已实机验证** | 原项目已验证 BLE 配对/重连、WLAN、LiveView、快门与关机保护；本次安全参数变化仍需按回归矩阵复测。 |
 | **RICOH GR IV** | **已实机验证** | 原项目已完成 BLE、WLAN、LiveView 和 BLE AF 快门实机验证；本次改动保留固定 Handle Profile。 |
-| **RICOH GR III** | **实现完成，等待实机验证** | 已实现设备端 Passkey、UUID WLAN/凭据、电源与 Capture 门控；本分支无目标相机实测记录。 |
-| **RICOH GR IIIx** | **实现完成，等待实机验证** | 协议参数有参考仓库实机证据，但本分支固件尚未在 GR IIIx 上验证。 |
+| **RICOH GR III** | **实现完成，等待实机验证** | 已实现设备端 Passkey、UUID WLAN/凭据、电源与 Capture 门控；仍需 GR III 机身独立实测记录。 |
+| **RICOH GR IIIx** | **已实机验证** | 本分支固件已在 GR IIIx 相机上完成实机验证；详细矩阵与去密日志待补充到 `docs/gr3_family_test_record.md`。 |
 | **RICOH GR III HDF / GR IIIx HDF** | **实验性支持** | 暂无独立实机证据，不假定 HDF 版本 GATT 完全相同。 |
 | **RICOH GR II** | **暂不支持** | 只预留 `Gr2Family`、ManualOnly/ManualConfiguration 能力模型，不含任何虚构 UUID、Handle 或通信实现。 |
 

@@ -158,14 +158,14 @@ Customize these constants in [src/config.h](file:///C:/Users/Administrator/Docum
 ## Camera Compatibility
 
 > [!NOTE]
-> The GR IV and GR IV HDF statuses come from the original project's hardware records. This branch has GR III Family implementation, Native tests, and firmware build results, but no target-camera test yet. A successful build is not hardware verification.
+> The GR IV and GR IV HDF statuses come from the original project's hardware records. The GR IIIx has now been hardware-verified with this branch firmware. The GR III body and HDF variants still require their own hardware records; a successful build is not cross-model verification.
 
 | Camera Series | Status | Compatibility Notes |
 | :--- | :---: | :--- |
 | **RICOH GR IV HDF** | **Hardware Verified** | The original project verified pairing/reconnect, WLAN, LiveView, shutter, and power-off protection. The shared security-setting change still requires the regression matrix. |
 | **RICOH GR IV** | **Hardware Verified** | The original project verified BLE, WLAN, LiveView, and AF shutter. This change retains the fixed-handle profile. |
-| **RICOH GR III** | **Implemented; Hardware Verification Pending** | Device-side passkey entry, UUID WLAN/credentials/power, and Capture gating are implemented; this branch has no target-camera record yet. |
-| **RICOH GR IIIx** | **Implemented; Hardware Verification Pending** | External reference work provides protocol evidence, but this branch firmware has not been tested on a GR IIIx. |
+| **RICOH GR III** | **Implemented; Hardware Verification Pending** | Device-side passkey entry, UUID WLAN/credentials/power, and Capture gating are implemented; a dedicated GR III body test record is still required. |
+| **RICOH GR IIIx** | **Hardware Verified** | This branch firmware has been hardware-verified on a GR IIIx camera; the detailed matrix and redacted logs still need to be added to `docs/gr3_family_test_record.md`. |
 | **RICOH GR III HDF / GR IIIx HDF** | **Experimental** | No independent hardware evidence exists; the HDF GATT layout is not assumed identical. |
 | **RICOH GR II** | **Not Supported** | Only a `Gr2Family` ManualOnly/ManualConfiguration capability profile exists; no speculative UUIDs, handles, or transport are implemented. |
 

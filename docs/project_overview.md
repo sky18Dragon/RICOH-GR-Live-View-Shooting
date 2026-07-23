@@ -53,7 +53,8 @@ NVS Profile schema 为 v4。旧 v3 数据继续读取，保留原 BLE 身份、B
 | 机型 | 状态 | 证据边界 |
 | --- | --- | --- |
 | RICOH GR IV / GR IV HDF | 已实机验证 | 原项目记录；本次共享安全设置变更仍需回归矩阵 |
-| RICOH GR III / GR IIIx | 实现完成，等待实机验证 | 当前分支 Native/编译通过；无本分支目标相机测试 |
+| RICOH GR III | 实现完成，等待实机验证 | 当前分支 Native/编译通过；仍需 GR III 机身独立实测 |
+| RICOH GR IIIx | 已实机验证 | 本分支固件已在 GR IIIx 相机上完成实机验证；详细矩阵与去密日志待补充 |
 | RICOH GR III HDF / GR IIIx HDF | 实验性支持 | 无独立实机证据 |
 | RICOH GR II | 暂不支持 | 仅扩展 Profile，不含通信实现 |
 
@@ -66,7 +67,7 @@ NVS Profile schema 为 v4。旧 v3 数据继续读取，保留原 BLE 身份、B
 
 ## TODO_UNVERIFIED
 
-- 当前分支的 GR III/GR IIIx 全链路和 GR IV/IV HDF 回归矩阵。
+- 当前分支的 GR III 全链路、GR IIIx 详细记录补充，以及 GR IV/IV HDF 回归矩阵。
 - HDF 版本的 GR III Family GATT 一致性。
 - 长时间 LiveView FPS、内存碎片和多固件版本兼容性。
 

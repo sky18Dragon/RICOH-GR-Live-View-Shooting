@@ -5,7 +5,8 @@
 本文只记录当前源码、原项目实机记录和已审查的外部逆向资料。它不是 RICOH 官方协议保证。
 
 - GR IV / GR IV HDF：原项目已有实机验证记录；当前代码继续使用固定 Handle Profile。
-- GR III / GR IIIx：当前分支已实现，尚未用目标相机验证。GR IIIx 参数参考 `ndreij` 实机记录；GR III 配对顺序参考 `mic-kul` 的 BlueZ/真机分析。
+- GR IIIx：当前分支固件已完成实机验证；详细矩阵与去密日志待补充到 `docs/gr3_family_test_record.md`。
+- GR III：当前分支已实现但仍需 GR III 机身独立验证；配对顺序参考 `mic-kul` 的 BlueZ/真机分析。
 - GR III HDF / GR IIIx HDF：无独立实机证据，只能视为实验性支持。
 - GR II：未实现协议，仅有无 BLE、ManualOnly/ManualConfiguration 的扩展占位。
 
@@ -107,7 +108,7 @@ GR III Family 在 `BLE_STARTUP`/`POWER_OFF_TRANSFER` 或安全门控失败时断
 
 ## TODO_UNVERIFIED
 
-- 当前分支尚未在 GR III/GR IIIx/其 HDF 版本上执行实机矩阵。
+- 当前分支尚未在 GR III 及 GR III/GR IIIx HDF 版本上执行实机矩阵；GR IIIx 已验证但详细记录仍需补齐。
 - 共享 `KEYBOARD_DISPLAY` 安全设置尚未对 GR IV/GR IV HDF 执行本次改动后的回归。
 - GR III Family Power Notify 支持、不同相机固件的 UUID/属性一致性、`OTHER` 和 `PLAYBACK` 的精确语义仍需实机日志。
 - `0x213`、`0x215`、`0x216` 在不同代际/固件中的精确定义仍需扩充证据；自动删除 Bond 不得仅依据这些普通断连值。

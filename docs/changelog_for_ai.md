@@ -2,6 +2,12 @@
 
 本文件记录对后续 AI/Codex 有帮助的项目级事实变化。代码提交日志仍以 Git 为准。
 
+## 2026-07-24 — GR IIIx 本分支固件实机验证
+
+- 用户确认当前 `codex/feat-gr3-family-support` 分支固件已通过 RICOH GR IIIx 相机实机验证。
+- 该结论只升级 GR IIIx，不自动覆盖 GR III、GR III HDF 或 GR IIIx HDF；这些机型仍需独立实机记录。
+- 详细实机矩阵、相机固件版本、StickS3 commit、是否清空 NVS、FPS/耗时和去密日志仍待补充到 `docs/gr3_family_test_record.md`。
+
 ## 2026-07-18 — GR III Family 协议 Profile 实现（待实机验证）
 
 - 新增 `Gr2Family` / `Gr3Family` / `Gr4Family` / `Unknown` 能力模型；Unknown 默认拒绝 WLAN、Power、Shutter 副作用写入，GR II 仅预留 ManualOnly/ManualConfiguration。
