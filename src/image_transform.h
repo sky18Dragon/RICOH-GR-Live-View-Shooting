@@ -5,6 +5,10 @@
 
 namespace rvf {
 
+inline int mirroredBlockX(int imageX, int imageWidth, int blockX, int blockWidth) {
+    return imageX + imageWidth - (blockX - imageX) - blockWidth;
+}
+
 inline void mirrorRgb565Row(uint16_t* pixels, size_t width) {
     if (pixels == nullptr || width < 2) {
         return;

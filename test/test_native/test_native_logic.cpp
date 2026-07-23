@@ -236,6 +236,17 @@ void testMirrorRgb565RowHandlesEmptyAndSinglePixelRows() {
   TEST_ASSERT_EQUAL_HEX16(0x1234, pixel);
 }
 
+void testMirroredBlockXReflectsBlocksWithinImageBounds() {
+  TEST_ASSERT_EQUAL_INT(324, rvf::mirroredBlockX(-120, 480, -120, 36));
+  TEST_ASSERT_EQUAL_INT(120, rvf::mirroredBlockX(-120, 480, 104, 16));
+  TEST_ASSERT_EQUAL_INT(-120, rvf::mirroredBlockX(-120, 480, 344, 16));
+}
+
+void testMirroredBlockXHandlesCenteredPillarbox() {
+  TEST_ASSERT_EQUAL_INT(196, rvf::mirroredBlockX(20, 200, 20, 24));
+  TEST_ASSERT_EQUAL_INT(20, rvf::mirroredBlockX(20, 200, 180, 40));
+}
+
 rvf::SystemHealthSnapshot healthyPreviewSnapshot() {
   rvf::SystemHealthSnapshot snapshot;
   snapshot.appState = rvf::AppState::PreviewRunning;
@@ -331,6 +342,8 @@ int main() {
   RUN_TEST(testKey2LongHoldSuppressesPendingClicks);
   RUN_TEST(testMirrorsRgb565RowWithoutTouchingOverlayData);
   RUN_TEST(testMirrorRgb565RowHandlesEmptyAndSinglePixelRows);
+  RUN_TEST(testMirroredBlockXReflectsBlocksWithinImageBounds);
+  RUN_TEST(testMirroredBlockXHandlesCenteredPillarbox);
   RUN_TEST(testSupervisorWaitsForIntervalAndIgnoresHealthyPreview);
   RUN_TEST(testSupervisorReportsPreviewClosed);
   RUN_TEST(testSupervisorIgnoresCameraSleepGuard);

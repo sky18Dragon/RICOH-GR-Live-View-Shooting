@@ -68,6 +68,8 @@ bool JpegDecoder::drawFrame(LovyanGFX* dst,
     const int divisor = scaleDivisorFromOption(scale);
     const int scaledW = (_lastWidth + divisor - 1) / divisor;
     const int scaledH = (_lastHeight + divisor - 1) / divisor;
+    _scaledW = scaledW;
+    _mirrorHorizontal = mirrorHorizontal;
     _drawX = (_displayW - scaledW) / 2;
     _drawY = (_displayH - scaledH) / 2;
 
@@ -101,32 +103,9 @@ bool JpegDecoder::drawFrame(LovyanGFX* dst,
         _lastDecodeMs = millis() - started;
         return setError("JPEG decode failed");
     }
-    if (mirrorHorizontal && !mirrorRegion(visibleX, visibleY, visibleW, visibleH)) {
-        _lastDecodeMs = millis() - started;
-        return false;
-    }
 
     _lastDecodeMs = millis() - started;
     _lastError = "ok";
-    return true;
-}
-
-bool JpegDecoder::mirrorRegion(int16_t x,
-                               int16_t y,
-                               int16_t width,
-                               int16_t height) {
-    if (width <= 1 || height <= 0) {
-        return true;
-    }
-    if (width > static_cast<int16_t>(DISPLAY_WIDTH)) {
-        return setError("mirror region too wide");
-    }
-
-    for (int16_t row = 0; row < height; ++row) {
-        _dst->readRect(x, y + row, width, 1, _mirrorRow);
-        rvf::mirrorRgb565Row(_mirrorRow, static_cast<size_t>(width));
-        _dst->pushImage(x, y + row, width, 1, _mirrorRow);
-    }
     return true;
 }
 
@@ -161,12 +140,15 @@ int JpegDecoder::jpegDrawCallback(JPEGDRAW* draw) {
 }
 
 int JpegDecoder::drawBlock(JPEGDRAW* draw) {
-    int16_t dstX = static_cast<int16_t>(draw->x);
-    int16_t dstY = static_cast<int16_t>(draw->y);
-    int16_t srcX = 0;
-    int16_t srcY = 0;
-    int16_t drawW = static_cast<int16_t>(draw->iWidth);
-    int16_t drawH = static_cast<int16_t>(draw->iHeight);
+    int dstX = draw->x;
+    if (_mirrorHorizontal) {
+        dstX = rvf::mirroredBlockX(_drawX, _scaledW, draw->x, draw->iWidth);
+    }
+    int dstY = draw->y;
+    int srcX = 0;
+    int srcY = 0;
+    int drawW = draw->iWidth;
+    int drawH = draw->iHeight;
 
     if (dstX < 0) {
         srcX = -dstX;
@@ -191,10 +173,20 @@ int JpegDecoder::drawBlock(JPEGDRAW* draw) {
     uint16_t* pixels = static_cast<uint16_t*>(draw->pPixels);
     const int stride = draw->iWidth;
 
+    // Mirror JPEGDEC's temporary MCU rows in place and send the block directly
+    // to its reflected destination. This keeps the normal one-write decode path
+    // and avoids reading and rewriting the completed frame.
+    if (_mirrorHorizontal) {
+        for (int row = 0; row < drawH; ++row) {
+            rvf::mirrorRgb565Row(pixels + ((srcY + row) * stride),
+                                 static_cast<size_t>(stride));
+        }
+    }
+
     if (srcX == 0 && drawW == draw->iWidth) {
         _dst->pushImage(dstX, dstY, drawW, drawH, pixels + (srcY * stride));
     } else {
-        for (int16_t row = 0; row < drawH; ++row) {
+        for (int row = 0; row < drawH; ++row) {
             _dst->pushImage(dstX, dstY + row, drawW, 1, pixels + ((srcY + row) * stride) + srcX);
         }
     }
