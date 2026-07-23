@@ -29,6 +29,7 @@ constexpr uint32_t POWER_BUTTON_POLL_MS = 50;
 constexpr uint32_t POWER_BUTTON_HOLD_MS = 1200;
 constexpr uint32_t POWER_BUTTON_RELEASE_WAIT_MS = 3000;
 constexpr uint8_t KEY2_FALLBACK_GPIO = 12;
+constexpr uint32_t KEY2_DOUBLE_PRESS_WINDOW_MS = 350;
 constexpr uint32_t KEY2_PAIRING_RESET_HOLD_MS = 3000;
 constexpr uint32_t PROPS_REFRESH_INTERVAL_MS = 60000;
 

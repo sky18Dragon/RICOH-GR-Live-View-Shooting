@@ -3,6 +3,8 @@
 #include <Arduino.h>
 #include <M5Unified.h>
 
+#include "display_settings.h"
+
 #if __has_include("config.h")
 #include "config.h"
 #endif
@@ -17,7 +19,7 @@
 
 class DisplayUi {
 public:
-    bool begin();
+    bool begin(const rvf::DisplaySettings& settings = rvf::DisplaySettings{});
 
     void showBoot(const char* message = nullptr);
     void showStatus(const char* line1, const char* line2, const char* line3, const char* line4);
@@ -35,13 +37,19 @@ public:
 
     int16_t width() const;
     int16_t height() const;
+    uint8_t toggleRotation();
+    bool toggleMirror();
+    uint8_t rotation() const { return _rotation; }
+    bool mirrored() const { return _mirrored; }
 
     LovyanGFX* getCanvas() { return &_canvas; }
-    void pushCanvas() { _canvas.pushSprite(&M5.Display, 0, 0); }
+    void pushCanvas();
 
 private:
     int16_t _width = DISPLAY_WIDTH;
     int16_t _height = DISPLAY_HEIGHT;
+    uint8_t _rotation = 1;
+    bool _mirrored = false;
     M5Canvas _canvas;
 
     void clear(uint16_t color = 0x0000);

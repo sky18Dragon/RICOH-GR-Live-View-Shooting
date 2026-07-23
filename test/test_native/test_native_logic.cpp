@@ -11,6 +11,9 @@ void tearDown(void) {}
 #include "ble_reconnect_policy.h"
 
 #include "camera_identity.h"
+#include "display_settings.h"
+#include "image_transform.h"
+#include "key2_gesture.h"
 #include "mjpeg_stream.h"
 #include "supervisor/SystemSupervisor.h"
 
@@ -167,6 +170,99 @@ void testBleCandidateMustMatchStoredIdentity() {
   TEST_ASSERT_FALSE(bleCandidateMatchesStoredIdentity("34:90:ea:cc:87:35", nullptr));
 }
 
+void testKey2SinglePressWaitsForDoublePressWindow() {
+  rvf::Key2GestureTracker tracker;
+  constexpr uint32_t doublePressMs = 350;
+  constexpr uint32_t longHoldMs = 3000;
+
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::Key2Gesture::None),
+                        static_cast<int>(tracker.update(true, 100, doublePressMs, longHoldMs)));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::Key2Gesture::None),
+                        static_cast<int>(tracker.update(false, 150, doublePressMs, longHoldMs)));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::Key2Gesture::None),
+                        static_cast<int>(tracker.update(false, 499, doublePressMs, longHoldMs)));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::Key2Gesture::SinglePress),
+                        static_cast<int>(tracker.update(false, 500, doublePressMs, longHoldMs)));
+}
+
+void testKey2DoublePressSuppressesSinglePress() {
+  rvf::Key2GestureTracker tracker;
+  constexpr uint32_t doublePressMs = 350;
+  constexpr uint32_t longHoldMs = 3000;
+
+  tracker.update(true, 100, doublePressMs, longHoldMs);
+  tracker.update(false, 150, doublePressMs, longHoldMs);
+  tracker.update(true, 300, doublePressMs, longHoldMs);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::Key2Gesture::DoublePress),
+                        static_cast<int>(tracker.update(false, 340, doublePressMs, longHoldMs)));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::Key2Gesture::None),
+                        static_cast<int>(tracker.update(false, 1000, doublePressMs, longHoldMs)));
+}
+
+void testKey2LongHoldSuppressesPendingClicks() {
+  rvf::Key2GestureTracker tracker;
+  constexpr uint32_t doublePressMs = 350;
+  constexpr uint32_t longHoldMs = 3000;
+
+  tracker.update(true, 100, doublePressMs, longHoldMs);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::Key2Gesture::LongHold),
+                        static_cast<int>(tracker.update(true, 3100, doublePressMs, longHoldMs)));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::Key2Gesture::None),
+                        static_cast<int>(tracker.update(true, 3200, doublePressMs, longHoldMs)));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::Key2Gesture::None),
+                        static_cast<int>(tracker.update(false, 3300, doublePressMs, longHoldMs)));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::Key2Gesture::None),
+                        static_cast<int>(tracker.update(false, 4000, doublePressMs, longHoldMs)));
+}
+
+void testMirrorsRgb565RowWithoutTouchingOverlayData() {
+  uint16_t cameraRow[] = {0x0001, 0x0002, 0x0003, 0x0004, 0x0005};
+  const uint16_t expected[] = {0x0005, 0x0004, 0x0003, 0x0002, 0x0001};
+  uint16_t overlayRow[] = {0x1001, 0x1002, 0x1003};
+
+  rvf::mirrorRgb565Row(cameraRow, 5);
+
+  TEST_ASSERT_EQUAL_UINT16_ARRAY(expected, cameraRow, 5);
+  TEST_ASSERT_EQUAL_HEX16(0x1001, overlayRow[0]);
+  TEST_ASSERT_EQUAL_HEX16(0x1002, overlayRow[1]);
+  TEST_ASSERT_EQUAL_HEX16(0x1003, overlayRow[2]);
+}
+
+void testMirrorRgb565RowHandlesEmptyAndSinglePixelRows() {
+  uint16_t pixel = 0x1234;
+
+  rvf::mirrorRgb565Row(nullptr, 0);
+  rvf::mirrorRgb565Row(&pixel, 1);
+
+  TEST_ASSERT_EQUAL_HEX16(0x1234, pixel);
+}
+
+void testMirroredBlockXReflectsBlocksWithinImageBounds() {
+  TEST_ASSERT_EQUAL_INT(324, rvf::mirroredBlockX(-120, 480, -120, 36));
+  TEST_ASSERT_EQUAL_INT(120, rvf::mirroredBlockX(-120, 480, 104, 16));
+  TEST_ASSERT_EQUAL_INT(-120, rvf::mirroredBlockX(-120, 480, 344, 16));
+}
+
+void testMirroredBlockXHandlesCenteredPillarbox() {
+  TEST_ASSERT_EQUAL_INT(196, rvf::mirroredBlockX(20, 200, 20, 24));
+  TEST_ASSERT_EQUAL_INT(20, rvf::mirroredBlockX(20, 200, 180, 40));
+}
+
+void testDisplaySettingsUseUnmirroredRotationOneDefaults() {
+  const rvf::DisplaySettings settings;
+
+  TEST_ASSERT_EQUAL_UINT8(1, settings.rotation);
+  TEST_ASSERT_FALSE(settings.mirrored);
+}
+
+void testDisplayRotationNormalizationOnlyAllowsLandscapeModes() {
+  TEST_ASSERT_EQUAL_UINT8(1, rvf::normalizeDisplayRotation(0));
+  TEST_ASSERT_EQUAL_UINT8(1, rvf::normalizeDisplayRotation(1));
+  TEST_ASSERT_EQUAL_UINT8(1, rvf::normalizeDisplayRotation(2));
+  TEST_ASSERT_EQUAL_UINT8(3, rvf::normalizeDisplayRotation(3));
+  TEST_ASSERT_EQUAL_UINT8(1, rvf::normalizeDisplayRotation(4));
+}
+
 rvf::SystemHealthSnapshot healthyPreviewSnapshot() {
   rvf::SystemHealthSnapshot snapshot;
   snapshot.appState = rvf::AppState::PreviewRunning;
@@ -257,6 +353,15 @@ int main() {
   RUN_TEST(testRequiresBleAddressAndAddressTypeForDirectReconnect);
   RUN_TEST(testBleCandidateDiscoveryIsOpenWithoutStoredIdentity);
   RUN_TEST(testBleCandidateMustMatchStoredIdentity);
+  RUN_TEST(testKey2SinglePressWaitsForDoublePressWindow);
+  RUN_TEST(testKey2DoublePressSuppressesSinglePress);
+  RUN_TEST(testKey2LongHoldSuppressesPendingClicks);
+  RUN_TEST(testMirrorsRgb565RowWithoutTouchingOverlayData);
+  RUN_TEST(testMirrorRgb565RowHandlesEmptyAndSinglePixelRows);
+  RUN_TEST(testMirroredBlockXReflectsBlocksWithinImageBounds);
+  RUN_TEST(testMirroredBlockXHandlesCenteredPillarbox);
+  RUN_TEST(testDisplaySettingsUseUnmirroredRotationOneDefaults);
+  RUN_TEST(testDisplayRotationNormalizationOnlyAllowsLandscapeModes);
   RUN_TEST(testSupervisorWaitsForIntervalAndIgnoresHealthyPreview);
   RUN_TEST(testSupervisorReportsPreviewClosed);
   RUN_TEST(testSupervisorIgnoresCameraSleepGuard);

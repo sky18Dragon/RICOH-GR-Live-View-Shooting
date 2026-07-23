@@ -34,6 +34,7 @@ Buttons buttons;
 JpegDecoder decoder;
 CameraProfileStore profileStore;
 CameraProfile cameraProfile;
+rvf::DisplaySettings displaySettings;
 RicohBleClient ricohBle;
 rvf::BleCameraService bleCamera(ricohBle);
 M5PM1 stickPower;
@@ -85,6 +86,28 @@ constexpr bool DRAW_LIVE_OVERLAY = true;
 void requestManualCameraWake(const char* source);
 void resetBlePairingFromKey2();
 rvf::AppFlowActions makeAppFlowActions();
+
+void toggleDisplayRotation() {
+  const uint8_t rotation = ui.toggleRotation();
+  displaySettings.rotation = rotation;
+  displaySettings.mirrored = ui.mirrored();
+  const bool persisted = profileStore.saveDisplaySettings(displaySettings);
+  Serial.printf("Display: rotation=%u mirrored=%d persisted=%d\n",
+                static_cast<unsigned>(rotation),
+                ui.mirrored() ? 1 : 0,
+                persisted ? 1 : 0);
+}
+
+void toggleDisplayMirror() {
+  const bool mirrored = ui.toggleMirror();
+  displaySettings.rotation = ui.rotation();
+  displaySettings.mirrored = mirrored;
+  const bool persisted = profileStore.saveDisplaySettings(displaySettings);
+  Serial.printf("Display: rotation=%u mirrored=%d persisted=%d\n",
+                static_cast<unsigned>(ui.rotation()),
+                mirrored ? 1 : 0,
+                persisted ? 1 : 0);
+}
 
 bool beginStickPower() {
   const int8_t sda = M5.getPin(m5::pin_name_t::in_i2c_sda);
@@ -738,6 +761,12 @@ void saveConnectedBleIdentity(const String& connectedName, const RicohBleDeviceI
 
 bool serviceButtonsDuringBleOperation() {
   const ButtonEvents events = buttons.poll();
+  if (events.toggleDisplayRotation) {
+    toggleDisplayRotation();
+  }
+  if (events.toggleDisplayMirror) {
+    toggleDisplayMirror();
+  }
   if (!events.resetPairing) {
     return false;
   }
@@ -1328,7 +1357,7 @@ void onJpegFrame(const uint8_t* data, size_t len, void*) {
   previewFrameBuffer.recordFrame(len);
 
   const uint32_t renderStartMs = millis();
-  if (!decoder.drawFrame(ui.getCanvas(), data, len)) {
+  if (!decoder.drawFrame(ui.getCanvas(), data, len, ui.mirrored())) {
     Serial.printf("JPEG decode failed len=%u err=%s\n", static_cast<unsigned>(len), decoder.lastError().c_str());
     wifiPreview.recordRenderedFrame(decoder.lastDecodeMs(), millis() - renderStartMs);
   } else {
@@ -1468,6 +1497,16 @@ void handleButtons() {
     return;
   }
 
+  if (command == rvf::UserCommand::ToggleDisplayRotation) {
+    toggleDisplayRotation();
+    return;
+  }
+
+  if (command == rvf::UserCommand::ToggleDisplayMirror) {
+    toggleDisplayMirror();
+    return;
+  }
+
   if (command == rvf::UserCommand::Shoot) {
     appController.handleUserCommand(makeAppFlowActions(), command);
   }
@@ -1586,7 +1625,16 @@ void setup() {
   appController.begin(CameraFlowState::BleScan);
   systemSupervisor.begin(millis());
 
-  ui.begin();
+  if (!profileStore.loadDisplaySettings(displaySettings)) {
+    Serial.println("Display: NVS load failed; using defaults");
+    displaySettings = rvf::DisplaySettings{};
+  }
+  ui.begin(displaySettings);
+  displaySettings.rotation = ui.rotation();
+  displaySettings.mirrored = ui.mirrored();
+  Serial.printf("Display: restored rotation=%u mirrored=%d\n",
+                static_cast<unsigned>(displaySettings.rotation),
+                displaySettings.mirrored ? 1 : 0);
   ui.showBoot(rvf::AppConfig::Ui::kBootMessage);
   waitForSerialConsole();
 

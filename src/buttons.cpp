@@ -20,20 +20,27 @@ ButtonEvents Buttons::poll() {
     events.powerOff = true;
     events.any = true;
   }
-  const bool key2Down = key2Pressed();
-  if (!key2Down) {
-    _key2PressedSince = 0;
-    _key2HoldReported = false;
-  } else {
-    const uint32_t now = millis();
-    if (_key2PressedSince == 0) {
-      _key2PressedSince = now;
-    }
-    if (!_key2HoldReported && (now - _key2PressedSince) >= KEY2_PAIRING_RESET_HOLD_MS) {
-      _key2HoldReported = true;
+
+  const rvf::Key2Gesture gesture =
+      _key2Gestures.update(key2Pressed(),
+                           millis(),
+                           KEY2_DOUBLE_PRESS_WINDOW_MS,
+                           KEY2_PAIRING_RESET_HOLD_MS);
+  switch (gesture) {
+    case rvf::Key2Gesture::SinglePress:
+      events.toggleDisplayRotation = true;
+      events.any = true;
+      break;
+    case rvf::Key2Gesture::DoublePress:
+      events.toggleDisplayMirror = true;
+      events.any = true;
+      break;
+    case rvf::Key2Gesture::LongHold:
       events.resetPairing = true;
       events.any = true;
-    }
+      break;
+    case rvf::Key2Gesture::None:
+      break;
   }
   return events;
 }

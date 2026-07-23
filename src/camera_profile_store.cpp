@@ -2,6 +2,8 @@
 
 namespace {
 constexpr const char* kNamespace = "ricoh2";
+constexpr const char* kDisplayRotationKey = "disp_rot";
+constexpr const char* kDisplayMirrorKey = "disp_mirror";
 
 String getStringIfPresent(Preferences& prefs, const char* key) {
   return prefs.isKey(key) ? prefs.getString(key, "") : String();
@@ -153,6 +155,35 @@ bool CameraProfileStore::saveBleIdentity(const String& cameraName,
     }
   }
   return true;
+}
+
+bool CameraProfileStore::loadDisplaySettings(rvf::DisplaySettings& settings) {
+  if (!begin()) {
+    return false;
+  }
+
+  settings.rotation = rvf::normalizeDisplayRotation(
+      _prefs.getUChar(kDisplayRotationKey, rvf::kDefaultDisplayRotation));
+  settings.mirrored = _prefs.getBool(kDisplayMirrorKey, false);
+  return true;
+}
+
+bool CameraProfileStore::saveDisplaySettings(const rvf::DisplaySettings& settings) {
+  if (!begin()) {
+    return false;
+  }
+
+  const uint8_t rotation = rvf::normalizeDisplayRotation(settings.rotation);
+  bool saved = true;
+
+  // Compare before writing so repeated button/service paths do not consume NVS cycles.
+  if (_prefs.getUChar(kDisplayRotationKey, rvf::kDefaultDisplayRotation) != rotation) {
+    saved = _prefs.putUChar(kDisplayRotationKey, rotation) == sizeof(rotation) && saved;
+  }
+  if (_prefs.getBool(kDisplayMirrorKey, false) != settings.mirrored) {
+    saved = _prefs.putBool(kDisplayMirrorKey, settings.mirrored) == sizeof(settings.mirrored) && saved;
+  }
+  return saved;
 }
 
 bool CameraProfileStore::clear() {
