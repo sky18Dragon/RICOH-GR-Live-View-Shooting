@@ -212,6 +212,53 @@ void DisplayUi::showError(const String& message, const String& detail) {
     showError(message.c_str(), detail.length() ? detail.c_str() : nullptr);
 }
 
+void DisplayUi::showPasskeyEntry(const uint8_t digits[6], uint8_t activeIndex) {
+    clear(COLOR_BG);
+
+    _canvas.drawFastHLine(10, 24, _width - 20, COLOR_SLATE);
+    _canvas.setTextSize(1);
+    _canvas.setTextColor(COLOR_AMBER, COLOR_BG);
+    _canvas.setCursor(10, 8);
+    _canvas.print("PAIRING PASSKEY");
+
+    _canvas.setTextColor(COLOR_GRAY, COLOR_BG);
+    _canvas.setCursor(10, 30);
+    _canvas.print("Match the 6 digits on camera");
+
+    const int16_t cellW = 30;
+    const int16_t cellH = 34;
+    const int16_t gap = 4;
+    const int16_t totalW = 6 * cellW + 5 * gap;
+    const int16_t startX = (_width - totalW) / 2;
+    const int16_t y = 50;
+
+    _canvas.setTextSize(3);
+    for (uint8_t i = 0; i < 6; ++i) {
+        const int16_t x = startX + i * (cellW + gap);
+        const bool active = i == activeIndex;
+        const bool confirmed = i < activeIndex;
+        _canvas.fillRoundRect(x, y, cellW, cellH, 4, active ? COLOR_SLATE : COLOR_CARD);
+        _canvas.drawRoundRect(x, y, cellW, cellH, 4, active ? COLOR_AMBER : COLOR_GRAPHITE);
+        _canvas.setTextColor(active ? COLOR_AMBER : (confirmed ? COLOR_WHITE : COLOR_GRAY));
+        _canvas.setCursor(x + 6, y + 5);
+        _canvas.print(static_cast<char>('0' + (digits[i] % 10)));
+    }
+
+    _canvas.drawFastHLine(10, _height - 18, _width - 20, COLOR_SLATE);
+    _canvas.setTextSize(1);
+    if (activeIndex >= 6) {
+        _canvas.setTextColor(COLOR_GREEN, COLOR_BG);
+        _canvas.setCursor(82, _height - 12);
+        _canvas.print("Submitting...");
+    } else {
+        _canvas.setTextColor(COLOR_WHITE, COLOR_BG);
+        _canvas.setCursor(22, _height - 12);
+        _canvas.print("BtnA: +1   Hold: next digit");
+    }
+
+    pushCanvas();
+}
+
 // Redesigned transparent HUD overlay for Live Viewfinder (rendered onto _canvas)
 void DisplayUi::drawOverlay(const String& wifiStatus,
                             const String& liveviewStatus,
