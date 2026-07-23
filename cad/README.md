@@ -11,12 +11,14 @@ whose points face away from the aligned print edge.
 
 - `ricoh_gr_sticks3_hotshoe_adapter.stl` - printable adapter
 - `ricoh_gr_sticks3_hotshoe_adapter.step` - editable neutral CAD solid
-- `ricoh_gr_sticks3_selfie_hotshoe_adapter.stl` - upright selfie-screen adapter
-- `ricoh_gr_sticks3_selfie_hotshoe_adapter.step` - editable upright adapter
+- `ricoh_gr_sticks3_selfie_hotshoe_adapter_holes_x8_5.*` - upright adapter
+  with the M2 hole line at X=8.5 mm (`.stl` and `.step`)
+- `ricoh_gr_sticks3_selfie_hotshoe_adapter_holes_x39_5.*` - mirrored upright
+  adapter with the M2 hole line at X=39.5 mm (`.stl` and `.step`)
 - `generate_adapter.py` - reproducible parametric generator
 
-Running the generator also creates an editable FreeCAD document and a small
-camera-shoe fit-coupon STL in this directory.
+Running the generator also creates an editable FreeCAD document for each
+orientation and a small camera-shoe fit-coupon STL in this directory.
 
 ## Verified source dimensions
 
@@ -38,11 +40,16 @@ a 90-degree wall, turning the StickS3 upright in landscape orientation without
 the flat adapter's 30 x 24 mm plate. The wall's Y-max face, compact pad, and
 shoe foot share one flush edge, providing a large flat print surface. The
 StickS3 back mounts against the wall's Y-min face, placing the display toward
--Y on the lens-facing side while keeping most of its body above the shoe. The
-two-hole line is mirrored across the StickS3's long-axis center, placing it
-39.5 mm from the model's X origin instead of 8.5 mm. Its screw passages and
-90-degree countersinks are circular because they print vertically in the
-recommended orientation.
+-Y on the lens-facing side while keeping most of its body above the shoe.
+
+The generator exports both long-axis orientations:
+
+- `holes_x8_5`: M2 hole line at X=8.5 mm
+- `holes_x39_5`: hole line mirrored across the StickS3 center to X=39.5 mm
+
+Choose the version that places the display and controls in the preferred
+direction on the camera. Both use circular screw passages and 90-degree
+countersinks because the holes print vertically in the recommended orientation.
 
 ## Hardware and printing
 

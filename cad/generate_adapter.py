@@ -48,7 +48,16 @@ SELFIE_WALL_THICKNESS = 2.4
 SELFIE_WALL_LENGTH = STICK_LENGTH
 SELFIE_MOUNT_PAD_WIDTH = SHOE_FOOT_WIDTH
 SELFIE_MOUNT_PAD_DEPTH = 8.0
-SELFIE_SCREW_FROM_SHORT_EDGE = STICK_LENGTH - SCREW_FROM_SHORT_EDGE
+SELFIE_SCREW_X_NEAR = SCREW_FROM_SHORT_EDGE
+SELFIE_SCREW_X_MIRRORED = STICK_LENGTH - SCREW_FROM_SHORT_EDGE
+SELFIE_VARIANTS = (
+    ("holes_x8_5", SELFIE_SCREW_X_NEAR, 4.0),
+    (
+        "holes_x39_5",
+        SELFIE_SCREW_X_MIRRORED,
+        STICK_LENGTH - 4.0 - 27.0,
+    ),
+)
 
 
 def chamfered_box(x0, y0, z0, length, width, height, chamfer):
@@ -229,7 +238,7 @@ def make_fit_coupon():
     return foot.fuse(neck).fuse(pull_tab).fuse(bridge).removeSplitter()
 
 
-def make_selfie_adapter():
+def make_selfie_adapter(screw_x):
     """Create a front-facing upright StickS3 mount on the same shoe geometry."""
     stick_cx = STICK_LENGTH / 2.0
     shoe_cy = PLATE_Y_START + PLATE_WIDTH - SHOE_FOOT_LENGTH / 2.0
@@ -276,8 +285,6 @@ def make_selfie_adapter():
     )
     adapter = foot.fuse(neck).fuse(mount_pad).fuse(wall).removeSplitter()
 
-    # Mirror the StickS3 mounting-hole line across its 48 mm long-axis center.
-    screw_x = SELFIE_SCREW_FROM_SHORT_EDGE
     screw_zs = (
         base_top + (STICK_WIDTH - SCREW_SPACING) / 2.0,
         base_top + (STICK_WIDTH + SCREW_SPACING) / 2.0,
@@ -331,20 +338,99 @@ def add_parameters(doc):
     return obj
 
 
-def add_selfie_parameters(doc):
+def add_selfie_parameters(doc, screw_x):
     obj = add_parameters(doc)
     values = {
         "SelfieWallThickness": SELFIE_WALL_THICKNESS,
         "SelfieWallLength": SELFIE_WALL_LENGTH,
         "SelfieMountPadWidth": SELFIE_MOUNT_PAD_WIDTH,
         "SelfieMountPadDepth": SELFIE_MOUNT_PAD_DEPTH,
-        "SelfieScrewFromShortEdge": SELFIE_SCREW_FROM_SHORT_EDGE,
+        "SelfieScrewX": screw_x,
     }
     for name, value in values.items():
         obj.addProperty("App::PropertyLength", name, "Selfie Adapter")
         setattr(obj, name, value)
     obj.addProperty("App::PropertyString", "DisplayFaces", "Selfie Adapter")
     obj.DisplayFaces = "-Y (lens-facing)"
+
+
+def export_selfie_variant(file_suffix, screw_x, screen_x):
+    selfie_doc = App.newDocument(f"{SELFIE_DOCUMENT_NAME}_{file_suffix}")
+    add_selfie_parameters(selfie_doc, screw_x)
+    selfie_shape = make_selfie_adapter(screw_x)
+    if not selfie_shape.isValid() or len(selfie_shape.Solids) != 1:
+        raise RuntimeError(
+            f"Selfie adapter {file_suffix} did not produce one valid solid"
+        )
+
+    selfie = selfie_doc.addObject("Part::Feature", "SelfieAdapter")
+    selfie.Label = (
+        f"StickS3 Upright Selfie Screen Hot Shoe Adapter ({file_suffix})"
+    )
+    selfie.Shape = selfie_shape
+    if selfie.ViewObject:
+        selfie.ViewObject.ShapeColor = (0.30, 0.66, 0.88)
+        selfie.ViewObject.LineColor = (0.05, 0.10, 0.18)
+    selfie.addProperty("App::PropertyString", "SourceDimensions", "Documentation")
+    selfie.SourceDimensions = (
+        "Same M5Stack K150 and ISO 518 dimensions as the flat adapter; "
+        f"mounting-hole line at X={screw_x:.1f} mm; display faces -Y"
+    )
+    selfie.addProperty("App::PropertyString", "RecommendedScrews", "Documentation")
+    selfie.RecommendedScrews = (
+        "2x M2x4 90-degree flat-head; verify thread depth and tighten gently"
+    )
+
+    # Reference-only envelope: the StickS3 back sits on the wall's Y-min face,
+    # and its display faces -Y. These objects are hidden and never exported.
+    base_top = SHOE_FOOT_THICKNESS + SHOE_NECK_HEIGHT + PLATE_THICKNESS
+    wall_y0 = PLATE_Y_START + PLATE_WIDTH - SELFIE_WALL_THICKNESS
+    envelope = selfie_doc.addObject("Part::Feature", "StickS3Envelope")
+    envelope.Label = "StickS3 48 x 24 x 15 mm reference (display faces -Y)"
+    envelope.Shape = Part.makeBox(
+        STICK_LENGTH,
+        15.0,
+        STICK_WIDTH,
+        Vector(0.0, wall_y0 - 15.0, base_top),
+    )
+    if envelope.ViewObject:
+        envelope.ViewObject.ShapeColor = (0.24, 0.26, 0.30)
+        envelope.ViewObject.Transparency = 70
+        envelope.ViewObject.Visibility = False
+
+    screen = selfie_doc.addObject("Part::Feature", "ScreenReference")
+    screen.Label = "Approximate StickS3 display face (-Y)"
+    screen.Shape = Part.makeBox(
+        27.0,
+        0.3,
+        15.0,
+        Vector(screen_x, wall_y0 - 15.3, base_top + 4.5),
+    )
+    if screen.ViewObject:
+        screen.ViewObject.ShapeColor = (0.10, 0.70, 0.95)
+        screen.ViewObject.LineColor = (0.02, 0.20, 0.28)
+        screen.ViewObject.Visibility = False
+
+    output_stem = f"ricoh_gr_sticks3_selfie_hotshoe_adapter_{file_suffix}"
+    selfie_doc.recompute()
+    selfie_doc.saveAs(str(OUTPUT_DIR / f"{output_stem}.FCStd"))
+    Part.export([selfie], str(OUTPUT_DIR / f"{output_stem}.step"))
+    Mesh.export([selfie], str(OUTPUT_DIR / f"{output_stem}.stl"))
+
+    selfie_mesh = Mesh.Mesh(str(OUTPUT_DIR / f"{output_stem}.stl"))
+    if not selfie_mesh.isSolid():
+        raise RuntimeError(f"The {file_suffix} selfie STL is not a closed solid")
+    print(
+        f"Generated selfie adapter {file_suffix}:",
+        round(selfie_shape.BoundBox.XLength, 2),
+        "x",
+        round(selfie_shape.BoundBox.YLength, 2),
+        "x",
+        round(selfie_shape.BoundBox.ZLength, 2),
+        "mm;",
+        selfie_mesh.CountFacets,
+        "closed-mesh facets",
+    )
 
 
 def main():
@@ -412,90 +498,8 @@ def main():
         "coupon facets",
     )
 
-    selfie_doc = App.newDocument(SELFIE_DOCUMENT_NAME)
-    add_selfie_parameters(selfie_doc)
-    selfie_shape = make_selfie_adapter()
-    if not selfie_shape.isValid() or len(selfie_shape.Solids) != 1:
-        raise RuntimeError("Selfie adapter generation did not produce one valid solid")
-
-    selfie = selfie_doc.addObject("Part::Feature", "SelfieAdapter")
-    selfie.Label = "StickS3 Upright Selfie Screen Hot Shoe Adapter"
-    selfie.Shape = selfie_shape
-    if selfie.ViewObject:
-        selfie.ViewObject.ShapeColor = (0.30, 0.66, 0.88)
-        selfie.ViewObject.LineColor = (0.05, 0.10, 0.18)
-    selfie.addProperty("App::PropertyString", "SourceDimensions", "Documentation")
-    selfie.SourceDimensions = (
-        "Same M5Stack K150 and ISO 518 dimensions as the flat adapter; "
-        "mounting-hole line mirrored to X=39.5 mm; display faces -Y"
-    )
-    selfie.addProperty("App::PropertyString", "RecommendedScrews", "Documentation")
-    selfie.RecommendedScrews = (
-        "2x M2x4 90-degree flat-head; verify thread depth and tighten gently"
-    )
-
-    # Reference-only envelope: the StickS3 back sits on the wall's Y-min face,
-    # and its display faces -Y. This object is hidden and never exported.
-    base_top = SHOE_FOOT_THICKNESS + SHOE_NECK_HEIGHT + PLATE_THICKNESS
-    wall_y0 = PLATE_Y_START + PLATE_WIDTH - SELFIE_WALL_THICKNESS
-    envelope = selfie_doc.addObject("Part::Feature", "StickS3Envelope")
-    envelope.Label = "StickS3 48 x 24 x 15 mm reference (display faces -Y)"
-    envelope.Shape = Part.makeBox(
-        STICK_LENGTH,
-        15.0,
-        STICK_WIDTH,
-        Vector(0.0, wall_y0 - 15.0, base_top),
-    )
-    if envelope.ViewObject:
-        envelope.ViewObject.ShapeColor = (0.24, 0.26, 0.30)
-        envelope.ViewObject.Transparency = 70
-        envelope.ViewObject.Visibility = False
-
-    screen = selfie_doc.addObject("Part::Feature", "ScreenReference")
-    screen.Label = "Approximate StickS3 display face (-Y)"
-    screen.Shape = Part.makeBox(
-        27.0,
-        0.3,
-        15.0,
-        Vector(STICK_LENGTH - 4.0 - 27.0, wall_y0 - 15.3, base_top + 4.5),
-    )
-    if screen.ViewObject:
-        screen.ViewObject.ShapeColor = (0.10, 0.70, 0.95)
-        screen.ViewObject.LineColor = (0.02, 0.20, 0.28)
-        screen.ViewObject.Visibility = False
-
-    selfie_doc.recompute()
-    selfie_doc.saveAs(
-        str(OUTPUT_DIR / "ricoh_gr_sticks3_selfie_hotshoe_adapter.FCStd")
-    )
-    Part.export(
-        [selfie],
-        str(OUTPUT_DIR / "ricoh_gr_sticks3_selfie_hotshoe_adapter.step"),
-    )
-    Mesh.export(
-        [selfie],
-        str(OUTPUT_DIR / "ricoh_gr_sticks3_selfie_hotshoe_adapter.stl"),
-    )
-
-    selfie_mesh = Mesh.Mesh(
-        str(OUTPUT_DIR / "ricoh_gr_sticks3_selfie_hotshoe_adapter.stl")
-    )
-    if not selfie_mesh.isSolid():
-        raise RuntimeError("The exported selfie adapter STL is not a closed solid")
-    print(
-        "Generated selfie adapter:",
-        round(selfie_shape.BoundBox.XLength, 2),
-        "x",
-        round(selfie_shape.BoundBox.YLength, 2),
-        "x",
-        round(selfie_shape.BoundBox.ZLength, 2),
-        "mm",
-    )
-    print(
-        "Validated closed selfie STL mesh:",
-        selfie_mesh.CountFacets,
-        "facets",
-    )
+    for file_suffix, screw_x, screen_x in SELFIE_VARIANTS:
+        export_selfie_variant(file_suffix, screw_x, screen_x)
 
 
 # FreeCADCmd loads a passed .py file as a module rather than as ``__main__``.
