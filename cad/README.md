@@ -11,6 +11,8 @@ whose points face away from the aligned print edge.
 
 - `ricoh_gr_sticks3_hotshoe_adapter.stl` - printable adapter
 - `ricoh_gr_sticks3_hotshoe_adapter.step` - editable neutral CAD solid
+- `ricoh_gr_sticks3_selfie_hotshoe_adapter.stl` - upright selfie-screen adapter
+- `ricoh_gr_sticks3_selfie_hotshoe_adapter.step` - editable upright adapter
 - `generate_adapter.py` - reproducible parametric generator
 
 Running the generator also creates an editable FreeCAD document and a small
@@ -28,6 +30,20 @@ The printed foot is 18.0 x 15.4 x 1.95 mm, with an 11.8 mm neck and 1.45 mm
 rail gap. This adds 0.30 mm of vertical preload while keeping the mounting
 plate and screw-head clearance at the same height above the camera.
 
+## Upright selfie-screen variant
+
+The selfie variant keeps the same ISO 518 foot, 0.30 mm preload, and two M2
+anchor locations. A compact reinforcing pad connects the shoe neck directly to
+a 90-degree wall, turning the StickS3 upright in landscape orientation without
+the flat adapter's 30 x 24 mm plate. The wall's Y-max face, compact pad, and
+shoe foot share one flush edge, providing a large flat print surface. The
+StickS3 back mounts against the wall's Y-min face, placing the display toward
+-Y on the lens-facing side while keeping most of its body above the shoe. The
+two-hole line is mirrored across the StickS3's long-axis center, placing it
+39.5 mm from the model's X origin instead of 8.5 mm. Its screw passages and
+90-degree countersinks are circular because they print vertically in the
+recommended orientation.
+
 ## Hardware and printing
 
 - 2 x M2x4, 90-degree flat-head screws
@@ -35,6 +51,10 @@ plate and screw-head clearance at the same height above the camera.
 - 0.15-0.20 mm layers, 4 perimeters, 40-60% infill
 - Print the adapter standing on the side where the mounting plate and shoe foot
   are flush. Add a brim for stability; only limited support should be needed.
+- Print the upright selfie variant on the shared Y-max edge where its wall,
+  compact pad, and hot-shoe foot are flush. The screw passages are vertical in
+  this orientation, and the part should need no internal support. Add a brim if
+  the wall needs more bed adhesion.
 
 For a fit test, run the generator and print its fit coupon first. It should
 slide in without force and remain removable by its pull tab. Never force a
