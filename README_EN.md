@@ -195,6 +195,7 @@ Customize these constants in [src/config.h](file:///C:/Users/Administrator/Docum
 
 * The recently merged PR adds a 3D-printable hot-shoe mount for attaching the StickS3 to the camera.
 * Special thanks to [wjhrdy](https://github.com/wjhrdy) for validating the [**GR IV monochrome**](https://github.com/sky18Dragon/RICOH-GR-Live-View-Shooting/issues/2) in the field and for providing the hot-shoe print.
+* Special thanks to Reddit user **JoeBlack-94** for testing the current firmware on real hardware and confirming that it works, making an important contribution to the project's compatibility validation.
 
 ---
 

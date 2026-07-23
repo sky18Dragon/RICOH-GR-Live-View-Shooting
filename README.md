@@ -194,6 +194,7 @@ graph TD
 
 * 刚合并的 PR 新增了可用于将 StickS3 安装到相机热靴的 3D 打印安装件。
 * 特别感谢 [wjhrdy](https://github.com/wjhrdy) 对 [**GR IV monochrome**](https://github.com/sky18Dragon/RICOH-GR-Live-View-Shooting/issues/2) 的实机验证，以及热靴打印件的提供。
+* 特别感谢 Reddit 用户 **JoeBlack-94** 对当前固件进行实机测试并确认其可正常工作，为项目兼容性验证作出了重要贡献。
 
 ---
 
