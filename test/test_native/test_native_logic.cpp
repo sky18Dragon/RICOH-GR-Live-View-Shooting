@@ -11,6 +11,7 @@ void tearDown(void) {}
 #include "ble_reconnect_policy.h"
 
 #include "camera_identity.h"
+#include "display_settings.h"
 #include "image_transform.h"
 #include "key2_gesture.h"
 #include "mjpeg_stream.h"
@@ -247,6 +248,21 @@ void testMirroredBlockXHandlesCenteredPillarbox() {
   TEST_ASSERT_EQUAL_INT(20, rvf::mirroredBlockX(20, 200, 180, 40));
 }
 
+void testDisplaySettingsUseUnmirroredRotationOneDefaults() {
+  const rvf::DisplaySettings settings;
+
+  TEST_ASSERT_EQUAL_UINT8(1, settings.rotation);
+  TEST_ASSERT_FALSE(settings.mirrored);
+}
+
+void testDisplayRotationNormalizationOnlyAllowsLandscapeModes() {
+  TEST_ASSERT_EQUAL_UINT8(1, rvf::normalizeDisplayRotation(0));
+  TEST_ASSERT_EQUAL_UINT8(1, rvf::normalizeDisplayRotation(1));
+  TEST_ASSERT_EQUAL_UINT8(1, rvf::normalizeDisplayRotation(2));
+  TEST_ASSERT_EQUAL_UINT8(3, rvf::normalizeDisplayRotation(3));
+  TEST_ASSERT_EQUAL_UINT8(1, rvf::normalizeDisplayRotation(4));
+}
+
 rvf::SystemHealthSnapshot healthyPreviewSnapshot() {
   rvf::SystemHealthSnapshot snapshot;
   snapshot.appState = rvf::AppState::PreviewRunning;
@@ -344,6 +360,8 @@ int main() {
   RUN_TEST(testMirrorRgb565RowHandlesEmptyAndSinglePixelRows);
   RUN_TEST(testMirroredBlockXReflectsBlocksWithinImageBounds);
   RUN_TEST(testMirroredBlockXHandlesCenteredPillarbox);
+  RUN_TEST(testDisplaySettingsUseUnmirroredRotationOneDefaults);
+  RUN_TEST(testDisplayRotationNormalizationOnlyAllowsLandscapeModes);
   RUN_TEST(testSupervisorWaitsForIntervalAndIgnoresHealthyPreview);
   RUN_TEST(testSupervisorReportsPreviewClosed);
   RUN_TEST(testSupervisorIgnoresCameraSleepGuard);

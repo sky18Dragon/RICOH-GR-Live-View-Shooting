@@ -3,6 +3,8 @@
 #include <Arduino.h>
 #include <Preferences.h>
 
+#include "display_settings.h"
+
 struct WifiCredential {
   String ssid;
   String passphrase;
@@ -33,6 +35,8 @@ public:
   bool clearBlePairing();
   bool saveBleIdentity(const String& cameraName, const String& bleAddress);
   bool saveBleIdentity(const String& cameraName, const String& bleAddress, uint8_t bleAddressType, bool bleBonded);
+  bool loadDisplaySettings(rvf::DisplaySettings& settings);
+  bool saveDisplaySettings(const rvf::DisplaySettings& settings);
   bool clear();
 
 private:

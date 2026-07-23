@@ -61,12 +61,13 @@ bool statusContains(const char* line1,
 
 }  // namespace
 
-bool DisplayUi::begin() {
+bool DisplayUi::begin(const rvf::DisplaySettings& settings) {
     auto cfg = M5.config();
     cfg.serial_baudrate = 115200;
     M5.begin(cfg);
 
-    _rotation = 1;
+    _rotation = rvf::normalizeDisplayRotation(settings.rotation);
+    _mirrored = settings.mirrored;
     M5.Display.setRotation(_rotation);
     _width = M5.Display.width();
     _height = M5.Display.height();
@@ -74,7 +75,7 @@ bool DisplayUi::begin() {
     // StickS3 is physically 135x240; rotation 1/3 should expose landscape 240x135.
     // If a board package reports the opposite, rotate once more to keep callers in landscape.
     if (_width < _height) {
-        _rotation = 3;
+        _rotation = _rotation == 1 ? 3 : 1;
         M5.Display.setRotation(_rotation);
         _width = M5.Display.width();
         _height = M5.Display.height();

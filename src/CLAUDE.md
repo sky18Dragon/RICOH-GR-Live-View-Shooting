@@ -156,7 +156,7 @@ BleScan → BleReady → WifiConnecting → HttpProbe → LiveViewRunning
 
 `M5Canvas` 双缓冲 + `pushSprite` 上屏，240×135。
 
-- `begin()` 初始化画布；`getCanvas()` 暴露 `LovyanGFX*` 供解码器直接绘制。
+- `begin(settings)` 按持久化 rotation/mirror 设置初始化画布；`getCanvas()` 暴露 `LovyanGFX*` 供解码器直接绘制。
 - `showBoot(msg)` / `showStatus(L1..L4)` / `showError(msg, detail)`：状态屏（顶部琥珀色标题、底部灰色提示；UI 文案标注「BtnA: shutter / wake」「Press BtnA to reconnect」）。
 - `drawOverlay(wifiStatus, liveviewStatus, model, battery, fps, rssi, frames, droppedFrames)`：LiveView 上的半透明 overlay（WiFi 图标 `drawWifiIcon`、电池 `drawBatteryIcon`）。
 - `pushCanvas()` 上屏；`width()`/`height()` 查询。
@@ -169,9 +169,9 @@ BleScan → BleReady → WifiConnecting → HttpProbe → LiveViewRunning
 `CameraProfileStore` 基于 `Preferences`（NVS）。
 
 - namespace `"ricoh2"`，`profileVersion=3`。
-- 键：`proto_ver`/`cam_name`/`ble_addr`/`ble_addr_type`/`ble_bonded`/`cam_ip`。
-- `load()`/`save()`/`saveBleIdentity(name, addr[, type, bonded])`/`clear()`；`getStringIfPresent` 缺键返回空串。
-- 持久化 BLE 身份、相机 IP 和 Wi-Fi 缓存；保护态不写 NVS。
+- 键：`proto_ver`/`cam_name`/`ble_addr`/`ble_addr_type`/`ble_bonded`/`cam_ip`，显示设置使用 `disp_rot`/`disp_mirror`。
+- `load()`/`save()`/`saveBleIdentity(name, addr[, type, bonded])`/`loadDisplaySettings()`/`saveDisplaySettings()`/`clear()`；`getStringIfPresent` 缺键返回空串。
+- 持久化 BLE 身份、相机 IP、Wi-Fi 缓存及显示 rotation/mirror；BLE 配对重置保留显示设置，保护态不写 NVS。
 
 数据结构：`WifiCredential{ssid, passphrase, bssid, cameraIp}`、`CameraProfile{cameraName, bleAddress, bleAddressType, bleAddressTypeKnown, bleBonded, wifi, profileVersion}`。
 

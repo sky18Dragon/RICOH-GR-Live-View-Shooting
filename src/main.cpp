@@ -34,6 +34,7 @@ Buttons buttons;
 JpegDecoder decoder;
 CameraProfileStore profileStore;
 CameraProfile cameraProfile;
+rvf::DisplaySettings displaySettings;
 RicohBleClient ricohBle;
 rvf::BleCameraService bleCamera(ricohBle);
 M5PM1 stickPower;
@@ -88,16 +89,24 @@ rvf::AppFlowActions makeAppFlowActions();
 
 void toggleDisplayRotation() {
   const uint8_t rotation = ui.toggleRotation();
-  Serial.printf("Display: rotation=%u mirrored=%d\n",
+  displaySettings.rotation = rotation;
+  displaySettings.mirrored = ui.mirrored();
+  const bool persisted = profileStore.saveDisplaySettings(displaySettings);
+  Serial.printf("Display: rotation=%u mirrored=%d persisted=%d\n",
                 static_cast<unsigned>(rotation),
-                ui.mirrored() ? 1 : 0);
+                ui.mirrored() ? 1 : 0,
+                persisted ? 1 : 0);
 }
 
 void toggleDisplayMirror() {
   const bool mirrored = ui.toggleMirror();
-  Serial.printf("Display: rotation=%u mirrored=%d\n",
+  displaySettings.rotation = ui.rotation();
+  displaySettings.mirrored = mirrored;
+  const bool persisted = profileStore.saveDisplaySettings(displaySettings);
+  Serial.printf("Display: rotation=%u mirrored=%d persisted=%d\n",
                 static_cast<unsigned>(ui.rotation()),
-                mirrored ? 1 : 0);
+                mirrored ? 1 : 0,
+                persisted ? 1 : 0);
 }
 
 bool beginStickPower() {
@@ -1616,7 +1625,16 @@ void setup() {
   appController.begin(CameraFlowState::BleScan);
   systemSupervisor.begin(millis());
 
-  ui.begin();
+  if (!profileStore.loadDisplaySettings(displaySettings)) {
+    Serial.println("Display: NVS load failed; using defaults");
+    displaySettings = rvf::DisplaySettings{};
+  }
+  ui.begin(displaySettings);
+  displaySettings.rotation = ui.rotation();
+  displaySettings.mirrored = ui.mirrored();
+  Serial.printf("Display: restored rotation=%u mirrored=%d\n",
+                static_cast<unsigned>(displaySettings.rotation),
+                displaySettings.mirrored ? 1 : 0);
   ui.showBoot(rvf::AppConfig::Ui::kBootMessage);
   waitForSerialConsole();
 

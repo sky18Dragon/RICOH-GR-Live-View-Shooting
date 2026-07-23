@@ -3,6 +3,8 @@
 #include <Arduino.h>
 #include <M5Unified.h>
 
+#include "display_settings.h"
+
 #if __has_include("config.h")
 #include "config.h"
 #endif
@@ -17,7 +19,7 @@
 
 class DisplayUi {
 public:
-    bool begin();
+    bool begin(const rvf::DisplaySettings& settings = rvf::DisplaySettings{});
 
     void showBoot(const char* message = nullptr);
     void showStatus(const char* line1, const char* line2, const char* line3, const char* line4);
