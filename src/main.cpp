@@ -86,6 +86,20 @@ void requestManualCameraWake(const char* source);
 void resetBlePairingFromKey2();
 rvf::AppFlowActions makeAppFlowActions();
 
+void toggleDisplayRotation() {
+  const uint8_t rotation = ui.toggleRotation();
+  Serial.printf("Display: rotation=%u mirrored=%d\n",
+                static_cast<unsigned>(rotation),
+                ui.mirrored() ? 1 : 0);
+}
+
+void toggleDisplayMirror() {
+  const bool mirrored = ui.toggleMirror();
+  Serial.printf("Display: rotation=%u mirrored=%d\n",
+                static_cast<unsigned>(ui.rotation()),
+                mirrored ? 1 : 0);
+}
+
 bool beginStickPower() {
   const int8_t sda = M5.getPin(m5::pin_name_t::in_i2c_sda);
   const int8_t scl = M5.getPin(m5::pin_name_t::in_i2c_scl);
@@ -738,6 +752,12 @@ void saveConnectedBleIdentity(const String& connectedName, const RicohBleDeviceI
 
 bool serviceButtonsDuringBleOperation() {
   const ButtonEvents events = buttons.poll();
+  if (events.toggleDisplayRotation) {
+    toggleDisplayRotation();
+  }
+  if (events.toggleDisplayMirror) {
+    toggleDisplayMirror();
+  }
   if (!events.resetPairing) {
     return false;
   }
@@ -1465,6 +1485,16 @@ void handleButtons() {
 
   if (command == rvf::UserCommand::ResetPairing) {
     resetBlePairingFromKey2();
+    return;
+  }
+
+  if (command == rvf::UserCommand::ToggleDisplayRotation) {
+    toggleDisplayRotation();
+    return;
+  }
+
+  if (command == rvf::UserCommand::ToggleDisplayMirror) {
+    toggleDisplayMirror();
     return;
   }
 

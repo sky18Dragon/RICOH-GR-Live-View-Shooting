@@ -13,6 +13,12 @@ UserCommand ButtonInput::commandFromEvents(const ButtonEvents& events) {
     if (events.resetPairing) {
         return UserCommand::ResetPairing;
     }
+    if (events.toggleDisplayMirror) {
+        return UserCommand::ToggleDisplayMirror;
+    }
+    if (events.toggleDisplayRotation) {
+        return UserCommand::ToggleDisplayRotation;
+    }
     if (events.buttonA) {
         return UserCommand::Shoot;
     }

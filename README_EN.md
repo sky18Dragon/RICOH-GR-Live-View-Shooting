@@ -74,6 +74,8 @@ You can control the viewfinder's behavior using the buttons (Button A, Button B,
 | :--- | :--- | :--- |
 | **Button A** | During LiveView (`LIVEVIEW_RUNNING`) | Triggers BLE Auto-Focus (AF) and shoots (writes `ShootingFlavor=IMMEDIATE`) |
 | **Button A** | Standby Cooldown (`CAMERA_SLEEP_GUARD`) | Manually overrides the guard, resets the BLE stack, and attempts to wake/reconnect |
+| **Button B** | Any State (Single Press) | Toggles the display between landscape rotations `1` and `3` (180° flip) |
+| **Button B** | Any State (Double Press) | Toggles horizontal mirroring independently of the current rotation |
 | **Button B** | Any State (Long Press for 3s) | Triggers BLE pairing reset: clears stored BLE pairing/bonding information, terminates active Wi-Fi/BLE connections, and restarts scanning for new camera pairing |
 | **Power Button (BtnPWR)** | Any State (Double Press) | Powers the StickS3 off/on |
 

@@ -66,14 +66,16 @@ bool DisplayUi::begin() {
     cfg.serial_baudrate = 115200;
     M5.begin(cfg);
 
-    M5.Display.setRotation(1);
+    _rotation = 1;
+    M5.Display.setRotation(_rotation);
     _width = M5.Display.width();
     _height = M5.Display.height();
 
     // StickS3 is physically 135x240; rotation 1/3 should expose landscape 240x135.
     // If a board package reports the opposite, rotate once more to keep callers in landscape.
     if (_width < _height) {
-        M5.Display.setRotation(3);
+        _rotation = 3;
+        M5.Display.setRotation(_rotation);
         _width = M5.Display.width();
         _height = M5.Display.height();
     }
@@ -305,6 +307,34 @@ int16_t DisplayUi::width() const {
 
 int16_t DisplayUi::height() const {
     return _height;
+}
+
+uint8_t DisplayUi::toggleRotation() {
+    _rotation = _rotation == 1 ? 3 : 1;
+    M5.Display.setRotation(_rotation);
+    _width = M5.Display.width();
+    _height = M5.Display.height();
+    pushCanvas();
+    return _rotation;
+}
+
+bool DisplayUi::toggleMirror() {
+    _mirrored = !_mirrored;
+    pushCanvas();
+    return _mirrored;
+}
+
+void DisplayUi::pushCanvas() {
+    if (!_mirrored) {
+        _canvas.pushSprite(&M5.Display, 0, 0);
+        return;
+    }
+
+    const float mirrorTransform[6] = {
+        -1.0f, 0.0f, static_cast<float>(_width),
+         0.0f, 1.0f, 0.0f,
+    };
+    _canvas.pushAffine(&M5.Display, mirrorTransform);
 }
 
 void DisplayUi::clear(uint16_t color) {

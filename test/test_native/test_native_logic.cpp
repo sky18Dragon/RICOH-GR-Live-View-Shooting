@@ -11,6 +11,7 @@ void tearDown(void) {}
 #include "ble_reconnect_policy.h"
 
 #include "camera_identity.h"
+#include "key2_gesture.h"
 #include "mjpeg_stream.h"
 #include "supervisor/SystemSupervisor.h"
 
@@ -167,6 +168,51 @@ void testBleCandidateMustMatchStoredIdentity() {
   TEST_ASSERT_FALSE(bleCandidateMatchesStoredIdentity("34:90:ea:cc:87:35", nullptr));
 }
 
+void testKey2SinglePressWaitsForDoublePressWindow() {
+  rvf::Key2GestureTracker tracker;
+  constexpr uint32_t doublePressMs = 350;
+  constexpr uint32_t longHoldMs = 3000;
+
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::Key2Gesture::None),
+                        static_cast<int>(tracker.update(true, 100, doublePressMs, longHoldMs)));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::Key2Gesture::None),
+                        static_cast<int>(tracker.update(false, 150, doublePressMs, longHoldMs)));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::Key2Gesture::None),
+                        static_cast<int>(tracker.update(false, 499, doublePressMs, longHoldMs)));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::Key2Gesture::SinglePress),
+                        static_cast<int>(tracker.update(false, 500, doublePressMs, longHoldMs)));
+}
+
+void testKey2DoublePressSuppressesSinglePress() {
+  rvf::Key2GestureTracker tracker;
+  constexpr uint32_t doublePressMs = 350;
+  constexpr uint32_t longHoldMs = 3000;
+
+  tracker.update(true, 100, doublePressMs, longHoldMs);
+  tracker.update(false, 150, doublePressMs, longHoldMs);
+  tracker.update(true, 300, doublePressMs, longHoldMs);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::Key2Gesture::DoublePress),
+                        static_cast<int>(tracker.update(false, 340, doublePressMs, longHoldMs)));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::Key2Gesture::None),
+                        static_cast<int>(tracker.update(false, 1000, doublePressMs, longHoldMs)));
+}
+
+void testKey2LongHoldSuppressesPendingClicks() {
+  rvf::Key2GestureTracker tracker;
+  constexpr uint32_t doublePressMs = 350;
+  constexpr uint32_t longHoldMs = 3000;
+
+  tracker.update(true, 100, doublePressMs, longHoldMs);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::Key2Gesture::LongHold),
+                        static_cast<int>(tracker.update(true, 3100, doublePressMs, longHoldMs)));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::Key2Gesture::None),
+                        static_cast<int>(tracker.update(true, 3200, doublePressMs, longHoldMs)));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::Key2Gesture::None),
+                        static_cast<int>(tracker.update(false, 3300, doublePressMs, longHoldMs)));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::Key2Gesture::None),
+                        static_cast<int>(tracker.update(false, 4000, doublePressMs, longHoldMs)));
+}
+
 rvf::SystemHealthSnapshot healthyPreviewSnapshot() {
   rvf::SystemHealthSnapshot snapshot;
   snapshot.appState = rvf::AppState::PreviewRunning;
@@ -257,6 +303,9 @@ int main() {
   RUN_TEST(testRequiresBleAddressAndAddressTypeForDirectReconnect);
   RUN_TEST(testBleCandidateDiscoveryIsOpenWithoutStoredIdentity);
   RUN_TEST(testBleCandidateMustMatchStoredIdentity);
+  RUN_TEST(testKey2SinglePressWaitsForDoublePressWindow);
+  RUN_TEST(testKey2DoublePressSuppressesSinglePress);
+  RUN_TEST(testKey2LongHoldSuppressesPendingClicks);
   RUN_TEST(testSupervisorWaitsForIntervalAndIgnoresHealthyPreview);
   RUN_TEST(testSupervisorReportsPreviewClosed);
   RUN_TEST(testSupervisorIgnoresCameraSleepGuard);

@@ -3,8 +3,12 @@
 #include <Arduino.h>
 #include <M5Unified.h>
 
+#include "key2_gesture.h"
+
 struct ButtonEvents {
   bool buttonA = false;
+  bool toggleDisplayRotation = false;
+  bool toggleDisplayMirror = false;
   bool resetPairing = false;
   bool powerOff = false;
   bool any = false;
@@ -18,6 +22,5 @@ public:
 private:
   bool key2Pressed() const;
 
-  uint32_t _key2PressedSince = 0;
-  bool _key2HoldReported = false;
+  rvf::Key2GestureTracker _key2Gestures;
 };
