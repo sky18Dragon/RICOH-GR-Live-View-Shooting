@@ -134,6 +134,10 @@ String GrWifi::bssidString() const {
   return isConnected() ? WiFi.BSSIDstr() : String();
 }
 
+uint8_t GrWifi::channel() const {
+  return isConnected() ? static_cast<uint8_t>(WiFi.channel()) : 0;
+}
+
 int32_t GrWifi::rssi() const {
   return isConnected() ? WiFi.RSSI() : 0;
 }

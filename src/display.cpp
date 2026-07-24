@@ -407,6 +407,41 @@ void DisplayUi::showError(const String& message, const String& detail) {
     showError(message.c_str(), detail.c_str());
 }
 
+void DisplayUi::showPasskeyEntry(const uint8_t digits[6], uint8_t activeIndex) {
+    if (!setOrientation(rvf::UiOrientation::Portrait) || !_canvasReady) return;
+    clear(rvf::UiTheme::kBlack);
+
+    drawCenteredText("PAIRING PASSKEY", 26, rvf::UiTheme::kGreen);
+    drawCenteredText("Match camera code", 44, rvf::UiTheme::kGray);
+
+    const int16_t cellW = 24;
+    const int16_t cellH = 34;
+    const int16_t gap = 5;
+    const int16_t totalW = 6 * cellW + 5 * gap;
+    const int16_t startX = (_width - totalW) / 2;
+    const int16_t y = _height / 2 - cellH / 2;
+
+    _canvas.setTextSize(2);
+    for (uint8_t i = 0; i < 6; ++i) {
+        const int16_t x = startX + i * (cellW + gap);
+        const bool active = i == activeIndex;
+        const bool confirmed = i < activeIndex;
+        const uint16_t frame = active ? rvf::UiTheme::kGreen : rvf::UiTheme::kDarkGray;
+        const uint16_t text = active ? rvf::UiTheme::kGreen :
+                              (confirmed ? rvf::UiTheme::kWhite : rvf::UiTheme::kGray);
+        _canvas.drawRoundRect(x, y, cellW, cellH, 4, frame);
+        _canvas.setTextColor(text, rvf::UiTheme::kBlack);
+        _canvas.setCursor(x + 7, y + 9);
+        _canvas.print(static_cast<char>('0' + (digits[i] % 10)));
+    }
+
+    _canvas.setTextSize(1);
+    drawCenteredText(activeIndex >= 6 ? "Submitting..." : "A:+1  Hold:Next",
+                     _height - 28,
+                     activeIndex >= 6 ? rvf::UiTheme::kGreen : rvf::UiTheme::kWhite);
+    pushCanvas();
+}
+
 void DisplayUi::drawOverlay(const String&,
                             const String&,
                             const String&,

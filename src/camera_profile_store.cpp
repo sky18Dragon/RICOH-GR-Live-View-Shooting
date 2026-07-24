@@ -15,6 +15,8 @@ void clearWifiCredentialKeys(Preferences& prefs) {
   prefs.remove("wifi_bssid");
   prefs.remove("wifi_freq");
   prefs.remove("wifi_ch");
+  prefs.remove("wifi_src");
+  prefs.remove("wifi_cred_ok");
 }
 
 bool sameBleAddress(const String& left, const String& right) {
@@ -36,7 +38,25 @@ bool CameraProfileStore::load(CameraProfile& profile) {
   }
 
   profile = CameraProfile{};
-  profile.profileVersion = _prefs.getUInt("proto_ver", 3);
+  StoredCameraProfileMetadata storedMetadata;
+  storedMetadata.schemaVersion = _prefs.getUInt("proto_ver", 3);
+  storedMetadata.protocolGenerationPresent = _prefs.isKey("proto_gen");
+  storedMetadata.protocolGenerationValue = _prefs.getUInt("proto_gen", 0);
+  storedMetadata.capabilityVersionPresent = _prefs.isKey("cap_ver");
+  storedMetadata.capabilityVersionValue = _prefs.getUInt("cap_ver", 0);
+  storedMetadata.wifiSourcePresent = _prefs.isKey("wifi_src");
+  storedMetadata.wifiSourceValue = _prefs.getUInt("wifi_src", 0);
+  storedMetadata.wifiCredentialValidityPresent = _prefs.isKey("wifi_cred_ok");
+  storedMetadata.wifiCredentialValidityValue = _prefs.getBool("wifi_cred_ok", false);
+  storedMetadata.legacyWifiValid = _prefs.getBool("wifi_valid", false);
+  const CameraProfileMetadata metadata = decodeCameraProfileMetadata(storedMetadata);
+
+  profile.profileVersion = metadata.schemaVersion;
+  profile.protocolGeneration = static_cast<RicohProtocolGeneration>(metadata.protocolGeneration);
+  profile.protocolGenerationKnown = metadata.protocolGenerationKnown;
+  profile.capabilityVersion = metadata.capabilityVersion;
+  profile.wifi.source = metadata.wifiSource;
+  profile.wifi.credentialsValid = metadata.wifiCredentialsValid;
   profile.cameraName = getStringIfPresent(_prefs, "cam_name");
   profile.bleAddress = getStringIfPresent(_prefs, "ble_addr");
   profile.bleAddressTypeKnown = profile.bleAddress.length() > 0 && _prefs.isKey("ble_addr_type");
@@ -51,7 +71,7 @@ bool CameraProfileStore::load(CameraProfile& profile) {
     profile.wifi.bssid = getStringIfPresent(_prefs, "wifi_bssid");
     profile.wifi.frequencyMhz = static_cast<uint16_t>(_prefs.getUInt("wifi_freq", 0));
     profile.wifi.channel = static_cast<uint8_t>(_prefs.getUInt("wifi_ch", 0));
-    profile.wifi.cached = profile.wifi.ssid.length() > 0;
+    profile.wifi.cached = profile.wifi.credentialsValid && profile.wifi.ssid.length() > 0;
   }
   return true;
 }
@@ -61,7 +81,27 @@ bool CameraProfileStore::save(const CameraProfile& profile) {
     return false;
   }
 
-  _prefs.putUInt("proto_ver", profile.profileVersion);
+  CameraProfileMetadata metadata;
+  metadata.protocolGeneration = static_cast<uint8_t>(profile.protocolGeneration);
+  metadata.protocolGenerationKnown = profile.protocolGenerationKnown;
+  metadata.capabilityVersion = profile.capabilityVersion;
+  metadata.wifiSource = profile.wifi.source;
+  metadata.wifiCredentialsValid = profile.wifi.credentialsValid;
+  const StoredCameraProfileMetadata storedMetadata = encodeCameraProfileMetadata(metadata);
+
+  _prefs.putUInt("proto_ver", storedMetadata.schemaVersion);
+  if (storedMetadata.protocolGenerationPresent) {
+    _prefs.putUInt("proto_gen", storedMetadata.protocolGenerationValue);
+  } else {
+    _prefs.remove("proto_gen");
+  }
+  _prefs.putUInt("cap_ver", storedMetadata.capabilityVersionValue);
+  if (storedMetadata.wifiSourcePresent) {
+    _prefs.putUInt("wifi_src", storedMetadata.wifiSourceValue);
+  } else {
+    _prefs.remove("wifi_src");
+  }
+  _prefs.putBool("wifi_cred_ok", storedMetadata.wifiCredentialValidityValue);
   _prefs.putString("cam_name", profile.cameraName);
   _prefs.putString("ble_addr", profile.bleAddress);
   if (profile.bleAddress.length() > 0 && profile.bleAddressTypeKnown) {
@@ -78,18 +118,20 @@ bool CameraProfileStore::saveWifiCredentials(const String& bleAddress, const Wif
   if (!begin()) {
     return false;
   }
-  if (bleAddress.length() == 0 || wifi.ssid.length() == 0) {
+  if (bleAddress.length() == 0 || wifi.ssid.length() == 0 || !wifi.credentialsValid) {
     clearWifiCredentialKeys(_prefs);
     return false;
   }
 
-  _prefs.putBool("wifi_valid", true);
+  _prefs.putBool("wifi_valid", wifi.credentialsValid);
   _prefs.putString("wifi_ble_addr", bleAddress);
   _prefs.putString("wifi_ssid", wifi.ssid);
   _prefs.putString("wifi_pass", wifi.passphrase);
   _prefs.putString("wifi_bssid", wifi.bssid);
   _prefs.putUInt("wifi_freq", wifi.frequencyMhz);
   _prefs.putUInt("wifi_ch", wifi.channel);
+  _prefs.putUInt("wifi_src", static_cast<uint8_t>(wifi.source));
+  _prefs.putBool("wifi_cred_ok", wifi.credentialsValid);
   return true;
 }
 
@@ -110,6 +152,8 @@ bool CameraProfileStore::clearBlePairing() {
   _prefs.remove("ble_addr");
   _prefs.remove("ble_addr_type");
   _prefs.remove("ble_bonded");
+  _prefs.remove("proto_gen");
+  _prefs.remove("cap_ver");
   clearWifiCredentialKeys(_prefs);
   return true;
 }

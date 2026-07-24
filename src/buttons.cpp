@@ -6,6 +6,7 @@ Buttons::Buttons() : _input(KEY2_PAIRING_RESET_HOLD_MS) {}
 
 void Buttons::begin() {
   M5.update();
+  M5.BtnA.setHoldThresh(PASSKEY_DIGIT_CONFIRM_HOLD_MS);
   M5.BtnPWR.setHoldThresh(POWER_BUTTON_HOLD_MS);
   pinMode(KEY2_FALLBACK_GPIO, INPUT_PULLUP);
   _input.reset();

@@ -265,6 +265,16 @@ bool BleCameraService::lastFailureWasResourceExhausted() const {
     return _client != nullptr && _client->lastFailureWasResourceExhausted();
 }
 
+const CameraProtocolProfile& BleCameraService::protocolProfile() const {
+    return _client != nullptr
+             ? _client->protocolProfile()
+             : cameraProtocolProfile(RicohProtocolGeneration::Unknown);
+}
+
+RicohBleSecurityState BleCameraService::securityState() const {
+    return _client != nullptr ? _client->securityState() : RicohBleSecurityState{};
+}
+
 String BleCameraService::statusText() const {
     return _client != nullptr ? _client->statusText() : String("BLE service not attached");
 }

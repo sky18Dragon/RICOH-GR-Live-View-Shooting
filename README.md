@@ -36,10 +36,12 @@
 - **流畅的 LiveView 渲染**：MJPEG 流解析后由 JPEGDEC（含 ESP32-S3 优化）解码到 LovyanGFX / M5Canvas，并在 Canvas 尺寸变化后同步 JPEG 视口。
 - **PSRAM 安全画布与帧缓冲**：16 位 Canvas 优先显式分配到 PSRAM；分配失败时保留原画布并每 2 秒重试。MJPEG 使用独立的 256 KB 帧缓冲降低内存碎片风险。
 - **相机待机保护**：读取 `Power State` 和 `Operation Mode`，在相机待机或关机状态下进入 `CAMERA_SLEEP_GUARD`，避免自动流程反复唤醒相机。
+- **运行时协议 Profile**：安全连接后根据 GATT 证据识别 GR III Family 或 GR IV Family；GR III 使用 UUID，GR IV 保留已验证的固定 Handle 路径，未知协议拒绝有副作用的写入。
 - **WLAN 参数缓存**：将 SSID、BSSID、信道、密码和加密信息持久化到 NVS，用于后续横握连接的缓存快速路径；BLE 仍是连接与相机 Wi-Fi 激活的控制锚点。
 - **BLE AF 遥控快门**：Button A 每次完整按下/松开最多发送一次 AF+拍摄命令，长按阶段只提供视觉和声音反馈。
+- **GR III Family 六位码配对**：首次配对时支持在 StickS3 上用 Button A 输入相机显示的随机六位码，无需连接电脑。
 - **可恢复的运行监控**：周期性检查 Wi-Fi、HTTP 流和有效 JPEG 帧健康度，LiveView 卡死时触发连接恢复。
-- **Host Native 测试**：34 项本地测试覆盖姿态门控状态机、MJPEG 解析、Supervisor、按键输入、姿态判断和 UI 动画。
+- **Host Native 测试**：本地测试覆盖 GR3/GR4 协议 Profile、配对策略、姿态门控状态机、MJPEG 解析、Supervisor、按键输入、姿态判断和 UI 动画。
 
 ---
 
@@ -64,6 +66,7 @@ pio device monitor -b 115200
 1. 打开 RICOH GR 相机，并在菜单中启用蓝牙连接。
 2. StickS3 上电后自动扫描以 `GR_` 开头的 BLE 广播。
 3. 找到相机后进行安全绑定（Bonding），并将相机身份和 BLE 地址保存到 NVS。
+4. GR III Family 首次配对时，相机会显示六位随机码。StickS3 出现 `PAIRING PASSKEY` 后，短按 Button A 让当前位 `0..9` 循环，长按约 600 ms 确认该位；六位确认后自动提交。此过程不需要电脑，串口输入仅作为调试后备。
 
 ### 3. 姿态控制的 Wi-Fi 与 LiveView
 
@@ -97,6 +100,7 @@ platformio run -e m5stack-sticks3
 | 实体按键 | 状态场景 | 行为 |
 | :--- | :--- | :--- |
 | **Button A** | 相机可拍摄状态 | 松开时最多发送一次 AF+拍摄命令；按住超过 300 ms 后光圈收缩、变绿并播放提示音，但不会额外发送相机指令 |
+| **Button A** | GR III 六位码输入 | 短按当前位加一；长按约 600 ms 确认并进入下一位；输入期间不会触发快门或唤醒 |
 | **Button A** | `CAMERA_SLEEP_GUARD` | 在保护策略允许时执行手动唤醒、重建 BLE 栈并重连，不触发拍摄 |
 | **Button B** | 任意状态，长按 3 秒 | 显示连续进度；达到阈值后只触发一次 BLE 配对与缓存重置，中途松开则取消 |
 | **电源键（BtnPWR）** | 任意状态，长按约 1.2 秒 | 关闭 StickS3 电源 |
@@ -120,6 +124,7 @@ platformio run -e m5stack-sticks3
 - **[AppController](src/app/AppController.h)**：核心业务状态机，统一处理连接生命周期、姿态门控、保护态和恢复事件。
 - **[SystemSupervisor](src/supervisor/SystemSupervisor.h)**：由主循环周期调用的健康监视器，检测预览关闭、流停滞和有效帧超时。
 - **[BleCameraService](src/services/BleCameraService.h)**：负责 BLE 扫描、绑定、重连、相机状态与 Wi-Fi 参数读取，以及快门控制。
+- **[CameraProtocolProfile](src/camera_protocol_profile.h)**：描述 GR II/III/IV 代际能力、WLAN 动作和凭据来源；未知 Profile 默认禁止 WLAN/Power/快门写入。
 - **[WifiPreviewService](src/services/WifiPreviewService.h)**：负责 Wi-Fi STA、HTTP Probe、MJPEG 流和 LiveView 生命周期。
 - **[UiCoordinator](src/ui/UiCoordinator.h)**：将应用状态、姿态和用户输入映射为 UI 场景与命令。
 - **[OrientationTracker](src/ui/OrientationTracker.h)**：根据 StickS3 实机坐标轴完成低通、滞回和稳定时间判断。
@@ -134,31 +139,36 @@ flowchart TD
     C -->|否| E[扫描 GR_ 广播并配对]
     D --> F{直连成功?}
     F -->|否| E
-    F -->|是| G[BLE_READY]
-    E --> G
-    G --> H[读取 Power State 与 Operation Mode]
-    H --> I{允许启动相机 Wi-Fi?}
-    I -->|否| J[CAMERA_SLEEP_GUARD]
-    I -->|是| K[通过 BLE 请求 Wi-Fi ON]
-    K --> L[读取并缓存最新 Wi-Fi 参数]
-    L --> M{设备姿态}
-    M -->|竖握| N[WIFI_CREDENTIALS_READY]
-    M -->|横握| O[CONNECTING_WIFI]
-    N -->|稳定转为横握| O
-    O --> P{连接成功且仍为横握?}
-    P -->|否| N
-    P -->|是| Q[HTTP_PROBING]
-    Q --> R[PREVIEW_STARTING]
-    R --> S[PREVIEW_RUNNING]
-    S -->|稳定转为竖握| T[关闭预览并断开 Wi-Fi]
-    T --> N
-    J -->|冷却后按 Button A| U[手动唤醒并重建 BLE]
-    U --> D
+    E --> G[BLE 握手与配对成功]
+    F -->|是| H[BLE 连接建立]
+    G --> H
+    H --> I[发现 GATT 并识别协议 Profile]
+    I --> J[读取 Power State 和 Operation Mode]
+    J --> K{Profile 与状态允许 WLAN?}
+    K -->|允许| U[GR IV 固定 Handle / GR III Network Type UUID 开 Wi-Fi]
+    K -->|禁止| L[进入 CAMERA_SLEEP_GUARD]
+    U --> M[读取并缓存最新 Wi-Fi 参数]
+    M --> N{设备姿态}
+    N -->|竖握| O[WIFI_CREDENTIALS_READY]
+    N -->|横握| P[CONNECTING_WIFI]
+    O -->|稳定转为横握| P
+    P --> Q{连接成功且仍为横握?}
+    Q -->|否| O
+    Q -->|是| R[HTTP_PROBING -> PREVIEW_STARTING -> PREVIEW_RUNNING]
+    R -->|稳定转为竖握| V[关闭预览并断开 Wi-Fi]
+    V --> O
+    L --> S[防误唤醒状态: GR III 最短 8s 后建立新连接只读探测]
+    S -->|按 Button A| T[立即发起安全的新连接重试]
+    T --> D
 ```
 
 ### 相机关机与休眠保护
 
-当相机报告 `BLE_STARTUP`、`POWER_OFF_TRANSFER` 或关机状态时，固件清理 Wi-Fi/预览连接并进入 `CAMERA_SLEEP_GUARD`。自动流程在 15 秒冷却期内暂停；后续由 Button A 发起明确的手动唤醒与 BLE 重连，避免后台连接循环持续打扰相机。
+理光相机在被动关机（如超时关机或插拔电池）时，或者在 StickS3 上电发现相机处于 `BLE_STARTUP` 待机广播状态时，为了不打扰用户的正常拍摄：
+
+1. 系统会立即主动切断 Wi-Fi 连接和 BLE 物理层，避免占用通道。
+2. 自动状态机流转到 `CAMERA_SLEEP_GUARD`。GR III Family 会断开旧连接，并以不短于 **8 秒**的 Profile 间隔建立新连接，仅做服务发现、Power/Operation Mode 读取；探测连接绝不写 WLAN、Power 或快门。
+3. 用户可按 Button A 立即发起一次新连接重试，但仍必须重新读到 `CAPTURE` 且 BLE 已认证后，才允许 GR III 写入 WLAN。
 
 ---
 
@@ -171,6 +181,12 @@ flowchart TD
 | `BLE_SCAN_SECONDS` | `2` | 单轮 BLE 扫描时长（秒） |
 | `BLE_FAST_CONNECT_TIMEOUT_MS` | `3000` | 已保存 BLE 地址直连超时 |
 | `BLE_CONNECT_TIMEOUT_MS` | `8000` | 扫描后 BLE 建连超时 |
+| `BLE_CONNECT_ATTEMPTS` | `12` | 存在已配对身份时的最大直连尝试轮数 |
+| `RICOH_BLE_BONDED_SECURITY_WAIT_MS` | `1500` | 已绑定设备建立连接后，等待安全加密完成的等待延时 |
+| `RICOH_BLE_SECURITY_WAIT_MS` | `7000` | 首次配对时，等待安全加密完成的最大超时 |
+| `RICOH_BLE_PASSKEY_ENTRY_WAIT_MS` | `45000` | GR III 六位 Passkey 的设备端输入窗口 |
+| `RICOH_BLE_GATT_DIAGNOSTICS` | `0` | 编译期 GATT 表诊断开关；默认关闭且不读取/输出特征值 |
+| `RICOH_BLE_POWER_NOTIFY_SETTLE_MS` | `30` | 开启 Power Notify 后的短暂等待窗口，用于在 Wi-Fi ON 前捕获立即到来的关机通知 |
 | `WIFI_CACHED_CONNECT_GRACE_MS` | `700` | 请求 Wi-Fi ON 后的缓存连接等待时间 |
 | `WIFI_CACHED_CONNECT_TIMEOUT_MS` | `1200` | 使用缓存 BSSID 与信道的快速连接超时 |
 | `WIFI_CONNECT_TIMEOUT_MS` | `15000` | Wi-Fi STA 总连接超时 |
@@ -191,14 +207,16 @@ StickS3 实机轴映射为：`abs(X)` 主导时判定竖握，`abs(Y)` 主导时
 ## 相机兼容性
 
 > [!NOTE]
-> 当前固件与协议参数已在 **RICOH GR IV** 和 **RICOH GR IV HDF** 上完成实机验证。
+> **RICOH GR IV** 与 **RICOH GR IV HDF** 的状态来自原项目实机记录；**RICOH GR IIIx** 已在本分支固件上完成实机验证。**RICOH GR III** 与 HDF 版本仍需独立实机记录，编译通过不等于跨机型验证。
 
 | 相机系列 | 状态 | 说明 |
 | :--- | :---: | :--- |
-| **RICOH GR IV HDF** | **已验证** | 核心开发与实机测试目标，支持 BLE 快门和 LiveView |
-| **RICOH GR IV** | **已验证** | 已验证 BLE 配对/重连、Wi-Fi 激活、LiveView 和 BLE AF 快门 |
-| **RICOH GR III / GR IIIx** | **不支持** | BLE 握手与唤醒时序存在代际差异，不属于当前设计目标 |
-| **RICOH GR II** | **不支持** | 缺少当前固件依赖的 BLE 优先广播和按需 Wi-Fi AP 控制链路 |
+| **RICOH GR IV HDF** | **已实机验证** | 原项目已验证 BLE 配对/重连、WLAN、LiveView、快门与关机保护；本次安全参数变化仍需按回归矩阵复测。 |
+| **RICOH GR IV** | **已实机验证** | 原项目已完成 BLE、WLAN、LiveView 和 BLE AF 快门实机验证；本次改动保留固定 Handle Profile。 |
+| **RICOH GR III** | **实现完成，等待实机验证** | 已实现设备端 Passkey、UUID WLAN/凭据、电源与 Capture 门控；仍需 GR III 机身独立实测记录。 |
+| **RICOH GR IIIx** | **已实机验证** | 本分支固件已在 GR IIIx 相机上完成实机验证；详细矩阵与去密日志待补充到 `docs/gr3_family_test_record.md`。 |
+| **RICOH GR III HDF / GR IIIx HDF** | **实验性支持** | 暂无独立实机证据，不假定 HDF 版本 GATT 完全相同。 |
+| **RICOH GR II** | **暂不支持** | 只预留 `Gr2Family`、ManualOnly/ManualConfiguration 能力模型，不含任何虚构 UUID、Handle 或通信实现。 |
 
 ---
 
@@ -230,6 +248,35 @@ WiFi cache: saved (fresh BLE) ...
 Flow: ACTIVATING_WIFI -> WIFI_CREDENTIALS_READY (portrait cached WiFi params; connection paused)
 ```
 
+### 正常开机直连并启动 LiveView（GR IV 结构示例）
+
+```text
+BLE: connected secure connect_ms=2800
+BLE profile detected=GR4_FAMILY source=gr4_read_probe
+Flow: BLE_SCAN -> BLE_READY (BLE connected)
+BLE: power profile=GR4_FAMILY value=0x01
+BLE: operation mode read value=0x00 state=CAPTURE
+BLE: power notify enabled cccd=0x00EC
+BLE WLAN activation method=FIXED_HANDLE result=OK
+BLE WiFi params profile=GR4_FAMILY ssid_present=1 passphrase_present=1 bssid_present=1 channel=1
+WiFi cache: waiting 700ms for camera AP before cached connect
+WiFi cache: trying cached params ssid='GR_H264456' bssid='F2:3E:05:26:45:56' channel=1 short_timeout=1200ms
+WiFi: connect completed in 450ms channel=1 status=CONNECTED
+Flow: WIFI_CONNECTING -> LIVEVIEW_RUNNING (LiveView opened)
+LiveView: connected
+```
+
+### 相机处于待机状态（防止意外唤醒）
+
+```text
+BLE: power profile=GR3_FAMILY value=0x01
+BLE: operation mode read value=0x02 state=BLE_STARTUP
+WiFi blocked: camera operation mode=BLE_STARTUP while power=ON source=WiFi open
+BLE guard: next power probe in 8000ms (BLE operation mode standby)
+BLE guard: remote disconnect reason=533; waiting for camera power on, auto scan continues
+```
+*(固件断开旧连接，下一次只读探测不会写 WLAN；用户也可按 Button A 请求即时安全重试。)*
+
 ### 竖握转横握：继续完整预览流程
 
 ```text
@@ -260,6 +307,7 @@ Camera recovery: LiveView frame stall watchdog
 
 - 项目包含可将 StickS3 安装到相机热靴的 3D 打印安装件。
 - 特别感谢 [wjhrdy](https://github.com/wjhrdy) 对 [GR IV monochrome](https://github.com/sky18Dragon/RICOH-GR-Live-View-Shooting/issues/2) 的实机验证以及热靴打印件支持。
+- 特别感谢 Reddit 用户 **JoeBlack-94** 对当前固件进行实机测试并确认其可正常工作，为项目兼容性验证作出了重要贡献。
 
 ---
 
