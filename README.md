@@ -32,14 +32,16 @@
 ## 核心能力
 
 - **姿态门控的连接生命周期**：竖握只完成 BLE 连接、相机 Wi-Fi 开启和参数缓存，不建立 Wi-Fi STA 连接；横握才继续 HTTP Probe 与 LiveView。
-- **横竖屏专属界面**：竖握显示 135×240 遥控光圈，横握显示 240×135 满屏预览；姿态切换采用低通滤波、滞回、稳定时间和最短保持时间抑制抖动。
-- **流畅的 LiveView 渲染**：MJPEG 流解析后由 JPEGDEC（含 ESP32-S3 优化）解码到 LovyanGFX / M5Canvas，并在 Canvas 尺寸变化后同步 JPEG 视口。
+- **横竖屏专属界面**：竖握显示 135×240 遥控光圈，横握使用 240×135 预览画布；姿态切换采用低通滤波、滞回、稳定时间和最短保持时间抑制抖动。
+- **不裁切的 LiveView 渲染**：MJPEG 流解析后由 JPEGDEC（含 ESP32-S3 优化）解码到 LovyanGFX / M5Canvas；画面按原始宽高比完整缩放并居中显示，比例不匹配时留黑边，不再放大裁切。
 - **PSRAM 安全画布与帧缓冲**：16 位 Canvas 优先显式分配到 PSRAM；分配失败时保留原画布并每 2 秒重试。MJPEG 使用独立的 256 KB 帧缓冲降低内存碎片风险。
-- **相机待机保护**：读取 `Power State` 和 `Operation Mode`，在相机待机或关机状态下进入 `CAMERA_SLEEP_GUARD`，避免自动流程反复唤醒相机。
+- **更快的首次 BLE 配对**：识别到有效 RICOH 广播后提前结束扫描，扫描到连接的等待缩短为 50 ms；若首次 SMP 未启动，会在短探测窗口后快速重试，同时为后续相机确认保留完整时间。
+- **真实连接驱动的扫描动画**：扫描与连接期间两个亮绿色圆点循环靠近、分开；只有 BLE 链路真正建立后才合并为一个圆。
+- **相机待机保护与自动关机**：相机主动关机、发送关机通知或 BLE 断链后进入 `CAMERA_SLEEP_GUARD`，停止自动扫描和重连；30 秒无操作后 StickS3 自动关机。
 - **WLAN 参数缓存**：将 SSID、BSSID、信道、密码和加密信息持久化到 NVS，用于后续横握连接的缓存快速路径；BLE 仍是连接与相机 Wi-Fi 激活的控制锚点。
-- **BLE AF 遥控快门**：Button A 每次完整按下/松开最多发送一次 AF+拍摄命令，长按阶段只提供视觉和声音反馈。
+- **低延迟 BLE AF 快门**：Button A 按下沿立即发送一次 AF+拍摄命令；连接建立时预热 Shooting Service/Characteristic，缓存 GATT 对象并请求低延迟连接参数，后续拍摄复用已准备好的链路。
 - **可恢复的运行监控**：周期性检查 Wi-Fi、HTTP 流和有效 JPEG 帧健康度，LiveView 卡死时触发连接恢复。
-- **Host Native 测试**：34 项本地测试覆盖姿态门控状态机、MJPEG 解析、Supervisor、按键输入、姿态判断和 UI 动画。
+- **Host Native 测试**：43 项本地测试覆盖姿态门控状态机、CameraSleep、MJPEG 解析、Supervisor、按键输入、图像适配、姿态判断和 UI 动画。
 
 ---
 
@@ -63,7 +65,10 @@ pio device monitor -b 115200
 
 1. 打开 RICOH GR 相机，并在菜单中启用蓝牙连接。
 2. StickS3 上电后自动扫描以 `GR_` 开头的 BLE 广播。
-3. 找到相机后进行安全绑定（Bonding），并将相机身份和 BLE 地址保存到 NVS。
+3. 找到有效且可连接的 RICOH 广播后会立即结束本轮扫描并开始安全绑定（Bonding）。
+4. 相机显示配对确认码时，在相机上确认；成功后相机身份、BLE 地址与绑定信息保存到 NVS。
+
+首次安全协商如果没有真正启动，固件会在 3 秒探测窗口后以 150 ms 间隔快速进入第二轮，而不是完整空等；第二轮及后续尝试仍保留 7 秒确认窗口。
 
 ### 3. 姿态控制的 Wi-Fi 与 LiveView
 
@@ -81,14 +86,18 @@ pio device monitor -b 115200
 # 编译 Host Native 目标
 platformio run -e native
 
-# 运行 34 项 Native 测试
+# 运行 43 项 Native 测试
 platformio test -e native
 
 # 编译 StickS3 固件
 platformio run -e m5stack-sticks3
 ```
 
-当前基线构建占用：RAM 76,196 / 327,680 bytes（23.3%），Flash 1,301,497 / 3,342,336 bytes（38.9%）。
+当前基线构建占用：RAM 76,708 / 327,680 bytes（23.4%），Flash 1,301,641 / 3,342,336 bytes（38.9%）。
+
+### 5. M5Burner 分享镜像
+
+用于 M5Burner 分享时，应生成从 `0x0` 烧录的单文件合并镜像，内容依次包含 bootloader、分区表、`boot_app0` 和应用固件。不要把开发设备的 NVS 分区合并进去；保持 `0x9000–0xDFFF` 为擦除态（全 `0xFF`），即可避免把相机身份、BLE Bond、SSID 或密码带给其他用户。
 
 ---
 
@@ -96,14 +105,15 @@ platformio run -e m5stack-sticks3
 
 | 实体按键 | 状态场景 | 行为 |
 | :--- | :--- | :--- |
-| **Button A** | 相机可拍摄状态 | 松开时最多发送一次 AF+拍摄命令；按住超过 300 ms 后光圈收缩、变绿并播放提示音，但不会额外发送相机指令 |
-| **Button A** | `CAMERA_SLEEP_GUARD` | 在保护策略允许时执行手动唤醒、重建 BLE 栈并重连，不触发拍摄 |
+| **Button A** | 相机可拍摄状态 | 按下时立即发送一次 AF+拍摄命令；持续按住只显示光圈收缩、亮绿色和提示音，不会重复发送或连拍 |
+| **Button A** | `CAMERA_SLEEP_GUARD` | 退出保护态、重建 BLE 栈并进入扫描场景，不触发拍摄 |
 | **Button B** | 任意状态，长按 3 秒 | 显示连续进度；达到阈值后只触发一次 BLE 配对与缓存重置，中途松开则取消 |
 | **电源键（BtnPWR）** | 任意状态，长按约 1.2 秒 | 关闭 StickS3 电源 |
 
 交互规则：
 
-- 竖握显示中央遥控光圈；横握显示满屏 LiveView 和微型电量图标。
+- 竖握显示中央遥控光圈；横握显示等比例 LiveView 和微型电量图标。
+- 扫描与 BLE 建连阶段始终显示两个亮绿色圆点来回靠近；只有 `bleConnected=true` 后才合并。
 - 拍摄时，竖屏显示 300 ms 快门闪烁，横屏显示 100 ms 白色快门边框。
 - 姿态每 40 ms 采样，需要稳定 500 ms 才切换，并至少保持 500 ms。
 - 活跃背光为 180，休眠背光为 24；变暗动画 900 ms，唤醒提亮 180 ms。
@@ -130,9 +140,9 @@ platformio run -e m5stack-sticks3
 flowchart TD
     A[StickS3 上电] --> B[加载外设与 NVS]
     B --> C{存在已保存相机?}
-    C -->|是| D[按 BLE 地址直连]
+    C -->|是| D[按已保存地址优先快速扫描]
     C -->|否| E[扫描 GR_ 广播并配对]
-    D --> F{直连成功?}
+    D --> F{找到并连接成功?}
     F -->|否| E
     F -->|是| G[BLE_READY]
     E --> G
@@ -152,13 +162,14 @@ flowchart TD
     R --> S[PREVIEW_RUNNING]
     S -->|稳定转为竖握| T[关闭预览并断开 Wi-Fi]
     T --> N
-    J -->|冷却后按 Button A| U[手动唤醒并重建 BLE]
+    J -->|按 Button A| U[退出保护态并重建 BLE]
+    J -->|30 秒无操作| V[StickS3 自动关机]
     U --> D
 ```
 
 ### 相机关机与休眠保护
 
-当相机报告 `BLE_STARTUP`、`POWER_OFF_TRANSFER` 或关机状态时，固件清理 Wi-Fi/预览连接并进入 `CAMERA_SLEEP_GUARD`。自动流程在 15 秒冷却期内暂停；后续由 Button A 发起明确的手动唤醒与 BLE 重连，避免后台连接循环持续打扰相机。
+当相机主动关机、通过 BLE 通知电源为 `0x00`，或已建立链路后发生非零原因断链时，固件清理 Wi-Fi/预览连接并进入 `CAMERA_SLEEP_GUARD`。该场景不会自行扫描、重连或再次开启相机 Wi-Fi；只有 Button A 能退出保护态并回到扫描场景。若 30 秒内没有操作，StickS3 自动关机。重复的 Guard 阻止日志每次进入保护态只打印一次，避免刷屏。
 
 ---
 
@@ -169,13 +180,15 @@ flowchart TD
 | 参数 | 默认值 | 说明 |
 | :--- | :---: | :--- |
 | `BLE_SCAN_SECONDS` | `2` | 单轮 BLE 扫描时长（秒） |
-| `BLE_FAST_CONNECT_TIMEOUT_MS` | `3000` | 已保存 BLE 地址直连超时 |
 | `BLE_CONNECT_TIMEOUT_MS` | `8000` | 扫描后 BLE 建连超时 |
+| `BLE_SCAN_TO_CONNECT_DELAY_MS` | `50` | 扫描完成到开始连接的稳定等待 |
+| `RICOH_BLE_FIRST_PAIRING_PROBE_MS` | `3000` | 首轮未启动 SMP 时的快速探测窗口 |
+| `BLE_FIRST_PAIRING_RETRY_DELAY_MS` | `150` | 首次配对探测失败后的快速重试间隔 |
 | `WIFI_CACHED_CONNECT_GRACE_MS` | `700` | 请求 Wi-Fi ON 后的缓存连接等待时间 |
 | `WIFI_CACHED_CONNECT_TIMEOUT_MS` | `1200` | 使用缓存 BSSID 与信道的快速连接超时 |
 | `WIFI_CONNECT_TIMEOUT_MS` | `15000` | Wi-Fi STA 总连接超时 |
 | `LIVEVIEW_STALL_TIMEOUT_MS` | `5000` | 有效预览帧停滞阈值 |
-| `CAMERA_POWER_OFF_COOLDOWN_MS` | `15000` | 关机保护冷却时间 |
+| `CAMERA_SLEEP_AUTO_POWER_OFF_MS` | `30000` | CameraSleep 无操作自动关机时间 |
 | `POWER_BUTTON_HOLD_MS` | `1200` | 电源键关机长按阈值 |
 | `KEY2_PAIRING_RESET_HOLD_MS` | `3000` | Button B 配对重置长按阈值 |
 | `kOrientationSampleMs` | `40` | IMU 姿态采样周期 |
@@ -214,7 +227,9 @@ StickS3 实机轴映射为：`abs(X)` 主导时判定竖握，`abs(Y)` 主导时
 - [src/camera_profile_store.cpp](src/camera_profile_store.cpp) — BLE 身份和 Wi-Fi 参数的 NVS 持久化
 - [src/jpeg_decoder.cpp](src/jpeg_decoder.cpp) / [src/mjpeg_stream.cpp](src/mjpeg_stream.cpp) — JPEG 解码与 MJPEG 帧边界解析
 - [src/services/PreviewFrameBuffer.cpp](src/services/PreviewFrameBuffer.cpp) — 256 KB 预览帧缓冲与统计
-- [test/test_native/](test/test_native/) — 34 项 Host Native 单元测试
+- [src/image_fit.h](src/image_fit.h) — LiveView 等比例完整显示（contain）矩形计算
+- [src/camera_sleep_policy.h](src/camera_sleep_policy.h) — CameraSleep 30 秒自动关机判定
+- [test/test_native/](test/test_native/) — 43 项 Host Native 单元测试
 
 ---
 

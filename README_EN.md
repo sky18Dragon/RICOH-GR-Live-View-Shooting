@@ -32,14 +32,16 @@
 ## Core Capabilities
 
 - **Orientation-gated connection lifecycle**: Portrait completes BLE connection, camera Wi-Fi activation, and credential caching without starting a Wi-Fi STA connection. Landscape continues to HTTP Probe and LiveView.
-- **Dedicated portrait and landscape interfaces**: Portrait shows a 135×240 remote aperture; landscape shows a 240×135 full-screen preview. Low-pass filtering, hysteresis, stabilization, and minimum hold time prevent orientation chatter.
-- **Smooth LiveView rendering**: The MJPEG parser feeds JPEGDEC, including ESP32-S3 optimizations, into LovyanGFX / M5Canvas. The JPEG viewport is synchronized whenever the Canvas dimensions change.
+- **Dedicated portrait and landscape interfaces**: Portrait shows a 135×240 remote aperture; landscape uses a 240×135 preview canvas. Low-pass filtering, hysteresis, stabilization, and minimum hold time prevent orientation chatter.
+- **Uncropped LiveView rendering**: The MJPEG parser feeds JPEGDEC, including ESP32-S3 optimizations, into LovyanGFX / M5Canvas. Every frame is centered and scaled to fit while preserving its original aspect ratio; mismatched ratios use letterboxing instead of zoom-and-crop.
 - **PSRAM-safe Canvas and frame buffer**: The 16-bit Canvas is explicitly allocated in PSRAM when available. A failed resize preserves the previous Canvas and retries every two seconds. MJPEG uses a separate 256 KB frame buffer to reduce fragmentation risk.
-- **Camera standby protection**: `Power State` and `Operation Mode` are checked before connection work. A standby or powered-off camera enters `CAMERA_SLEEP_GUARD` to avoid repeated automatic wake attempts.
+- **Faster first-time BLE pairing**: A valid RICOH advertisement ends discovery early, scan-to-connect settling is reduced to 50 ms, and an initial SMP attempt that never starts is retried quickly while later attempts retain a full confirmation window.
+- **Connection-driven scan animation**: Two bright-green dots repeatedly approach and separate throughout scanning and connection; they merge only after the BLE link is actually connected.
+- **Camera standby protection and automatic shutdown**: A camera-initiated power-off, power-off notification, or BLE link loss enters `CAMERA_SLEEP_GUARD`, stopping automatic scan/reconnect. The StickS3 powers itself off after 30 seconds without input.
 - **WLAN parameter caching**: SSID, BSSID, channel, passphrase, and security data are persisted in NVS for the landscape fast path. BLE remains the control anchor for connection and camera Wi-Fi activation.
-- **BLE AF remote shutter**: Button A sends at most one AF+shoot command per complete press/release. Holding only adds visual and sound feedback.
+- **Low-latency BLE AF shutter**: Button A sends one AF+shoot request immediately on the press edge. The Shooting Service and characteristics are warmed and cached at connection time, with low-latency connection parameters requested for subsequent shots.
 - **Recoverable runtime monitoring**: Wi-Fi, HTTP stream, and valid JPEG frame health are checked periodically; a stalled LiveView triggers connection recovery.
-- **Host-side Native tests**: 34 tests cover the orientation-gated state machine, MJPEG parsing, Supervisor, button input, orientation tracking, and UI animation.
+- **Host-side Native tests**: 43 tests cover the orientation-gated state machine, CameraSleep, MJPEG parsing, Supervisor, button input, image fitting, orientation tracking, and UI animation.
 
 ---
 
@@ -63,7 +65,10 @@ If port detection fails, append `--upload-port <port>`.
 
 1. Turn on the RICOH GR camera and enable Bluetooth in its settings.
 2. Power on the StickS3. It scans automatically for BLE advertisements beginning with `GR_`.
-3. Once found, the StickS3 performs secure bonding and saves the camera identity and BLE address in NVS.
+3. Discovery ends as soon as a valid, connectable RICOH advertisement is found, and secure bonding begins.
+4. Confirm the pairing code on the camera when prompted. The camera identity, BLE address, and bond are then saved in NVS.
+
+If the first security exchange never starts, the firmware leaves the 3-second probe window and retries after 150 ms instead of waiting out a long dead attempt. The second and later attempts keep the full 7-second confirmation window.
 
 ### 3. Orientation-gated Wi-Fi and LiveView
 
@@ -81,14 +86,18 @@ If the device turns portrait during a blocking Wi-Fi connection attempt, the con
 # Build the host-side Native target
 platformio run -e native
 
-# Run all 34 Native tests
+# Run all 43 Native tests
 platformio test -e native
 
 # Build the StickS3 firmware
 platformio run -e m5stack-sticks3
 ```
 
-Current baseline build usage: RAM 76,196 / 327,680 bytes (23.3%), Flash 1,301,497 / 3,342,336 bytes (38.9%).
+Current baseline build usage: RAM 76,708 / 327,680 bytes (23.4%), Flash 1,301,641 / 3,342,336 bytes (38.9%).
+
+### 5. M5Burner Distribution Image
+
+For M5Burner distribution, create one merged image flashed at `0x0`, containing the bootloader, partition table, `boot_app0`, and application firmware. Do not merge NVS from a development device. Keeping `0x9000–0xDFFF` erased (all `0xFF`) prevents camera identity, BLE bonds, SSIDs, or passwords from being distributed to other users.
 
 ---
 
@@ -96,14 +105,15 @@ Current baseline build usage: RAM 76,196 / 327,680 bytes (23.3%), Flash 1,301,49
 
 | Physical Button | Context | Action |
 | :--- | :--- | :--- |
-| **Button A** | Camera ready | Sends at most one AF+shoot command on release. After a 300 ms hold, the aperture contracts, turns green, and plays feedback without sending an additional camera command. |
-| **Button A** | `CAMERA_SLEEP_GUARD` | When allowed by the guard policy, performs an explicit wake, rebuilds the BLE stack, and reconnects without shooting. |
+| **Button A** | Camera ready | Immediately sends one AF+shoot command on press. Continuing to hold only contracts the aperture, turns it bright green, and plays feedback; it never repeats the command or starts continuous shooting. |
+| **Button A** | `CAMERA_SLEEP_GUARD` | Leaves the guard, rebuilds the BLE stack, and returns to scanning without shooting. |
 | **Button B** | Any state, hold for 3 seconds | Shows continuous progress and triggers the BLE pairing/cache reset once at the threshold. Releasing early cancels it. |
 | **Power Button (BtnPWR)** | Any state, hold for about 1.2 seconds | Powers off the StickS3. |
 
 Interaction rules:
 
-- Portrait shows the centered remote aperture; landscape shows full-screen LiveView and a tiny battery indicator.
+- Portrait shows the centered remote aperture; landscape shows aspect-preserving LiveView and a tiny battery indicator.
+- Scanning and BLE connection always show two bright-green dots moving together and apart; they merge only when `bleConnected=true`.
 - A shot produces a 300 ms portrait flash or a 100 ms white shutter frame in landscape.
 - Orientation is sampled every 40 ms, must remain stable for 500 ms, and is then held for at least 500 ms.
 - Active brightness is 180 and sleep brightness is 24; dimming takes 900 ms and wake brightening takes 180 ms.
@@ -130,9 +140,9 @@ The original interaction prototype is archived at [StickS3 Interaction Prototype
 flowchart TD
     A[StickS3 Power On] --> B[Initialize Peripherals and Load NVS]
     B --> C{Saved Camera Identity?}
-    C -->|Yes| D[Reconnect by BLE Address]
+    C -->|Yes| D[Fast Preferred-address Scan]
     C -->|No| E[Scan GR_ Advertisements and Pair]
-    D --> F{Reconnect Successful?}
+    D --> F{Camera Found and Connected?}
     F -->|No| E
     F -->|Yes| G[BLE_READY]
     E --> G
@@ -152,13 +162,14 @@ flowchart TD
     R --> S[PREVIEW_RUNNING]
     S -->|Stable Portrait| T[Close Preview and Disconnect Wi-Fi]
     T --> N
-    J -->|Button A after Cooldown| U[Manual Wake and Rebuild BLE]
+    J -->|Button A| U[Leave Guard and Rebuild BLE]
+    J -->|30 Seconds Idle| V[Power Off StickS3]
     U --> D
 ```
 
 ### Camera Power-off and Standby Guard
 
-When the camera reports `BLE_STARTUP`, `POWER_OFF_TRANSFER`, or a powered-off state, the firmware clears the Wi-Fi/preview connection and enters `CAMERA_SLEEP_GUARD`. Automatic flow pauses during the 15-second cooldown. Button A then provides the explicit manual wake and BLE reconnect path, avoiding a background connection loop that repeatedly disturbs the camera.
+When the camera powers itself off, reports power value `0x00` over BLE, or an established BLE link ends with a non-zero disconnect reason, the firmware clears Wi-Fi/preview and enters `CAMERA_SLEEP_GUARD`. This scene never scans, reconnects, or turns camera Wi-Fi on by itself. Only Button A leaves the guard and returns to scanning. If there is no input for 30 seconds, the StickS3 powers itself off. The repeated guard-block log is emitted only once per guard entry to avoid serial-log flooding.
 
 ---
 
@@ -169,13 +180,15 @@ Connection and guard settings live in [src/config.h](src/config.h); UI and orien
 | Parameter | Default | Description |
 | :--- | :---: | :--- |
 | `BLE_SCAN_SECONDS` | `2` | Duration of one BLE scan cycle in seconds |
-| `BLE_FAST_CONNECT_TIMEOUT_MS` | `3000` | Direct reconnect timeout for a saved BLE address |
 | `BLE_CONNECT_TIMEOUT_MS` | `8000` | BLE connection timeout after discovery |
+| `BLE_SCAN_TO_CONNECT_DELAY_MS` | `50` | Settling delay between scan completion and connection |
+| `RICOH_BLE_FIRST_PAIRING_PROBE_MS` | `3000` | Fast probe window when initial SMP does not start |
+| `BLE_FIRST_PAIRING_RETRY_DELAY_MS` | `150` | Fast retry delay after the first pairing probe |
 | `WIFI_CACHED_CONNECT_GRACE_MS` | `700` | Delay after requesting Wi-Fi ON before cached connection |
 | `WIFI_CACHED_CONNECT_TIMEOUT_MS` | `1200` | Fast-path timeout using cached BSSID and channel |
 | `WIFI_CONNECT_TIMEOUT_MS` | `15000` | Overall Wi-Fi STA connection timeout |
 | `LIVEVIEW_STALL_TIMEOUT_MS` | `5000` | Valid preview-frame stall threshold |
-| `CAMERA_POWER_OFF_COOLDOWN_MS` | `15000` | Camera power-off guard cooldown |
+| `CAMERA_SLEEP_AUTO_POWER_OFF_MS` | `30000` | CameraSleep idle shutdown timeout |
 | `POWER_BUTTON_HOLD_MS` | `1200` | Power-button shutdown hold threshold |
 | `KEY2_PAIRING_RESET_HOLD_MS` | `3000` | Button B pairing-reset hold threshold |
 | `kOrientationSampleMs` | `40` | IMU orientation sampling interval |
@@ -214,7 +227,9 @@ The StickS3 hardware mapping treats dominant `abs(X)` as portrait and dominant `
 - [src/camera_profile_store.cpp](src/camera_profile_store.cpp) — NVS persistence for BLE identity and Wi-Fi parameters
 - [src/jpeg_decoder.cpp](src/jpeg_decoder.cpp) / [src/mjpeg_stream.cpp](src/mjpeg_stream.cpp) — JPEG decoding and MJPEG frame-boundary parsing
 - [src/services/PreviewFrameBuffer.cpp](src/services/PreviewFrameBuffer.cpp) — 256 KB preview frame buffer and statistics
-- [test/test_native/](test/test_native/) — 34 host-side Native tests
+- [src/image_fit.h](src/image_fit.h) — Aspect-preserving contain rectangle for LiveView
+- [src/camera_sleep_policy.h](src/camera_sleep_policy.h) — 30-second CameraSleep shutdown policy
+- [test/test_native/](test/test_native/) — 43 host-side Native tests
 
 ---
 
