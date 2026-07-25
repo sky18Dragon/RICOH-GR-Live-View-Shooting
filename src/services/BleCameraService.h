@@ -47,8 +47,6 @@ public:
     Result deleteAllBonds();
     void resetStack(bool clearObjects = false);
     bool lastFailureWasResourceExhausted() const;
-    const CameraProtocolProfile& protocolProfile() const;
-    RicohBleSecurityState securityState() const;
 
     String statusText() const;
     String lastError() const;
