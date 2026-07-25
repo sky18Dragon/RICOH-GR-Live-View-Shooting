@@ -172,6 +172,7 @@ void UiCoordinator::update(const UiSnapshot& snapshot,
     _view.resetProgress = input.resetHoldActive ? input.resetHoldProgress : 0.0f;
     _view.resetSplitActive = _resetSplit.active;
     _view.resetSplitProgress = _resetSplit.progress(nowMs);
+    _view.bleConnected = snapshot.bleConnected;
     _view.shutterOverlayActive = _shutterOverlay.active;
     _view.overlayProgress = _shutterOverlay.progress(nowMs);
     _view.hasFrame = snapshot.hasFrame;
@@ -183,9 +184,19 @@ void UiCoordinator::update(const UiSnapshot& snapshot,
 
     const uint32_t sceneElapsed = uiElapsedMs(nowMs, _sceneChangedAtMs);
     if (scene == UiScene::Pairing || scene == UiScene::Connecting) {
-        const float timeProgress = uiClamp01(static_cast<float>(sceneElapsed) /
-                                             static_cast<float>(UiTheme::kConnectMergeMs));
-        _view.sceneProgress = std::max(connectionPhaseFloor(snapshot.appState), timeProgress);
+        if (!snapshot.bleConnected) {
+            const uint32_t cycleDuration = std::max<uint32_t>(UiTheme::kConnectMergeMs, 2U);
+            const uint32_t cycle = sceneElapsed % cycleDuration;
+            const uint32_t halfCycle = cycleDuration / 2U;
+            const float approach = cycle <= halfCycle
+                                       ? static_cast<float>(cycle) / static_cast<float>(halfCycle)
+                                       : static_cast<float>(cycleDuration - cycle) /
+                                             static_cast<float>(cycleDuration - halfCycle);
+            // Never reach the merge branch until the BLE link is authoritative.
+            _view.sceneProgress = 0.90f * uiSmoothStep(approach);
+        } else {
+            _view.sceneProgress = 1.0f;
+        }
     } else if (scene == UiScene::Disconnected) {
         _view.sceneProgress = uiEaseOut(static_cast<float>(sceneElapsed) /
                                         static_cast<float>(UiTheme::kResetSplitMs));

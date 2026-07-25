@@ -12,6 +12,7 @@ void tearDown(void) {}
 
 #include "app/AppController.h"
 #include "camera_identity.h"
+#include "camera_sleep_policy.h"
 #include "image_fit.h"
 #include "mjpeg_stream.h"
 #include "supervisor/SystemSupervisor.h"
@@ -68,11 +69,28 @@ void testContainFitRejectsInvalidDimensions() {
   TEST_ASSERT_EQUAL_INT(0, fit.height);
 }
 
+void testCameraSleepAutoPowerOffWaitsForTimeout() {
+  TEST_ASSERT_FALSE(cameraSleepAutoPowerOffDue(true, 1000, 30999, 30000));
+  TEST_ASSERT_TRUE(cameraSleepAutoPowerOffDue(true, 1000, 31000, 30000));
+}
+
+void testCameraSleepAutoPowerOffRequiresActiveSleep() {
+  TEST_ASSERT_FALSE(cameraSleepAutoPowerOffDue(false, 1000, 50000, 30000));
+  TEST_ASSERT_FALSE(cameraSleepAutoPowerOffDue(true, 1000, 50000, 0));
+}
+
+void testCameraSleepAutoPowerOffHandlesMillisWrap() {
+  constexpr uint32_t enteredAt = 0xFFFFFF00U;
+  TEST_ASSERT_FALSE(cameraSleepAutoPowerOffDue(true, enteredAt, 0x000000F0U, 1000));
+  TEST_ASSERT_TRUE(cameraSleepAutoPowerOffDue(true, enteredAt, 0x00000300U, 1000));
+}
+
 struct FlowHarness {
   static bool bleConnected;
   static bool wifiConnected;
   static bool previewRunning;
   static bool cachedCredentials;
+  static bool guardActive;
   static uint32_t lastRecoveryAt;
   static uint32_t activateCalls;
   static uint32_t readCredentialsCalls;
@@ -87,6 +105,7 @@ struct FlowHarness {
     wifiConnected = false;
     previewRunning = false;
     cachedCredentials = false;
+    guardActive = false;
     lastRecoveryAt = 0;
     activateCalls = 0;
     readCredentialsCalls = 0;
@@ -97,8 +116,8 @@ struct FlowHarness {
     openPreviewCalls = 0;
   }
 
-  static bool noGuard(const char*) { return false; }
-  static bool guardInactive() { return false; }
+  static bool guardBlocks(const char*) { return guardActive; }
+  static bool isGuardActive() { return guardActive; }
   static bool isBleConnected() { return bleConnected; }
   static bool isWifiConnected() { return wifiConnected; }
   static bool runBleDiscovery() { return bleConnected; }
@@ -141,8 +160,8 @@ struct FlowHarness {
 
   static rvf::AppFlowActions actions() {
     rvf::AppFlowActions result;
-    result.cameraSleepGuardBlocksFlow = noGuard;
-    result.cameraSleepGuardActive = guardInactive;
+    result.cameraSleepGuardBlocksFlow = guardBlocks;
+    result.cameraSleepGuardActive = isGuardActive;
     result.isBleConnected = isBleConnected;
     result.isWifiConnected = isWifiConnected;
     result.disconnectWifi = disconnectWifi;
@@ -171,6 +190,7 @@ bool FlowHarness::bleConnected = true;
 bool FlowHarness::wifiConnected = false;
 bool FlowHarness::previewRunning = false;
 bool FlowHarness::cachedCredentials = false;
+bool FlowHarness::guardActive = false;
 uint32_t FlowHarness::lastRecoveryAt = 0;
 uint32_t FlowHarness::activateCalls = 0;
 uint32_t FlowHarness::readCredentialsCalls = 0;
@@ -247,6 +267,21 @@ void testLandscapeToPortraitDisconnectsWifiAndKeepsBleReady() {
   TEST_ASSERT_FALSE(FlowHarness::wifiConnected);
   TEST_ASSERT_FALSE(FlowHarness::previewRunning);
   TEST_ASSERT_TRUE(FlowHarness::bleConnected);
+}
+
+void testCameraSleepGuardKeepsControllerOutOfScan() {
+  FlowHarness::reset();
+  FlowHarness::bleConnected = false;
+  FlowHarness::guardActive = true;
+  rvf::AppController controller(rvf::AppState::CameraPowerOff);
+  controller.begin(rvf::AppState::CameraPowerOff);
+  const rvf::AppFlowActions actions = FlowHarness::actions();
+
+  controller.serviceCameraFlowIfNeeded(actions, 2000);
+
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::AppState::CameraPowerOff),
+                        static_cast<int>(controller.state()));
+  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::activateCalls);
 }
 
 void testBeginRejectsInvalidInputs() {
@@ -481,6 +516,23 @@ void testUiMapsAppStatesToScenes() {
                             snapshot, rvf::UiOrientation::Landscape)));
 }
 
+void testConnectingDotsOnlyMergeAfterBleConnects() {
+  rvf::UiCoordinator coordinator;
+  rvf::UiSnapshot snapshot;
+  rvf::ButtonEvents input;
+  snapshot.appState = rvf::AppState::ConnectingBle;
+  snapshot.bleConnected = false;
+  coordinator.begin(0);
+  coordinator.update(snapshot, input, rvf::UiOrientation::Portrait, 5000);
+  TEST_ASSERT_FALSE(coordinator.viewModel().bleConnected);
+  TEST_ASSERT_TRUE(coordinator.viewModel().sceneProgress < 0.94f);
+
+  snapshot.bleConnected = true;
+  coordinator.update(snapshot, input, rvf::UiOrientation::Portrait, 5001);
+  TEST_ASSERT_TRUE(coordinator.viewModel().bleConnected);
+  TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.0f, coordinator.viewModel().sceneProgress);
+}
+
 void testUiScenePriority() {
   rvf::UiSnapshot snapshot;
   snapshot.appState = rvf::AppState::PreviewRunning;
@@ -649,10 +701,14 @@ int main() {
   RUN_TEST(testContainFitPreservesWideFrame);
   RUN_TEST(testContainFitLetterboxesTallFrame);
   RUN_TEST(testContainFitRejectsInvalidDimensions);
+  RUN_TEST(testCameraSleepAutoPowerOffWaitsForTimeout);
+  RUN_TEST(testCameraSleepAutoPowerOffRequiresActiveSleep);
+  RUN_TEST(testCameraSleepAutoPowerOffHandlesMillisWrap);
   RUN_TEST(testPortraitStartupCachesWifiWithoutConnecting);
   RUN_TEST(testLandscapeStartupRunsOriginalFullFlow);
   RUN_TEST(testPortraitToLandscapeResumesAfterCredentialCache);
   RUN_TEST(testLandscapeToPortraitDisconnectsWifiAndKeepsBleReady);
+  RUN_TEST(testCameraSleepGuardKeepsControllerOutOfScan);
   RUN_TEST(testBeginRejectsInvalidInputs);
   RUN_TEST(testDeliversFrameSplitAcrossChunks);
   RUN_TEST(testDropsShortFrame);
@@ -670,6 +726,7 @@ int main() {
   RUN_TEST(testSupervisorReportsPreviewIdleTimeout);
   RUN_TEST(testSupervisorReportsFrameStallDespiteIncomingBytes);
   RUN_TEST(testUiMapsAppStatesToScenes);
+  RUN_TEST(testConnectingDotsOnlyMergeAfterBleConnects);
   RUN_TEST(testUiScenePriority);
   RUN_TEST(testOrientationRequiresStableCandidate);
   RUN_TEST(testOrientationMapsStickS3PhysicalAxes);

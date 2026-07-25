@@ -23,6 +23,7 @@ struct UiViewModel {
     bool shutterOverlayActive = false;
     bool shutterFailed = false;
     bool resetSplitActive = false;
+    bool bleConnected = false;
     bool shouldRenderLivePreview = false;
     bool hasFrame = false;
     int8_t deviceBatteryPercent = -1;
