@@ -1318,9 +1318,7 @@ void showShutterBleNotReadyForController() {
 }
 
 bool shootAutofocusForController() {
-  showStatusIfChanged("Button A shutter", "BLE shooting...", cameraProps.model, cameraProps.battery, true);
   uiCoordinator.notifyShutterStarted(millis());
-  updateUi();
   const rvf::Result shootResult = bleCamera.shoot(true);
   return shootResult.ok();
 }
@@ -1803,7 +1801,6 @@ void shutdownStickS3() {
 
 void handleButtons() {
   const ButtonEvents events = buttons.poll();
-  updateUi(events);
   const rvf::UserCommand command = rvf::ButtonInput::commandFromEvents(events);
 
   if (command == rvf::UserCommand::PowerOff || pollStickPowerHold()) {
@@ -1819,6 +1816,7 @@ void handleButtons() {
   if (command == rvf::UserCommand::Shoot) {
     appController.handleUserCommand(makeAppFlowActions(), command);
   }
+  updateUi(events);
 }
 
 const char* appEventTypeName(rvf::AppEventType type) {

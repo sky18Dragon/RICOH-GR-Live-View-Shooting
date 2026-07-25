@@ -8,7 +8,7 @@
 namespace rvf {
 
 struct ButtonEvents {
-    bool buttonA = false;  // Compatibility alias: one Shoot request on release.
+    bool buttonA = false;  // Compatibility alias retained for release feedback.
     bool buttonADown = false;
     bool buttonAHeld = false;
     bool buttonAReleased = false;
