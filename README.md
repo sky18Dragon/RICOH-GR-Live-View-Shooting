@@ -47,7 +47,22 @@
 
 ## 快速开始
 
-### 1. 编译并烧录
+### 1. 使用 M5Burner 直接下载烧录（推荐）
+
+不需要安装开发环境。打开 [M5Burner](https://docs.m5stack.com/en/download)，按以下步骤操作：
+
+1. 在左侧设备列表选择 **STICKS3**。
+2. 在顶部搜索框输入 **GR**。
+3. 找到 **“理光 GR 实时取景拍摄”**。
+4. 选择需要的版本，点击 **Download** 下载固件。
+5. 将 StickS3 通过 USB 连接电脑，点击 **Burn** 完成烧录。
+
+![在 M5Burner 中选择 STICKS3 并搜索 GR](docs/images/M5Burner_Search_GR.png)
+
+> [!TIP]
+> 如果已经下载过该固件，项目卡片会直接显示 **Burn**；需要切换版本时，可先在右侧版本下拉框中选择。
+
+### 2. 从源码编译并烧录
 
 将 M5Stack StickS3 通过 USB 连接至电脑，安装 PlatformIO Core 后执行：
 
@@ -61,7 +76,7 @@ pio device monitor -b 115200
 
 自动识别串口失败时可追加 `--upload-port <串口>`。
 
-### 2. 首次扫描与安全配对
+### 3. 首次扫描与安全配对
 
 1. 打开 RICOH GR 相机，并在菜单中启用蓝牙连接。
 2. StickS3 上电后自动扫描以 `GR_` 开头的 BLE 广播。
@@ -70,7 +85,7 @@ pio device monitor -b 115200
 
 首次安全协商如果没有真正启动，固件会在 3 秒探测窗口后以 150 ms 间隔快速进入第二轮，而不是完整空等；第二轮及后续尝试仍保留 7 秒确认窗口。
 
-### 3. 姿态控制的 Wi-Fi 与 LiveView
+### 4. 姿态控制的 Wi-Fi 与 LiveView
 
 1. BLE 建立后，固件读取相机电源与运行模式；允许连接时，通过 BLE 请求开启相机 Wi-Fi 并读取最新参数。
 2. **竖握启动**：参数写入缓存后停在 `WIFI_CREDENTIALS_READY`，不加入相机 AP。
@@ -80,7 +95,7 @@ pio device monitor -b 115200
 
 在 Wi-Fi 连接等待过程中如果设备转回竖握，连接 Guard 会取消本次连接并回到参数就绪状态。IMU 不可用时按横握处理，保留原完整连接流程。
 
-### 4. 验证构建与测试
+### 5. 验证构建与测试
 
 ```bash
 # 编译 Host Native 目标
@@ -94,10 +109,6 @@ platformio run -e m5stack-sticks3
 ```
 
 当前基线构建占用：RAM 76,708 / 327,680 bytes（23.4%），Flash 1,301,641 / 3,342,336 bytes（38.9%）。
-
-### 5. M5Burner 分享镜像
-
-用于 M5Burner 分享时，应生成从 `0x0` 烧录的单文件合并镜像，内容依次包含 bootloader、分区表、`boot_app0` 和应用固件。不要把开发设备的 NVS 分区合并进去；保持 `0x9000–0xDFFF` 为擦除态（全 `0xFF`），即可避免把相机身份、BLE Bond、SSID 或密码带给其他用户。
 
 ---
 

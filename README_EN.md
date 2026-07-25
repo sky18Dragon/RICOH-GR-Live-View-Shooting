@@ -47,7 +47,22 @@
 
 ## Quick Start
 
-### 1. Build and Flash
+### 1. Download and Flash with M5Burner (Recommended)
+
+No development environment is required. Open [M5Burner](https://docs.m5stack.com/en/download) and follow these steps:
+
+1. Select **STICKS3** from the device list on the left.
+2. Enter **GR** in the search box at the top.
+3. Find **“理光 GR 实时取景拍摄”**.
+4. Select the desired version and click **Download**.
+5. Connect the StickS3 to your computer over USB, then click **Burn**.
+
+![Select STICKS3 and search for GR in M5Burner](docs/images/M5Burner_Search_GR.png)
+
+> [!TIP]
+> If the firmware has already been downloaded, the project card displays **Burn** directly. Use the version menu on the right to switch releases when needed.
+
+### 2. Build and Flash from Source
 
 Connect the M5Stack StickS3 over USB, install PlatformIO Core, and run:
 
@@ -61,7 +76,7 @@ pio device monitor -b 115200
 
 If port detection fails, append `--upload-port <port>`.
 
-### 2. First-time Scan and Secure Pairing
+### 3. First-time Scan and Secure Pairing
 
 1. Turn on the RICOH GR camera and enable Bluetooth in its settings.
 2. Power on the StickS3. It scans automatically for BLE advertisements beginning with `GR_`.
@@ -70,7 +85,7 @@ If port detection fails, append `--upload-port <port>`.
 
 If the first security exchange never starts, the firmware leaves the 3-second probe window and retries after 150 ms instead of waiting out a long dead attempt. The second and later attempts keep the full 7-second confirmation window.
 
-### 3. Orientation-gated Wi-Fi and LiveView
+### 4. Orientation-gated Wi-Fi and LiveView
 
 1. After BLE connects, the firmware reads camera power and operation mode. When connection is allowed, it requests camera Wi-Fi ON over BLE and reads the latest parameters.
 2. **Portrait startup**: Credentials are persisted, then the flow parks at `WIFI_CREDENTIALS_READY` without joining the camera AP.
@@ -80,7 +95,7 @@ If the first security exchange never starts, the firmware leaves the 3-second pr
 
 If the device turns portrait during a blocking Wi-Fi connection attempt, the connection guard cancels that attempt and returns to credentials-ready. If the IMU is unavailable, the firmware treats the device as landscape so the original full connection flow remains available.
 
-### 4. Verify Builds and Tests
+### 5. Verify Builds and Tests
 
 ```bash
 # Build the host-side Native target
@@ -94,10 +109,6 @@ platformio run -e m5stack-sticks3
 ```
 
 Current baseline build usage: RAM 76,708 / 327,680 bytes (23.4%), Flash 1,301,641 / 3,342,336 bytes (38.9%).
-
-### 5. M5Burner Distribution Image
-
-For M5Burner distribution, create one merged image flashed at `0x0`, containing the bootloader, partition table, `boot_app0`, and application firmware. Do not merge NVS from a development device. Keeping `0x9000–0xDFFF` erased (all `0xFF`) prevents camera identity, BLE bonds, SSIDs, or passwords from being distributed to other users.
 
 ---
 
