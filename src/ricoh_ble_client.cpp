@@ -234,7 +234,9 @@ bool isRicohCandidate(const NimBLEAdvertisedDevice* device,
 class RicohScanCallbacks : public NimBLEScanCallbacks {
 public:
   RicohScanCallbacks(const String& preferredAddress, const String& preferredName)
-      : _preferredAddress(preferredAddress), _preferredName(preferredName) {}
+      : _preferredAddress(preferredAddress),
+        _preferredName(preferredName),
+        _acceptFirstRicoh(preferredAddress.length() == 0 && preferredName.length() == 0) {}
 
   void prepareForScan() {
     _scanEnded.store(false);
@@ -256,7 +258,9 @@ public:
     updateBest(info, device);
     if (info.connectable &&
         hasRicohIdentitySignal(info) &&
-        (addressMatches(info.address, _preferredAddress) || nameMatchesPreferred(info.name, _preferredName))) {
+        (_acceptFirstRicoh ||
+         addressMatches(info.address, _preferredAddress) ||
+         nameMatchesPreferred(info.name, _preferredName))) {
       _foundPreferred.store(true);
     }
   }
@@ -281,6 +285,7 @@ private:
 
   String _preferredAddress;
   String _preferredName;
+  bool _acceptFirstRicoh = false;
   RicohBleDeviceInfo _best;
   int _bestScore = -100000;
   std::atomic<bool> _foundPreferred{false};

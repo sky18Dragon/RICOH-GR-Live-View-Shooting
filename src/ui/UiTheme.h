@@ -24,7 +24,7 @@ constexpr bool kOrientationEnabled = UI_ORIENTATION_ENABLED != 0;
 
 constexpr uint16_t kBlack = 0x0000;
 constexpr uint16_t kWhite = 0xFFFF;
-constexpr uint16_t kGreen = 0x4D6A;  // #4CAF50
+constexpr uint16_t kGreen = 0x07E0;  // #00FF00, bright terminal green
 constexpr uint16_t kRed = 0xF206;    // #F44336
 constexpr uint16_t kGray = 0x7BEF;
 constexpr uint16_t kDarkGray = 0x3186;

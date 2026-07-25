@@ -238,7 +238,7 @@ void DisplayUi::drawConnecting(const rvf::UiViewModel& view) {
     const int16_t leftX = static_cast<int16_t>(leftStart + (centerX - leftStart) * progress);
     const int16_t rightX = static_cast<int16_t>(rightStart + (centerX - rightStart) * progress);
     const int16_t dotRadius = rvf::UiTheme::kConnectDotDiameter / 2;
-    if (progress < 0.94f) {
+    if (!view.bleConnected) {
         _canvas.fillCircle(leftX, centerY, dotRadius, rvf::UiTheme::kGreen);
         _canvas.fillCircle(rightX, centerY, dotRadius, rvf::UiTheme::kGreen);
     } else {
