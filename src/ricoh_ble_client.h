@@ -78,9 +78,15 @@ public:
   const String& lastError() const;
 
 private:
+  bool prepareShutter();
+  void resetShutterCache();
+
   bool _begun = false;
   bool _connected = false;
+  bool _shutterPrepared = false;
   bool _lastFailureResourceExhausted = false;
   String _lastError;
   void* _client = nullptr;
+  void* _shootingFlavor = nullptr;
+  void* _operationRequest = nullptr;
 };

@@ -12,6 +12,7 @@ void tearDown(void) {}
 
 #include "app/AppController.h"
 #include "camera_identity.h"
+#include "image_fit.h"
 #include "mjpeg_stream.h"
 #include "supervisor/SystemSupervisor.h"
 #include "ui/ButtonInput.h"
@@ -35,6 +36,36 @@ void captureFrame(const uint8_t* data, size_t len, void* user) {
 void assertDerivedBleName(const char* ssid, const char* expected) {
   const std::string actual = deriveBleNameFromWifiSsid(ssid);
   TEST_ASSERT_EQUAL_STRING(expected, actual.c_str());
+}
+
+void testContainFitPreservesFourByThreeFrame() {
+  const ImageFitRect fit = calculateContainRect(320, 240, 240, 135);
+  TEST_ASSERT_EQUAL_INT(180, fit.width);
+  TEST_ASSERT_EQUAL_INT(135, fit.height);
+  TEST_ASSERT_EQUAL_INT(30, fit.x);
+  TEST_ASSERT_EQUAL_INT(0, fit.y);
+}
+
+void testContainFitPreservesWideFrame() {
+  const ImageFitRect fit = calculateContainRect(640, 360, 240, 135);
+  TEST_ASSERT_EQUAL_INT(240, fit.width);
+  TEST_ASSERT_EQUAL_INT(135, fit.height);
+  TEST_ASSERT_EQUAL_INT(0, fit.x);
+  TEST_ASSERT_EQUAL_INT(0, fit.y);
+}
+
+void testContainFitLetterboxesTallFrame() {
+  const ImageFitRect fit = calculateContainRect(135, 240, 240, 135);
+  TEST_ASSERT_EQUAL_INT(76, fit.width);
+  TEST_ASSERT_EQUAL_INT(135, fit.height);
+  TEST_ASSERT_EQUAL_INT(82, fit.x);
+  TEST_ASSERT_EQUAL_INT(0, fit.y);
+}
+
+void testContainFitRejectsInvalidDimensions() {
+  const ImageFitRect fit = calculateContainRect(0, 240, 240, 135);
+  TEST_ASSERT_EQUAL_INT(0, fit.width);
+  TEST_ASSERT_EQUAL_INT(0, fit.height);
 }
 
 struct FlowHarness {
@@ -551,13 +582,13 @@ void testButtonAOperationTriggersAtMostOneShoot() {
   rvf::ButtonInput input;
   const rvf::ButtonEvents pressed = input.update(true, false, false, 100);
   TEST_ASSERT_TRUE(pressed.buttonADown);
-  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UserCommand::None),
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UserCommand::Shoot),
                         static_cast<int>(rvf::ButtonInput::commandFromEvents(pressed)));
   TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UserCommand::None),
                         static_cast<int>(rvf::ButtonInput::commandFromEvents(
                             input.update(true, false, false, 500))));
   const rvf::ButtonEvents released = input.update(false, false, false, 600);
-  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UserCommand::Shoot),
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UserCommand::None),
                         static_cast<int>(rvf::ButtonInput::commandFromEvents(released)));
   TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UserCommand::None),
                         static_cast<int>(rvf::ButtonInput::commandFromEvents(
@@ -614,6 +645,10 @@ void testErrorSceneOverridesEveryOrdinaryScene() {
 
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(testContainFitPreservesFourByThreeFrame);
+  RUN_TEST(testContainFitPreservesWideFrame);
+  RUN_TEST(testContainFitLetterboxesTallFrame);
+  RUN_TEST(testContainFitRejectsInvalidDimensions);
   RUN_TEST(testPortraitStartupCachesWifiWithoutConnecting);
   RUN_TEST(testLandscapeStartupRunsOriginalFullFlow);
   RUN_TEST(testPortraitToLandscapeResumesAfterCredentialCache);

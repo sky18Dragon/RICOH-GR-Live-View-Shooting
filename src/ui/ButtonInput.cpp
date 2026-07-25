@@ -63,7 +63,7 @@ ButtonEvents ButtonInput::update(bool buttonADown,
 UserCommand ButtonInput::commandFromEvents(const ButtonEvents& events) {
     if (events.powerOff) return UserCommand::PowerOff;
     if (events.resetPairing) return UserCommand::ResetPairing;
-    if (events.buttonAReleased) return UserCommand::Shoot;
+    if (events.buttonADown) return UserCommand::Shoot;
     return UserCommand::None;
 }
 

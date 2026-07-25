@@ -786,13 +786,14 @@ bool writeCharacteristicValue(NimBLERemoteCharacteristic* characteristic,
                               const uint8_t* payload,
                               size_t length,
                               const char* label,
-                              String& errorOut) {
+                              String& errorOut,
+                              bool response = true) {
   if (characteristic == nullptr || payload == nullptr || length == 0) {
     errorOut = String("BLE ") + label + " invalid write";
     return false;
   }
 
-  if (!characteristic->writeValue(payload, length, true)) {
+  if (!characteristic->writeValue(payload, length, response)) {
     errorOut = String("BLE ") + label + " write failed";
     return false;
   }
@@ -962,10 +963,10 @@ bool RicohBleClient::connect(const RicohBleDeviceInfo& info, const RicohBleConne
   client->setClientCallbacks(&g_callbacks, false);
   client->setConnectTimeout(options.timeoutMs);
   client->setConnectRetries(1);
-  client->setConnectionParams(BLE_GAP_INITIAL_CONN_ITVL_MIN,
-                              BLE_GAP_INITIAL_CONN_ITVL_MAX,
-                              1,
-                              2 * BLE_GAP_INITIAL_SUPERVISION_TIMEOUT);
+  client->setConnectionParams(RICOH_BLE_SHUTTER_CONN_INTERVAL_MIN,
+                              RICOH_BLE_SHUTTER_CONN_INTERVAL_MAX,
+                              RICOH_BLE_SHUTTER_CONN_LATENCY,
+                              RICOH_BLE_SHUTTER_SUPERVISION_TIMEOUT);
 
   if (!client->connect(peer, true, false, options.exchangeMtu)) {
     const int err = client->getLastError();
@@ -1022,6 +1023,30 @@ bool RicohBleClient::connect(const RicohBleDeviceInfo& info, const RicohBleConne
     return false;
   }
 
+  const bool connUpdateStarted =
+      client->updateConnParams(RICOH_BLE_SHUTTER_CONN_INTERVAL_MIN,
+                               RICOH_BLE_SHUTTER_CONN_INTERVAL_MAX,
+                               RICOH_BLE_SHUTTER_CONN_LATENCY,
+                               RICOH_BLE_SHUTTER_SUPERVISION_TIMEOUT);
+  Serial.printf("BLE: shutter latency params requested interval=%u-%u latency=%u started=%d\n",
+                static_cast<unsigned>(RICOH_BLE_SHUTTER_CONN_INTERVAL_MIN),
+                static_cast<unsigned>(RICOH_BLE_SHUTTER_CONN_INTERVAL_MAX),
+                static_cast<unsigned>(RICOH_BLE_SHUTTER_CONN_LATENCY),
+                connUpdateStarted ? 1 : 0);
+
+  const uint32_t shutterPrepareStartMs = millis();
+  if (!prepareShutter()) {
+    Serial.printf("BLE: shutter warm-up deferred after %lums: %s\n",
+                  static_cast<unsigned long>(millis() - shutterPrepareStartMs),
+                  _lastError.c_str());
+    // A failed warm-up must not reject an otherwise healthy camera connection.
+    // shoot() retries discovery lazily on the first button press.
+    resetShutterCache();
+  } else {
+    Serial.printf("BLE: shutter warm-up ready in %lums\n",
+                  static_cast<unsigned long>(millis() - shutterPrepareStartMs));
+  }
+
   _lastFailureResourceExhausted = false;
   _lastError = "";
   Serial.printf("BLE: connected secure connect_ms=%lu security_ms=%lu total_ms=%lu\n",
@@ -1048,6 +1073,65 @@ bool RicohBleClient::isConnected() const {
 
 bool RicohBleClient::shutterReady() const {
   return isConnected();
+}
+
+void RicohBleClient::resetShutterCache() {
+  _shutterPrepared = false;
+  _shootingFlavor = nullptr;
+  _operationRequest = nullptr;
+}
+
+bool RicohBleClient::prepareShutter() {
+  NimBLEClient* client = static_cast<NimBLEClient*>(_client);
+  if (!isConnected() || client == nullptr) {
+    _lastError = "BLE not connected";
+    return false;
+  }
+  if (_shutterPrepared && _shootingFlavor != nullptr && _operationRequest != nullptr) {
+    return true;
+  }
+
+  resetShutterCache();
+  NimBLERemoteService* shootingService =
+      client->getService(NimBLEUUID(RICOH_BLE_SHOOTING_SERVICE_UUID));
+  String err;
+  NimBLERemoteCharacteristic* shootingFlavor =
+      writableCharacteristic(shootingService,
+                             RICOH_BLE_SHOOTING_FLAVOR_UUID,
+                             "ShootingFlavor",
+                             err);
+  if (shootingFlavor == nullptr) {
+    _lastError = err;
+    return false;
+  }
+
+  NimBLERemoteCharacteristic* operationRequest =
+      writableCharacteristic(shootingService,
+                             RICOH_BLE_OPERATION_REQUEST_UUID,
+                             "OperationRequest",
+                             err);
+  if (operationRequest == nullptr) {
+    _lastError = err;
+    return false;
+  }
+
+  const uint8_t flavorPayload[] = {RICOH_SHOOTING_FLAVOR_IMMEDIATE};
+  const bool flavorNeedsResponse = !shootingFlavor->canWriteNoResponse();
+  if (!writeCharacteristicValue(shootingFlavor,
+                                flavorPayload,
+                                sizeof(flavorPayload),
+                                "ShootingFlavor",
+                                err,
+                                flavorNeedsResponse)) {
+    _lastError = err;
+    return false;
+  }
+
+  _shootingFlavor = shootingFlavor;
+  _operationRequest = operationRequest;
+  _shutterPrepared = true;
+  _lastError = "";
+  return true;
 }
 
 bool RicohBleClient::openWifi() {
@@ -1243,47 +1327,39 @@ bool RicohBleClient::shoot(bool autofocus) {
     return false;
   }
 
-  // RICOH GR uses a single capture operation instead of a generic
-  // half-press/full-press/release characteristic.  Keep this aligned with the
-  // furble Ricoh implementation: ShootingFlavor=IMMEDIATE, then
-  // OperationRequest={START, AF|NO_AF}.  There is no release write.
-  NimBLERemoteService* shootingService = client->getService(NimBLEUUID(RICOH_BLE_SHOOTING_SERVICE_UUID));
+  const uint32_t startedAt = millis();
+  if (!prepareShutter()) {
+    return false;
+  }
+
   String err;
-  NimBLERemoteCharacteristic* shootingFlavor =
-      writableCharacteristic(shootingService, RICOH_BLE_SHOOTING_FLAVOR_UUID, "ShootingFlavor", err);
-  if (shootingFlavor == nullptr) {
-    _lastError = err;
-    return false;
-  }
-
   NimBLERemoteCharacteristic* operationRequest =
-      writableCharacteristic(shootingService, RICOH_BLE_OPERATION_REQUEST_UUID, "OperationRequest", err);
-  if (operationRequest == nullptr) {
-    _lastError = err;
-    return false;
-  }
-
-  const uint8_t flavorPayload[] = {RICOH_SHOOTING_FLAVOR_IMMEDIATE};
-  if (!writeCharacteristicValue(shootingFlavor, flavorPayload, sizeof(flavorPayload), "ShootingFlavor", err)) {
-    _lastError = err;
-    return false;
-  }
-
+      static_cast<NimBLERemoteCharacteristic*>(_operationRequest);
   const uint8_t operationParam = autofocus ? RICOH_OPERATION_PARAM_AF : RICOH_OPERATION_PARAM_NO_AF;
   const uint8_t operationPayload[] = {RICOH_OPERATION_START, operationParam};
-  if (!writeCharacteristicValue(operationRequest, operationPayload, sizeof(operationPayload), "OperationRequest", err)) {
+  const bool needsResponse = !operationRequest->canWriteNoResponse();
+  if (!writeCharacteristicValue(operationRequest,
+                                operationPayload,
+                                sizeof(operationPayload),
+                                "OperationRequest",
+                                err,
+                                needsResponse)) {
+    resetShutterCache();
     _lastError = err;
     return false;
   }
 
   _lastError = "";
-  Serial.printf("BLE: Ricoh shutter OperationRequest START param=%u autofocus=%d\n",
+  Serial.printf("BLE: Ricoh shutter dispatched in %lums response=%d param=%u autofocus=%d\n",
+                static_cast<unsigned long>(millis() - startedAt),
+                needsResponse ? 1 : 0,
                 static_cast<unsigned>(operationParam),
                 autofocus ? 1 : 0);
   return true;
 }
 
 void RicohBleClient::disconnect() {
+  resetShutterCache();
   NimBLEClient* client = static_cast<NimBLEClient*>(_client);
   if (client != nullptr) {
     if (client->isConnected()) {
