@@ -61,33 +61,26 @@ bool JpegDecoder::drawFrame(LovyanGFX* dst, const uint8_t* data, size_t length) 
 
     const int scale = JPEG_SCALE_POLICY;
     const int divisor = scaleDivisorFromOption(scale);
-    const int scaledW = (_lastWidth + divisor - 1) / divisor;
-    const int scaledH = (_lastHeight + divisor - 1) / divisor;
-    _drawX = (_displayW - scaledW) / 2;
-    _drawY = (_displayH - scaledH) / 2;
+    _sourceW = (_lastWidth + divisor - 1) / divisor;
+    _sourceH = (_lastHeight + divisor - 1) / divisor;
+    const ImageFitRect fit = calculateContainRect(_sourceW, _sourceH, _displayW, _displayH);
+    _drawX = fit.x;
+    _drawY = fit.y;
+    _targetW = fit.width;
+    _targetH = fit.height;
+    if (_targetW <= 0 || _targetH <= 0 ||
+        _targetW > static_cast<int>(sizeof(_fitRow) / sizeof(_fitRow[0]))) {
+        _jpeg.close();
+        activeDecoder = nullptr;
+        return setError("invalid fitted JPEG dimensions");
+    }
 
-    // Clear only the letterbox/pillarbox area.  The decoded image may be smaller
-    // than the screen (quarter scale) or larger and clipped (half scale).  Without
-    // this, status text from the previous screen remains visible around the image.
-    const int16_t visibleX = _drawX < 0 ? 0 : _drawX;
-    const int16_t visibleY = _drawY < 0 ? 0 : _drawY;
-    const int16_t visibleW = min<int16_t>(_displayW, max<int16_t>(0, scaledW + min<int16_t>(_drawX, 0)));
-    const int16_t visibleH = min<int16_t>(_displayH, max<int16_t>(0, scaledH + min<int16_t>(_drawY, 0)));
-    if (visibleY > 0) {
-        _dst->fillRect(0, 0, _displayW, visibleY, COLOR_BLACK);
-    }
-    if (visibleY + visibleH < _displayH) {
-        _dst->fillRect(0, visibleY + visibleH, _displayW, _displayH - (visibleY + visibleH), COLOR_BLACK);
-    }
-    if (visibleX > 0) {
-        _dst->fillRect(0, visibleY, visibleX, visibleH, COLOR_BLACK);
-    }
-    if (visibleX + visibleW < _displayW) {
-        _dst->fillRect(visibleX + visibleW, visibleY, _displayW - (visibleX + visibleW), visibleH, COLOR_BLACK);
-    }
+    // The frame is rendered with contain semantics: preserve its aspect ratio,
+    // show the whole image, and leave black letterbox/pillarbox bars as needed.
+    _dst->fillRect(0, 0, _displayW, _displayH, COLOR_BLACK);
 
     _dst->startWrite();
-    const int rc = _jpeg.decode(_drawX, _drawY, scale);
+    const int rc = _jpeg.decode(0, 0, scale);
     _dst->endWrite();
     _jpeg.close();
     activeDecoder = nullptr;
@@ -132,42 +125,43 @@ int JpegDecoder::jpegDrawCallback(JPEGDRAW* draw) {
 }
 
 int JpegDecoder::drawBlock(JPEGDRAW* draw) {
-    int16_t dstX = static_cast<int16_t>(draw->x);
-    int16_t dstY = static_cast<int16_t>(draw->y);
-    int16_t srcX = 0;
-    int16_t srcY = 0;
-    int16_t drawW = static_cast<int16_t>(draw->iWidth);
-    int16_t drawH = static_cast<int16_t>(draw->iHeight);
+    if (_sourceW <= 0 || _sourceH <= 0 || _targetW <= 0 || _targetH <= 0) {
+        return 0;
+    }
 
-    if (dstX < 0) {
-        srcX = -dstX;
-        drawW -= srcX;
-        dstX = 0;
-    }
-    if (dstY < 0) {
-        srcY = -dstY;
-        drawH -= srcY;
-        dstY = 0;
-    }
-    if (dstX + drawW > _displayW) {
-        drawW = _displayW - dstX;
-    }
-    if (dstY + drawH > _displayH) {
-        drawH = _displayH - dstY;
-    }
-    if (drawW <= 0 || drawH <= 0) {
+    const int sourceX0 = draw->x;
+    const int sourceY0 = draw->y;
+    const int sourceX1 = min(_sourceW, sourceX0 + draw->iWidth);
+    const int sourceY1 = min(_sourceH, sourceY0 + draw->iHeight);
+    if (sourceX0 >= sourceX1 || sourceY0 >= sourceY1) {
         return 1;
     }
 
     uint16_t* pixels = static_cast<uint16_t*>(draw->pPixels);
     const int stride = draw->iWidth;
 
-    if (srcX == 0 && drawW == draw->iWidth) {
-        _dst->pushImage(dstX, dstY, drawW, drawH, pixels + (srcY * stride));
-    } else {
-        for (int16_t row = 0; row < drawH; ++row) {
-            _dst->pushImage(dstX, dstY + row, drawW, 1, pixels + ((srcY + row) * stride) + srcX);
+    const int targetX0 = (sourceX0 * _targetW + _sourceW - 1) / _sourceW;
+    const int targetX1 = (sourceX1 * _targetW + _sourceW - 1) / _sourceW;
+    const int targetY0 = (sourceY0 * _targetH + _sourceH - 1) / _sourceH;
+    const int targetY1 = (sourceY1 * _targetH + _sourceH - 1) / _sourceH;
+    const int drawWidth = targetX1 - targetX0;
+    if (drawWidth <= 0) {
+        return 1;
+    }
+
+    for (int targetY = targetY0; targetY < targetY1; ++targetY) {
+        const int sourceY = (targetY * _sourceH) / _targetH;
+        const int localY = sourceY - sourceY0;
+        for (int targetX = targetX0; targetX < targetX1; ++targetX) {
+            const int sourceX = (targetX * _sourceW) / _targetW;
+            const int localX = sourceX - sourceX0;
+            _fitRow[targetX - targetX0] = pixels[localY * stride + localX];
         }
+        _dst->pushImage(_drawX + targetX0,
+                        _drawY + targetY,
+                        drawWidth,
+                        1,
+                        _fitRow);
     }
     return 1;
 }

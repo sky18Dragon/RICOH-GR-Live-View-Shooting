@@ -16,6 +16,7 @@ enum class AppState {
     CheckingCameraPower,
     CameraPowerOff,
     ActivatingWifi,
+    WifiCredentialsReady,
     ConnectingWifi,
     HttpProbing,
     PreviewStarting,

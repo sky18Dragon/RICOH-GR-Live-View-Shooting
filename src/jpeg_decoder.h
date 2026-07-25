@@ -4,6 +4,8 @@
 #include <M5Unified.h>
 #include <JPEGDEC.h>
 
+#include "image_fit.h"
+
 #if __has_include("config.h")
 #include "config.h"
 #endif
@@ -40,8 +42,13 @@ private:
 
     int _drawX = 0;
     int _drawY = 0;
+    int _sourceW = 0;
+    int _sourceH = 0;
+    int _targetW = 0;
+    int _targetH = 0;
     int _displayW = DISPLAY_WIDTH;
     int _displayH = DISPLAY_HEIGHT;
+    uint16_t _fitRow[(DISPLAY_WIDTH > DISPLAY_HEIGHT) ? DISPLAY_WIDTH : DISPLAY_HEIGHT] = {};
 
     bool setError(const char* error);
 

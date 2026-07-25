@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>StickS3 隐喻交互设计原型</title>
+<style>
+    body {
+        background-color: #1a1a1a;
+        color: #fff;
+        font-family: sans-serif;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        margin: 0;
+    }
+    .container {
+        display: flex;
+        gap: 40px;
+    }
+    /* 模拟 StickS3 设备 */
+    .device {
+        width: 135px;
+        height: 240px;
+        background-color: #000;
+        border: 10px solid #333;
+        border-radius: 10px;
+        position: relative;
+        overflow: hidden;
+        transition: all 0.5s ease;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+    }
+    .device.landscape {
+        width: 240px;
+        height: 135px;
+    }
+    
+    /* 场景容器 */
+    .scene {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        display: none;
+        justify-content: center;
+        align-items: center;
+        flex-direction: column;
+    }
+    .scene.active { display: flex; }
+
+    /* 1. 连接场景 (物理接触隐喻) */
+    .dot {
+        width: 20px;
+        height: 20px;
+        background-color: #4CAF50;
+        border-radius: 50%;
+        position: absolute;
+    }
+    .dot.left { left: 10px; animation: moveRight 2s forwards; }
+    .dot.right { right: 10px; animation: moveLeft 2s forwards; }
+    @keyframes moveRight { 100% { left: 57.5px; } }
+    @keyframes moveLeft { 100% { right: 57.5px; } }
+
+    /* 2. 纯遥控模式 (蓄力与能量爆发隐喻) */
+    .shutter-btn {
+        width: 60px;
+        height: 60px;
+        border: 2px solid #fff;
+        border-radius: 50%;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        cursor: pointer;
+        transition: all 0.3s ease;
+    }
+    .shutter-btn.focus {
+        transform: scale(0.8);
+        border-color: #4CAF50;
+    }
+    .flash-overlay {
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background-color: #fff;
+        opacity: 0;
+        pointer-events: none;
+    }
+    .flash-overlay.active { animation: flashAnim 0.3s ease-out; }
+    @keyframes flashAnim {
+        0% { opacity: 1; }
+        100% { opacity: 0; }
+    }
+
+    /* 3. 实时预览模式 (横屏画框隐喻) */
+    .live-view-bg {
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(45deg, #222, #444);
+        position: absolute;
+        z-index: 1;
+    }
+    .shutter-frame {
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        border: 0 solid #fff;
+        z-index: 2;
+        transition: border-width 0.1s ease;
+    }
+    .shutter-frame.active { border-width: 15px; }
+
+    /* 4. 断开/重置 (时间空间化与物理分离隐喻) */
+    .progress-bar-container {
+        position: absolute;
+        bottom: 20px;
+        width: 80%;
+        height: 4px;
+        background-color: #333;
+        border-radius: 2px;
+    }
+    .progress-bar {
+        height: 100%;
+        width: 0%;
+        background-color: #F44336;
+        transition: width 3s linear;
+    }
+    .progress-bar.filling { width: 100%; }
+    .split-dot {
+        width: 40px; height: 40px;
+        background-color: #4CAF50;
+        border-radius: 50%;
+        transition: all 0.3s ease;
+    }
+    .split-dot.broken {
+        width: 0px; opacity: 0;
+        box-shadow: -30px 0 0 #F44336, 30px 0 0 #F44336;
+    }
+
+    /* 控制面板 */
+    .controls {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        background: #2a2a2a;
+        padding: 20px;
+        border-radius: 8px;
+    }
+    button {
+        padding: 10px 15px;
+        background-color: #444;
+        color: #fff;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+    button:hover { background-color: #555; }
+</style>
+</head>
+<body>
+
+<div class="container">
+    <div class="device" id="device">
+        <div class="scene active" id="scene-connect">
+            <div class="dot left"></div>
+            <div class="dot right"></div>
+            <div style="position: absolute; bottom: 20px; font-size: 12px; color: #888;">Connecting...</div>
+        </div>
+
+        <div class="scene" id="scene-remote">
+            <div class="shutter-btn" id="shutter-btn">
+                <div style="width: 20px; height: 20px; background: #fff; border-radius: 50%;"></div>
+            </div>
+            <div class="flash-overlay" id="flash"></div>
+            <div style="position: absolute; top: 10px; font-size: 10px; color: #666;">Portrait Remote</div>
+        </div>
+
+        <div class="scene" id="scene-live">
+            <div class="live-view-bg"></div>
+            <div class="shutter-frame" id="shutter-frame"></div>
+            <div style="position: absolute; z-index: 3; color: rgba(255,255,255,0.5); font-size: 12px;">Live View (Tap to shoot)</div>
+        </div>
+
+        <div class="scene" id="scene-reset">
+            <div class="split-dot" id="split-dot"></div>
+            <div class="progress-bar-container">
+                <div class="progress-bar" id="progress-bar"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="controls">
+        <h3>模拟交互触发器</h3>
+        <button onclick="switchScene('scene-connect', false)">1. 演示连接动画</button>
+        <button onclick="switchScene('scene-remote', false)">2. 竖屏遥控模式 (长按光圈试一下)</button>
+        <button onclick="switchScene('scene-live', true)">3. 横屏图传模式 (点击画面试一下)</button>
+        <button onclick="triggerReset()">4. 长按断开演示</button>
+    </div>
+</div>
+
+<script>
+    const device = document.getElementById('device');
+    const scenes = document.querySelectorAll('.scene');
+    
+    // 切换场景逻辑
+    function switchScene(sceneId, isLandscape) {
+        scenes.forEach(s => s.classList.remove('active'));
+        document.getElementById(sceneId).classList.add('active');
+        
+        if (isLandscape) {
+            device.classList.add('landscape');
+        } else {
+            device.classList.remove('landscape');
+        }
+
+        // 重置动画状态
+        if(sceneId === 'scene-connect') {
+            const dots = document.querySelectorAll('.dot');
+            dots.forEach(d => {
+                d.style.animation = 'none';
+                d.offsetHeight; /* trigger reflow */
+                d.style.animation = null; 
+            });
+        }
+    }
+
+    // 竖屏遥控：蓄力与能量爆发
+    const shutterBtn = document.getElementById('shutter-btn');
+    const flash = document.getElementById('flash');
+    let focusTimer;
+
+    shutterBtn.addEventListener('mousedown', () => {
+        // 模拟长按对焦 (空间收缩)
+        focusTimer = setTimeout(() => {
+            shutterBtn.classList.add('focus');
+            // 此时你的硬件可以触发“滴滴”声
+        }, 300);
+    });
+
+    window.addEventListener('mouseup', () => {
+        clearTimeout(focusTimer);
+        if (shutterBtn.classList.contains('focus')) {
+            shutterBtn.classList.remove('focus');
+            // 触发快门闪烁 (能量释放)
+            flash.classList.add('active');
+            // 此时你的硬件可以触发“咔哒”声
+            setTimeout(() => flash.classList.remove('active'), 300);
+        }
+    });
+
+    // 横屏预览：快门帘幕隐喻
+    const liveScene = document.getElementById('scene-live');
+    const shutterFrame = document.getElementById('shutter-frame');
+    liveScene.addEventListener('click', () => {
+        shutterFrame.classList.add('active');
+        setTimeout(() => shutterFrame.classList.remove('active'), 100);
+    });
+
+    // 长按重置断开：时间流逝与物理分离
+    function triggerReset() {
+        switchScene('scene-reset', false);
+        const bar = document.getElementById('progress-bar');
+        const dot = document.getElementById('split-dot');
+        
+        bar.style.transition = 'none';
+        bar.style.width = '0%';
+        dot.classList.remove('broken');
+        
+        setTimeout(() => {
+            bar.style.transition = 'width 3s linear';
+            bar.classList.add('filling');
+        }, 50);
+
+        setTimeout(() => {
+            dot.classList.add('broken');
+            bar.classList.remove('filling');
+        }, 3000);
+    }
+</script>
+</body>
+</html>
