@@ -6,6 +6,23 @@ uint8_t normalizedPeerAddressType(uint8_t type);
 bool attErrorMeansInsufficientAuth(int rc);
 bool explicitBondSecurityFailure(int rc);
 
+enum class CameraBindingState : uint8_t {
+  Unpaired = 0,
+  Pairing = 1,
+  Locked = 2,
+  BondInvalid = 3,
+};
+
+enum class PairingRequestDecision : uint8_t {
+  Allow = 0,
+  RejectAndInvalidate = 1,
+};
+
+PairingRequestDecision pairingRequestDecision(CameraBindingState state);
+bool bindingStateAllowsCandidate(CameraBindingState state,
+                                 const char* storedIdentity,
+                                 const char* candidateIdentity);
+
 class PairingRecoveryPolicy {
 public:
   bool onBondedSecurityFailure(int rc);
@@ -42,6 +59,7 @@ public:
   void reset();
   void shortPress();
   PasskeyEntryStatus confirmDigit();
+  PasskeyEntryStatus submit();
   PasskeyEntryStatus status(uint32_t nowMs) const;
   int32_t code() const;
   uint8_t activeIndex() const { return _index; }

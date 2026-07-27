@@ -1,5 +1,8 @@
 #include "ble_pairing_policy.h"
 
+#include <cctype>
+#include <cstring>
+
 namespace {
 
 constexpr uint8_t kAddrPublic = 0x00;
@@ -17,6 +20,38 @@ constexpr uint8_t kBondedSecurityFailureLimit = 3;
 constexpr uint8_t kInsufficientAuthReadLimit = 2;
 
 }  // namespace
+
+PairingRequestDecision pairingRequestDecision(CameraBindingState state) {
+  return state == CameraBindingState::Locked ||
+         state == CameraBindingState::BondInvalid
+           ? PairingRequestDecision::RejectAndInvalidate
+           : PairingRequestDecision::Allow;
+}
+
+bool bindingStateAllowsCandidate(CameraBindingState state,
+                                 const char* storedIdentity,
+                                 const char* candidateIdentity) {
+  if (state == CameraBindingState::BondInvalid) {
+    return false;
+  }
+  if (state == CameraBindingState::Unpaired) {
+    return candidateIdentity != nullptr && candidateIdentity[0] != '\0';
+  }
+  if (storedIdentity == nullptr || storedIdentity[0] == '\0' ||
+      candidateIdentity == nullptr || candidateIdentity[0] == '\0') {
+    return false;
+  }
+  size_t index = 0;
+  while (storedIdentity[index] != '\0' && candidateIdentity[index] != '\0') {
+    const unsigned char stored = static_cast<unsigned char>(storedIdentity[index]);
+    const unsigned char candidate = static_cast<unsigned char>(candidateIdentity[index]);
+    if (std::tolower(stored) != std::tolower(candidate)) {
+      return false;
+    }
+    ++index;
+  }
+  return storedIdentity[index] == '\0' && candidateIdentity[index] == '\0';
+}
 
 uint8_t normalizedPeerAddressType(uint8_t type) {
   if (type == kAddrPublicId) {
@@ -124,6 +159,14 @@ PasskeyEntryStatus PasskeyButtonEntry::confirmDigit() {
     ++_index;
   }
   return _index >= 6 ? PasskeyEntryStatus::Complete : PasskeyEntryStatus::Editing;
+}
+
+PasskeyEntryStatus PasskeyButtonEntry::submit() {
+  if (!_active) {
+    return PasskeyEntryStatus::Idle;
+  }
+  _index = 6;
+  return PasskeyEntryStatus::Complete;
 }
 
 PasskeyEntryStatus PasskeyButtonEntry::status(uint32_t nowMs) const {

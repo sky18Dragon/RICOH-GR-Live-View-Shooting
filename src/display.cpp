@@ -223,7 +223,7 @@ void DisplayUi::showPasskeyEntry(const uint8_t digits[6], uint8_t activeIndex) {
 
     _canvas.setTextColor(COLOR_GRAY, COLOR_BG);
     _canvas.setCursor(10, 30);
-    _canvas.print("Match the 6 digits on camera");
+    _canvas.print("Enter the 6 digits on camera");
 
     const int16_t cellW = 30;
     const int16_t cellH = 34;
@@ -253,7 +253,7 @@ void DisplayUi::showPasskeyEntry(const uint8_t digits[6], uint8_t activeIndex) {
     } else {
         _canvas.setTextColor(COLOR_WHITE, COLOR_BG);
         _canvas.setCursor(22, _height - 12);
-        _canvas.print("BtnA: +1   Hold: next digit");
+        _canvas.print("A:+1 B:next Hold A:submit");
     }
 
     pushCanvas();

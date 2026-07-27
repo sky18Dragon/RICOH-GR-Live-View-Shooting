@@ -1,5 +1,19 @@
 # GR III Family Hardware Test Record
 
+## 2026-07-27 双协议重构验证快照
+
+| 字段 | 记录 |
+| --- | --- |
+| 分支 | `codex/feat-gr3-dual-protocol-compliance` |
+| Native | 31/31 PASSED |
+| 发布固件构建 | SUCCESS；RAM 76,132 / 327,680 bytes（23.2%）；Flash 1,310,065 / 3,342,336 bytes（39.2%） |
+| GATT diagnostics 构建 | `RICOH_BLE_GATT_DIAGNOSTICS=1` SUCCESS；Flash 1,310,597 bytes（39.2%） |
+| 静态安全检查 | 无 Passphrase/Passkey 明文日志；仅长按 B 路径调用 `deleteAllBonds()` |
+| 当前分支实机 | 尚未执行 |
+| 历史证据 | 2026-07-24 用户确认旧 GR3 功能分支在 GR IIIx 通过；不能替代本分支回归 |
+
+本次分支新增两阶段只读识别、独立 Security Profile、单协议实例路由、Profile v4 原子权威快照和 Locked/BondInvalid 策略。自动化与构建通过不等于相机实机验收，下面矩阵需在当前分支固件上重新执行。
+
 ## 本次实现验证快照
 
 | 字段 | 记录 |

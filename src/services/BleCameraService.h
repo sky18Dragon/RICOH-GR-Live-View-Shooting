@@ -18,6 +18,10 @@ public:
 
     Result begin();
     Result begin(RicohBleClient& client);
+    void setSecurityProfile(RicohSecurityProfileId profile);
+    void setBindingState(CameraBindingState state);
+    CameraBindingState bindingState() const;
+    bool consumeBondInvalidRequest();
 
     Result scan();
     bool consumeEvent(AppMessage& message);
@@ -49,6 +53,9 @@ public:
     bool lastFailureWasResourceExhausted() const;
     const CameraProtocolProfile& protocolProfile() const;
     RicohBleSecurityState securityState() const;
+    String connectedIdentityAddress() const;
+    uint8_t connectedIdentityAddressType() const;
+    bool connectedIdentityKnown() const;
 
     String statusText() const;
     String lastError() const;

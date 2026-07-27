@@ -20,12 +20,21 @@ struct WifiCredential {
 
 struct CameraProfile {
   String cameraName;
+  // Legacy aliases retained for schema <= 3 and fixed-address GR IV units.
   String bleAddress;
   uint8_t bleAddressType = 0;
   bool bleAddressTypeKnown = false;
   bool bleBonded = false;
+  bool bleAuthenticated = false;
   RicohProtocolGeneration protocolGeneration = RicohProtocolGeneration::Unknown;
   bool protocolGenerationKnown = false;
+  RicohSecurityProfileId securityProfile = RicohSecurityProfileId::Unknown;
+  bool securityProfileKnown = false;
+  String peerIdentityAddress;
+  uint8_t peerIdentityAddressType = 0;
+  bool peerIdentityKnown = false;
+  String lastSeenOtaAddress;
+  uint8_t lastSeenOtaAddressType = 0;
   uint16_t capabilityVersion = CAMERA_CAPABILITY_SCHEMA_VERSION;
   WifiCredential wifi;
   uint32_t profileVersion = CAMERA_PROFILE_SCHEMA_VERSION;

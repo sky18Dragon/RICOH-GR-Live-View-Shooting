@@ -5,7 +5,7 @@
 本文只记录当前源码、原项目实机记录和已审查的外部逆向资料。它不是 RICOH 官方协议保证。
 
 - GR IV / GR IV HDF：原项目已有实机验证记录；当前代码继续使用固定 Handle Profile。
-- GR IIIx：当前分支固件已完成实机验证；详细矩阵与去密日志待补充到 `docs/gr3_family_test_record.md`。
+- GR IIIx：旧 GR3 功能分支曾由用户确认通过；本次双协议重构分支仍需重新执行完整矩阵。
 - GR III：当前分支已实现但仍需 GR III 机身独立验证；配对顺序参考 `mic-kul` 的 BlueZ/真机分析。
 - GR III HDF / GR IIIx HDF：无独立实机证据，只能视为实验性支持。
 - GR II：未实现协议，仅有无 BLE、ManualOnly/ManualConfiguration 的扩展占位。
@@ -15,13 +15,15 @@
 安全原则是“先识别，再执行该 Profile 唯一允许的动作”，禁止先写 GR IV Handle、失败后再试 GR III UUID。
 
 1. 扫描阶段只按保存身份、广播服务和名称选择候选设备。
-2. 建立连接；未绑定设备先交换 MTU 并发现服务。
+2. 未绑定设备建立只读发现连接；交换 MTU 并完整发现 GATT，不发起安全过程。
 3. 同时发现 WLAN Service `F37F568F-9071-445D-A938-5441F2E82399` 与 Network Type Characteristic `9111CDD0-9F01-45C4-A2D4-E09E8FB0424D` 时，识别为 `Gr3Family`。
-4. 不存在上述 GR III 证据，且只读读取现有 GR IV Power Handle 成功时，识别为 `Gr4Family`。
-5. 保存的 Profile 只用于重连提示；安全连接后仍重新验证 GATT 证据。
-6. 无法识别时为 `Unknown`，只允许诊断、断开和重新扫描，禁止 WLAN、Power 和快门写入。
+4. GR IV 必须同时具备 Camera/Operation Mode、Shooting/Flavor/Operation Request、Control Service，以及多个已验证固定 Handle 的 GATT 结构；识别阶段不读取 `0x00EB` 的值。
+5. GR III 与 GR IV 证据同时成立时返回 `Unknown`，不尝试任一协议写入。
+6. 发现后断开、清理 Client，重建 NimBLE Stack 并应用对应 Security Profile，再进行正式配对连接。
+7. 已绑定设备直接使用 NVS 保存的 generation/security profile，不在每次启动时重新识别。
+8. 无法识别时为 `Unknown`，只允许诊断、断开和重新扫描，禁止 WLAN、Power 和快门写入。
 
-Profile 定义和纯逻辑检测位于 `src/camera_protocol_profile.*`；统一 BLE 动作入口位于 `src/ricoh_ble_client.*`，上层 `BleCameraService` 不需要知道具体 Handle/UUID。
+Profile 定义和纯逻辑检测位于 `src/camera_protocol_profile.*`。`IRicohBleProtocol` 由 `Gr3BleProtocol` 和 `Gr4LegacyBleProtocol` 分别实现，路由器在正式连接前只选择一个实例；`ricoh_ble_client.*` 只执行该实例声明的传输计划，不用失败回退识别代际。上层 `BleCameraService` 不知道具体 Handle/UUID。
 
 ## 共用 Camera / Shooting UUID
 
@@ -65,7 +67,7 @@ AND Operation Mode == CAPTURE
 
 GR III 凭据只要求非空 SSID + Passphrase；Channel `0` 或 `1..11` 有效。Security、Frequency、BSSID 特征不存在不是错误。首次 Wi-Fi 连接不依赖 BSSID；连接成功后由 ESP32 读取实际 BSSID/Channel，再写入 NVS 快速缓存。
 
-## GR III 首次配对与 Bond 自愈
+## GR III 首次配对与 Bond 失效
 
 共享安全设置为 Bonding + MITM + Secure Connections、`KEYBOARD_DISPLAY`，双方 key distribution 使用 `ENC | ID | SIGN`，Own Address 优先 Public。解析出的 `PUBLIC_ID`/`RANDOM_ID` 在连接前分别归一化为 `PUBLIC`/`RANDOM`。
 
@@ -74,12 +76,14 @@ GR III 凭据只要求非空 SSID + Passphrase；Channel `0` 或 `1..11` 有效�
 1. 交换 MTU并完整发现服务。
 2. 对受保护 SSID 做一次未认证读取，触发相机等待配对。
 3. 等待约 300 ms 后调用安全连接。
-4. 相机显示六位码；StickS3 Button A 短按改数字、长按约 600 ms 确认一位，45 秒窗口内提交。串口六位数字输入仅为调试后备。
+4. 相机显示六位码；StickS3 Button A 短按改数字、Button B 短按移动下一位、Button A 长按提交，Button B 长按取消，45 秒窗口内完成。串口六位数字输入仅为调试后备。
 5. 只有 encrypted + authenticated + bonded 后才读取凭据或写控制特征。
 
 配对界面和普通日志都不输出完整 Passkey。普通日志只输出 Passphrase 是否存在，不输出其内容。
 
-Bond 自愈只统计明确安全错误：连续 3 次已绑定安全恢复失败，或连续 2 次 ATT Insufficient Authentication/Authorization/Encryption，才删除对应 Peer Bond。普通超时、`0x208` 临时断连和内存不足不会删除 Bond。
+Locked 状态出现新的 Passkey Entry、Numeric Comparison 或明确的 ATT Insufficient Authentication/Authorization/Encryption 时进入 `BondInvalid`。固件不删除 Bond、不覆盖 Profile、不连接其他相机，也不自动重新配对；只有用户先从相机端删除 StickS3，再长按 Button B，才会清 Profile、Wi-Fi 缓存和全部 NimBLE Bond。
+
+Profile v4 使用单个 `profile_v4` NVS 字符串保存完整权威快照；旧的逐字段 Key 仅作为向后兼容镜像。权威快照写成功后才更新镜像，避免配对未完成或多 Key 写入中途掉电时覆盖原单相机 Profile。
 
 ## GR IV 固定 Handle 协议
 
@@ -96,7 +100,7 @@ GR IV Profile 保留原项目路径，不改成 GR III UUID，也不通过失败
 | Power State | `0x00EB`；`0x01=On`、`0x00=Off` |
 | Power State CCCD | `0x00EC`，写 `0x01 0x00` |
 
-GR IV 的 Power State、Operation Mode、WLAN 缓存优先级、LiveView 和快门流程保持原有行为。共享 SMP IO Capability 从 Numeric-only 行为扩展为 `KEYBOARD_DISPLAY` 后，GR IV 首配、已有 Bond 重连和清 Bond 重配仍必须实机回归。
+GR IV 的 Power State、Operation Mode、WLAN 缓存优先级、LiveView 和快门流程保持原有行为。`Gr4LegacyPairingStrategy` 冻结为 `DISPLAY_YESNO`、`ENC|ID`、固定 `123456`、`RPA_PUBLIC_DEFAULT`；GR III 的 `KEYBOARD_DISPLAY`、`ENC|ID|SIGN`、Public Own Address 仅在独立 Stack Profile 中生效。
 
 ## 休眠与重新探测
 
@@ -108,8 +112,8 @@ GR III Family 在 `BLE_STARTUP`/`POWER_OFF_TRANSFER` 或安全门控失败时断
 
 ## TODO_UNVERIFIED
 
-- 当前分支尚未在 GR III 及 GR III/GR IIIx HDF 版本上执行实机矩阵；GR IIIx 已验证但详细记录仍需补齐。
-- 共享 `KEYBOARD_DISPLAY` 安全设置尚未对 GR IV/GR IV HDF 执行本次改动后的回归。
+- 当前双协议重构分支尚未在 GR III、GR IIIx 及其 HDF 版本上执行完整实机矩阵；旧分支的 GR IIIx 用户确认只能作为历史证据。
+- 双 Security Profile 与首次两阶段发现尚未对 GR IV/GR IV HDF 执行本次改动后的完整回归。
 - GR III Family Power Notify 支持、不同相机固件的 UUID/属性一致性、`OTHER` 和 `PLAYBACK` 的精确语义仍需实机日志。
 - `0x213`、`0x215`、`0x216` 在不同代际/固件中的精确定义仍需扩充证据；自动删除 Bond 不得仅依据这些普通断连值。
 

@@ -2,7 +2,9 @@
 
 #include <Arduino.h>
 
+#include "ble_pairing_policy.h"
 #include "camera_protocol_profile.h"
+#include "ricoh/RicohBleProtocolRouter.h"
 
 struct RicohBleDeviceInfo {
   bool found = false;
@@ -63,6 +65,12 @@ public:
   using PasskeyPoller = int32_t (*)(RicohPasskeyPollAction action);
 
   void begin();
+  void setSecurityProfile(RicohSecurityProfileId profile);
+  bool switchSecurityProfile(RicohSecurityProfileId profile);
+  RicohSecurityProfileId securityProfileId() const { return _securityProfile; }
+  void setBindingState(CameraBindingState state);
+  CameraBindingState bindingState() const { return _bindingState; }
+  bool consumeBondInvalidRequest();
   void setServiceCallback(ServiceCallback callback);
   void setPasskeyPoller(PasskeyPoller poller);
   RicohBleDeviceInfo scanForCamera(const String& preferredAddress, const String& preferredName, uint32_t scanSeconds);
@@ -86,6 +94,9 @@ public:
   bool lastFailureWasResourceExhausted() const;
   const CameraProtocolProfile& protocolProfile() const;
   RicohBleSecurityState securityState() const;
+  String connectedIdentityAddress() const { return _connectedIdentityAddress; }
+  uint8_t connectedIdentityAddressType() const { return _connectedIdentityAddressType; }
+  bool connectedIdentityKnown() const { return _connectedIdentityKnown; }
 
   String statusText() const;
   const String& lastError() const;
@@ -94,9 +105,14 @@ private:
   bool _begun = false;
   bool _connected = false;
   bool _lastFailureResourceExhausted = false;
+  RicohSecurityProfileId _securityProfile = RicohSecurityProfileId::Unknown;
+  CameraBindingState _bindingState = CameraBindingState::Unpaired;
   String _lastError;
+  String _connectedIdentityAddress;
+  uint8_t _connectedIdentityAddressType = 0;
+  bool _connectedIdentityKnown = false;
   void* _client = nullptr;
-  RicohProtocolGeneration _protocolGeneration = RicohProtocolGeneration::Unknown;
+  RicohBleProtocolRouter _protocolRouter;
   RicohCameraOperationMode _lastOperationMode = RicohCameraOperationMode::Unknown;
   bool _lastOperationModeValid = false;
 };

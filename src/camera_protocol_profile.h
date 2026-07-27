@@ -9,6 +9,33 @@ enum class RicohProtocolGeneration : uint8_t {
   Gr4Family = 4,
 };
 
+enum class RicohSecurityProfileId : uint8_t {
+  Unknown = 0,
+  Gr3Passkey = 1,
+  Gr4Legacy = 2,
+};
+
+enum class RicohBleIoCapability : uint8_t {
+  DisplayYesNo = 1,
+  KeyboardDisplay = 2,
+};
+
+enum class RicohBleOwnAddressMode : uint8_t {
+  Public = 1,
+  RpaPublicDefault = 2,
+};
+
+struct RicohSecurityProfile {
+  RicohSecurityProfileId id = RicohSecurityProfileId::Unknown;
+  RicohBleIoCapability ioCapability = RicohBleIoCapability::DisplayYesNo;
+  RicohBleOwnAddressMode ownAddressMode = RicohBleOwnAddressMode::RpaPublicDefault;
+  bool distributeEncryptionKey = false;
+  bool distributeIdentityKey = false;
+  bool distributeSigningKey = false;
+  bool usesFixedPasskey = false;
+  uint32_t fixedPasskey = 0;
+};
+
 enum class WifiActivationMethod : uint8_t {
   Unsupported = 0,
   ManualOnly,
@@ -68,12 +95,25 @@ struct CameraProtocolProfile {
 struct ProtocolDetectionEvidence {
   bool hasGr3WlanService = false;
   bool hasGr3NetworkTypeCharacteristic = false;
-  bool gr4PowerHandleReadSucceeded = false;
+  bool hasGr3SsidCharacteristic = false;
+  bool hasGr3PassphraseCharacteristic = false;
+  bool hasGr3ChannelCharacteristic = false;
+  bool hasCameraService = false;
+  bool hasOperationModeCharacteristic = false;
+  bool hasShootingService = false;
+  bool hasShootingFlavorCharacteristic = false;
+  bool hasOperationRequestCharacteristic = false;
+  bool hasControlService = false;
+  bool hasGr4PowerCharacteristicAtExpectedHandle = false;
+  uint8_t gr4ExpectedWlanCharacteristicCount = 0;
 };
 
 const CameraProtocolProfile& cameraProtocolProfile(RicohProtocolGeneration generation);
 RicohProtocolGeneration detectRicohProtocol(const ProtocolDetectionEvidence& evidence);
 const char* ricohProtocolGenerationName(RicohProtocolGeneration generation);
+RicohSecurityProfileId securityProfileForGeneration(RicohProtocolGeneration generation);
+const RicohSecurityProfile& ricohSecurityProfile(RicohSecurityProfileId id);
+const char* ricohSecurityProfileName(RicohSecurityProfileId id);
 
 bool protocolAllowsBleSideEffect(const CameraProtocolProfile& profile, BleSideEffect effect);
 bool operationModeAllowsWifi(const CameraProtocolProfile& profile,

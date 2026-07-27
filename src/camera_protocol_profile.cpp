@@ -59,6 +59,33 @@ const CameraProtocolProfile kGr2Profile = makeGr2Profile();
 const CameraProtocolProfile kGr3Profile = makeGr3Profile();
 const CameraProtocolProfile kGr4Profile = makeGr4Profile();
 
+RicohSecurityProfile makeGr3SecurityProfile() {
+  RicohSecurityProfile profile;
+  profile.id = RicohSecurityProfileId::Gr3Passkey;
+  profile.ioCapability = RicohBleIoCapability::KeyboardDisplay;
+  profile.ownAddressMode = RicohBleOwnAddressMode::Public;
+  profile.distributeEncryptionKey = true;
+  profile.distributeIdentityKey = true;
+  profile.distributeSigningKey = true;
+  return profile;
+}
+
+RicohSecurityProfile makeGr4SecurityProfile() {
+  RicohSecurityProfile profile;
+  profile.id = RicohSecurityProfileId::Gr4Legacy;
+  profile.ioCapability = RicohBleIoCapability::DisplayYesNo;
+  profile.ownAddressMode = RicohBleOwnAddressMode::RpaPublicDefault;
+  profile.distributeEncryptionKey = true;
+  profile.distributeIdentityKey = true;
+  profile.usesFixedPasskey = true;
+  profile.fixedPasskey = 123456;
+  return profile;
+}
+
+const RicohSecurityProfile kUnknownSecurityProfile;
+const RicohSecurityProfile kGr3SecurityProfile = makeGr3SecurityProfile();
+const RicohSecurityProfile kGr4SecurityProfile = makeGr4SecurityProfile();
+
 }  // namespace
 
 const CameraProtocolProfile& cameraProtocolProfile(RicohProtocolGeneration generation) {
@@ -76,10 +103,26 @@ const CameraProtocolProfile& cameraProtocolProfile(RicohProtocolGeneration gener
 }
 
 RicohProtocolGeneration detectRicohProtocol(const ProtocolDetectionEvidence& evidence) {
-  if (evidence.hasGr3WlanService && evidence.hasGr3NetworkTypeCharacteristic) {
+  const bool gr3Evidence =
+      evidence.hasGr3WlanService &&
+      evidence.hasGr3NetworkTypeCharacteristic;
+  const bool gr4Evidence =
+      evidence.hasCameraService &&
+      evidence.hasOperationModeCharacteristic &&
+      evidence.hasShootingService &&
+      evidence.hasShootingFlavorCharacteristic &&
+      evidence.hasOperationRequestCharacteristic &&
+      evidence.hasControlService &&
+      evidence.hasGr4PowerCharacteristicAtExpectedHandle &&
+      evidence.gr4ExpectedWlanCharacteristicCount >= 4;
+
+  if (gr3Evidence && gr4Evidence) {
+    return RicohProtocolGeneration::Unknown;
+  }
+  if (gr3Evidence) {
     return RicohProtocolGeneration::Gr3Family;
   }
-  if (evidence.gr4PowerHandleReadSucceeded) {
+  if (gr4Evidence) {
     return RicohProtocolGeneration::Gr4Family;
   }
   return RicohProtocolGeneration::Unknown;
@@ -94,6 +137,43 @@ const char* ricohProtocolGenerationName(RicohProtocolGeneration generation) {
     case RicohProtocolGeneration::Gr4Family:
       return "GR4_FAMILY";
     case RicohProtocolGeneration::Unknown:
+      return "UNKNOWN";
+  }
+  return "UNKNOWN";
+}
+
+RicohSecurityProfileId securityProfileForGeneration(RicohProtocolGeneration generation) {
+  switch (generation) {
+    case RicohProtocolGeneration::Gr3Family:
+      return RicohSecurityProfileId::Gr3Passkey;
+    case RicohProtocolGeneration::Gr4Family:
+      return RicohSecurityProfileId::Gr4Legacy;
+    case RicohProtocolGeneration::Gr2Family:
+    case RicohProtocolGeneration::Unknown:
+      return RicohSecurityProfileId::Unknown;
+  }
+  return RicohSecurityProfileId::Unknown;
+}
+
+const RicohSecurityProfile& ricohSecurityProfile(RicohSecurityProfileId id) {
+  switch (id) {
+    case RicohSecurityProfileId::Gr3Passkey:
+      return kGr3SecurityProfile;
+    case RicohSecurityProfileId::Gr4Legacy:
+      return kGr4SecurityProfile;
+    case RicohSecurityProfileId::Unknown:
+      return kUnknownSecurityProfile;
+  }
+  return kUnknownSecurityProfile;
+}
+
+const char* ricohSecurityProfileName(RicohSecurityProfileId id) {
+  switch (id) {
+    case RicohSecurityProfileId::Gr3Passkey:
+      return "GR3_PASSKEY";
+    case RicohSecurityProfileId::Gr4Legacy:
+      return "GR4_LEGACY";
+    case RicohSecurityProfileId::Unknown:
       return "UNKNOWN";
   }
   return "UNKNOWN";

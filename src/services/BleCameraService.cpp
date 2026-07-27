@@ -28,6 +28,26 @@ Result BleCameraService::begin(RicohBleClient& client) {
     return begin();
 }
 
+void BleCameraService::setSecurityProfile(RicohSecurityProfileId profile) {
+    if (_client != nullptr) {
+        _client->setSecurityProfile(profile);
+    }
+}
+
+void BleCameraService::setBindingState(CameraBindingState state) {
+    if (_client != nullptr) {
+        _client->setBindingState(state);
+    }
+}
+
+CameraBindingState BleCameraService::bindingState() const {
+    return _client != nullptr ? _client->bindingState() : CameraBindingState::Unpaired;
+}
+
+bool BleCameraService::consumeBondInvalidRequest() {
+    return _client != nullptr && _client->consumeBondInvalidRequest();
+}
+
 Result BleCameraService::scan() {
     Result ready = requireClient("scan");
     if (ready.failed()) {
@@ -273,6 +293,18 @@ const CameraProtocolProfile& BleCameraService::protocolProfile() const {
 
 RicohBleSecurityState BleCameraService::securityState() const {
     return _client != nullptr ? _client->securityState() : RicohBleSecurityState{};
+}
+
+String BleCameraService::connectedIdentityAddress() const {
+    return _client != nullptr ? _client->connectedIdentityAddress() : String();
+}
+
+uint8_t BleCameraService::connectedIdentityAddressType() const {
+    return _client != nullptr ? _client->connectedIdentityAddressType() : 0;
+}
+
+bool BleCameraService::connectedIdentityKnown() const {
+    return _client != nullptr && _client->connectedIdentityKnown();
 }
 
 String BleCameraService::statusText() const {
