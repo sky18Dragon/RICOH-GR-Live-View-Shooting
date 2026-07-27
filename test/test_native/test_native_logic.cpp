@@ -11,12 +11,17 @@ void tearDown(void) {}
 #include "ble_pairing_policy.h"
 #include "ble_reconnect_policy.h"
 
+#include "app/AppController.h"
 #include "camera_identity.h"
 #include "camera_profile_schema.h"
 #include "camera_protocol_profile.h"
 #include "ricoh/RicohBleProtocolRouter.h"
 #include "mjpeg_stream.h"
 #include "supervisor/SystemSupervisor.h"
+#include "ui/ButtonInput.h"
+#include "ui/OrientationTracker.h"
+#include "ui/UiAnimator.h"
+#include "ui/UiCoordinator.h"
 
 namespace {
 
@@ -34,6 +39,187 @@ void captureFrame(const uint8_t* data, size_t len, void* user) {
 void assertDerivedBleName(const char* ssid, const char* expected) {
   const std::string actual = deriveBleNameFromWifiSsid(ssid);
   TEST_ASSERT_EQUAL_STRING(expected, actual.c_str());
+}
+
+struct FlowHarness {
+  static bool bleConnected;
+  static bool wifiConnected;
+  static bool previewRunning;
+  static bool cachedCredentials;
+  static uint32_t lastRecoveryAt;
+  static uint32_t activateCalls;
+  static uint32_t readCredentialsCalls;
+  static uint32_t applyCredentialsCalls;
+  static uint32_t connectCalls;
+  static uint32_t disconnectCalls;
+  static uint32_t fetchPropsCalls;
+  static uint32_t openPreviewCalls;
+
+  static void reset() {
+    bleConnected = true;
+    wifiConnected = false;
+    previewRunning = false;
+    cachedCredentials = false;
+    lastRecoveryAt = 0;
+    activateCalls = 0;
+    readCredentialsCalls = 0;
+    applyCredentialsCalls = 0;
+    connectCalls = 0;
+    disconnectCalls = 0;
+    fetchPropsCalls = 0;
+    openPreviewCalls = 0;
+  }
+
+  static bool noGuard(const char*) { return false; }
+  static bool guardInactive() { return false; }
+  static bool isBleConnected() { return bleConnected; }
+  static bool isWifiConnected() { return wifiConnected; }
+  static bool runBleDiscovery() { return bleConnected; }
+  static bool activateWifi() {
+    ++activateCalls;
+    return true;
+  }
+  static bool hasCredentials() { return cachedCredentials; }
+  static bool readCredentials() {
+    ++readCredentialsCalls;
+    return true;
+  }
+  static void applyCredentials() {
+    ++applyCredentialsCalls;
+    cachedCredentials = true;
+  }
+  static bool connectWifi() {
+    ++connectCalls;
+    wifiConnected = true;
+    return true;
+  }
+  static void disconnectWifi() {
+    ++disconnectCalls;
+    wifiConnected = false;
+    previewRunning = false;
+  }
+  static bool fetchProps() {
+    ++fetchPropsCalls;
+    return wifiConnected;
+  }
+  static bool openPreview() {
+    ++openPreviewCalls;
+    previewRunning = wifiConnected;
+    return previewRunning;
+  }
+  static bool isPreviewRunning() { return previewRunning; }
+  static bool recoveryInactive() { return false; }
+  static uint32_t getLastRecoveryAt() { return lastRecoveryAt; }
+  static void setLastRecoveryAt(uint32_t value) { lastRecoveryAt = value; }
+
+  static rvf::AppFlowActions actions() {
+    rvf::AppFlowActions result;
+    result.cameraSleepGuardBlocksFlow = noGuard;
+    result.cameraSleepGuardActive = guardInactive;
+    result.isBleConnected = isBleConnected;
+    result.isWifiConnected = isWifiConnected;
+    result.disconnectWifi = disconnectWifi;
+    result.runBleDiscovery = runBleDiscovery;
+    result.activateCameraWifiOverBle = activateWifi;
+    result.hasUsableCachedWifiCredentials = hasCredentials;
+    result.connectCachedWifiFromProfile = connectWifi;
+    result.readFreshWifiCredentials = readCredentials;
+    result.applyFreshWifiCredentials = applyCredentials;
+    result.connectFreshWifiFromProfile = connectWifi;
+    result.fetchCameraProps = fetchProps;
+    result.openLiveView = openPreview;
+    result.previewStreamRunning = isPreviewRunning;
+    result.cameraRecoveryInProgress = recoveryInactive;
+    result.lastCameraRecoveryAt = getLastRecoveryAt;
+    result.setLastCameraRecoveryAt = setLastRecoveryAt;
+    result.liveviewEnabled = true;
+    result.wifiOpenAttempts = 1;
+    result.bleScanRetryIntervalMs = 1000;
+    result.liveViewStallTimeoutMs = 5000;
+    return result;
+  }
+};
+
+bool FlowHarness::bleConnected = true;
+bool FlowHarness::wifiConnected = false;
+bool FlowHarness::previewRunning = false;
+bool FlowHarness::cachedCredentials = false;
+uint32_t FlowHarness::lastRecoveryAt = 0;
+uint32_t FlowHarness::activateCalls = 0;
+uint32_t FlowHarness::readCredentialsCalls = 0;
+uint32_t FlowHarness::applyCredentialsCalls = 0;
+uint32_t FlowHarness::connectCalls = 0;
+uint32_t FlowHarness::disconnectCalls = 0;
+uint32_t FlowHarness::fetchPropsCalls = 0;
+uint32_t FlowHarness::openPreviewCalls = 0;
+
+void testPortraitStartupCachesWifiWithoutConnecting() {
+  FlowHarness::reset();
+  rvf::AppController controller(rvf::AppState::BleScan);
+  controller.begin(rvf::AppState::BleScan);
+  const rvf::AppFlowActions actions = FlowHarness::actions();
+
+  TEST_ASSERT_TRUE(controller.runCameraFlowOnce(actions, 100));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::AppState::WifiCredentialsReady),
+                        static_cast<int>(controller.state()));
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::activateCalls);
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::readCredentialsCalls);
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::applyCredentialsCalls);
+  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::connectCalls);
+  TEST_ASSERT_FALSE(FlowHarness::wifiConnected);
+  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::fetchPropsCalls);
+  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::openPreviewCalls);
+}
+
+void testLandscapeStartupRunsOriginalFullFlow() {
+  FlowHarness::reset();
+  rvf::AppController controller(rvf::AppState::BleScan);
+  controller.begin(rvf::AppState::BleScan);
+  controller.setPreviewRequested(true);
+  const rvf::AppFlowActions actions = FlowHarness::actions();
+
+  TEST_ASSERT_TRUE(controller.runCameraFlowOnce(actions, 100));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::AppState::PreviewRunning),
+                        static_cast<int>(controller.state()));
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::activateCalls);
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::connectCalls);
+  TEST_ASSERT_TRUE(FlowHarness::wifiConnected);
+  TEST_ASSERT_TRUE(FlowHarness::previewRunning);
+}
+
+void testPortraitToLandscapeResumesAfterCredentialCache() {
+  FlowHarness::reset();
+  rvf::AppController controller(rvf::AppState::BleScan);
+  controller.begin(rvf::AppState::BleScan);
+  const rvf::AppFlowActions actions = FlowHarness::actions();
+  TEST_ASSERT_TRUE(controller.runCameraFlowOnce(actions, 100));
+  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::connectCalls);
+
+  controller.setPreviewRequested(true);
+  controller.serviceCameraFlowIfNeeded(actions, 200);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::AppState::PreviewRunning),
+                        static_cast<int>(controller.state()));
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::connectCalls);
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::fetchPropsCalls);
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::openPreviewCalls);
+}
+
+void testLandscapeToPortraitDisconnectsWifiAndKeepsBleReady() {
+  FlowHarness::reset();
+  rvf::AppController controller(rvf::AppState::BleScan);
+  controller.begin(rvf::AppState::BleScan);
+  controller.setPreviewRequested(true);
+  const rvf::AppFlowActions actions = FlowHarness::actions();
+  TEST_ASSERT_TRUE(controller.runCameraFlowOnce(actions, 100));
+
+  controller.setPreviewRequested(false);
+  controller.serviceCameraFlowIfNeeded(actions, 200);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::AppState::WifiCredentialsReady),
+                        static_cast<int>(controller.state()));
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::disconnectCalls);
+  TEST_ASSERT_FALSE(FlowHarness::wifiConnected);
+  TEST_ASSERT_FALSE(FlowHarness::previewRunning);
+  TEST_ASSERT_TRUE(FlowHarness::bleConnected);
 }
 
 void testBeginRejectsInvalidInputs() {
@@ -244,6 +430,188 @@ void testSupervisorReportsFrameStallDespiteIncomingBytes() {
   TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::AppEventType::PreviewTimeout), static_cast<int>(message.type));
   TEST_ASSERT_EQUAL_INT(6001, message.code);
   TEST_ASSERT_EQUAL_STRING("supervisor preview frame idle", message.detail);
+}
+
+void testUiMapsAppStatesToScenes() {
+  rvf::UiSnapshot snapshot;
+  snapshot.appState = rvf::AppState::BleScan;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiScene::Pairing),
+                        static_cast<int>(rvf::UiCoordinator::selectScene(
+                            snapshot, rvf::UiOrientation::Portrait)));
+
+  snapshot.appState = rvf::AppState::ConnectingBle;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiScene::Connecting),
+                        static_cast<int>(rvf::UiCoordinator::selectScene(
+                            snapshot, rvf::UiOrientation::Portrait)));
+
+  snapshot.appState = rvf::AppState::PreviewRunning;
+  snapshot.previewRunning = true;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiScene::RemoteReady),
+                        static_cast<int>(rvf::UiCoordinator::selectScene(
+                            snapshot, rvf::UiOrientation::Portrait)));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiScene::LivePreview),
+                        static_cast<int>(rvf::UiCoordinator::selectScene(
+                            snapshot, rvf::UiOrientation::Landscape)));
+}
+
+void testUiScenePriority() {
+  rvf::UiSnapshot snapshot;
+  snapshot.appState = rvf::AppState::PreviewRunning;
+  snapshot.previewRunning = true;
+  snapshot.cameraSleepLike = true;
+  snapshot.resettingPairing = true;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiScene::ResetPairing),
+                        static_cast<int>(rvf::UiCoordinator::selectScene(
+                            snapshot, rvf::UiOrientation::Landscape)));
+}
+
+void testOrientationRequiresStableCandidate() {
+  rvf::OrientationTracker tracker(rvf::UiOrientation::Portrait);
+  tracker.reset(rvf::UiOrientation::Portrait, 0);
+  TEST_ASSERT_FALSE(tracker.update(0.0f, 1.0f, 0.0f, 100));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiOrientation::Portrait),
+                        static_cast<int>(tracker.orientation()));
+  TEST_ASSERT_FALSE(tracker.update(0.0f, 1.0f, 0.0f, 599));
+  TEST_ASSERT_TRUE(tracker.update(0.0f, 1.0f, 0.0f, 600));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiOrientation::Landscape),
+                        static_cast<int>(tracker.orientation()));
+}
+
+void testOrientationMapsStickS3PhysicalAxes() {
+  rvf::OrientationTracker portraitTracker(rvf::UiOrientation::Landscape);
+  portraitTracker.reset(rvf::UiOrientation::Landscape, 0);
+  portraitTracker.update(1.0f, 0.0f, 0.0f, 100);
+  TEST_ASSERT_TRUE(portraitTracker.update(1.0f, 0.0f, 0.0f, 600));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiOrientation::Portrait),
+                        static_cast<int>(portraitTracker.orientation()));
+
+  rvf::OrientationTracker landscapeTracker(rvf::UiOrientation::Portrait);
+  landscapeTracker.reset(rvf::UiOrientation::Portrait, 0);
+  landscapeTracker.update(0.0f, 1.0f, 0.0f, 100);
+  TEST_ASSERT_TRUE(landscapeTracker.update(0.0f, 1.0f, 0.0f, 600));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiOrientation::Landscape),
+                        static_cast<int>(landscapeTracker.orientation()));
+}
+
+void testOrientationHysteresisPreventsBoundaryChatter() {
+  rvf::OrientationTracker tracker(rvf::UiOrientation::Portrait);
+  tracker.reset(rvf::UiOrientation::Portrait, 0);
+  tracker.update(0.0f, 1.0f, 0.0f, 100);
+  tracker.update(0.0f, 1.0f, 0.0f, 600);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiOrientation::Landscape),
+                        static_cast<int>(tracker.orientation()));
+  TEST_ASSERT_FALSE(tracker.update(0.55f, 0.50f, 0.0f, 1100));
+  TEST_ASSERT_FALSE(tracker.update(0.50f, 0.55f, 0.0f, 1700));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiOrientation::Landscape),
+                        static_cast<int>(tracker.orientation()));
+}
+
+void testAnimationProgressAndCompletion() {
+  rvf::AnimationState animation;
+  animation.start(1000, 1000);
+  TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.0f, animation.progress(1000));
+  TEST_ASSERT_FLOAT_WITHIN(0.0001f, 0.5f, animation.progress(1500));
+  TEST_ASSERT_FLOAT_WITHIN(0.0001f, 1.0f, animation.progress(2000));
+  TEST_ASSERT_TRUE(animation.update(2000));
+  TEST_ASSERT_FALSE(animation.active);
+}
+
+void testAnimationElapsedIsMillisWrapSafe() {
+  constexpr uint32_t start = UINT32_MAX - 100U;
+  TEST_ASSERT_EQUAL_UINT32(151U, rvf::uiElapsedMs(50U, start));
+  rvf::AnimationState animation;
+  animation.start(start, 200U);
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.755f, animation.progress(50U));
+}
+
+void testButtonBReportsContinuousProgress() {
+  rvf::ButtonInput input(3000);
+  input.reset();
+  input.update(false, true, false, 100);
+  const rvf::ButtonEvents halfway = input.update(false, true, false, 1600);
+  TEST_ASSERT_TRUE(halfway.resetHoldActive);
+  TEST_ASSERT_EQUAL_UINT32(1500, halfway.resetHoldMs);
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.5f, halfway.resetHoldProgress);
+  TEST_ASSERT_FALSE(halfway.resetPairing);
+}
+
+void testButtonBReleaseBeforeThresholdDoesNotReset() {
+  rvf::ButtonInput input(3000);
+  input.update(false, true, false, 100);
+  const rvf::ButtonEvents released = input.update(false, false, false, 2500);
+  TEST_ASSERT_FALSE(released.resetPairing);
+  TEST_ASSERT_FALSE(released.resetHoldActive);
+}
+
+void testButtonBThresholdTriggersOnlyOnce() {
+  rvf::ButtonInput input(3000);
+  input.update(false, true, false, 100);
+  TEST_ASSERT_TRUE(input.update(false, true, false, 3100).resetPairing);
+  TEST_ASSERT_FALSE(input.update(false, true, false, 4100).resetPairing);
+  TEST_ASSERT_FALSE(input.update(false, true, false, 5100).resetPairing);
+}
+
+void testButtonAOperationTriggersAtMostOneShoot() {
+  rvf::ButtonInput input;
+  const rvf::ButtonEvents pressed = input.update(true, false, false, 100);
+  TEST_ASSERT_TRUE(pressed.buttonADown);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UserCommand::None),
+                        static_cast<int>(rvf::ButtonInput::commandFromEvents(pressed)));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UserCommand::None),
+                        static_cast<int>(rvf::ButtonInput::commandFromEvents(
+                            input.update(true, false, false, 500))));
+  const rvf::ButtonEvents released = input.update(false, false, false, 600);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UserCommand::Shoot),
+                        static_cast<int>(rvf::ButtonInput::commandFromEvents(released)));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UserCommand::None),
+                        static_cast<int>(rvf::ButtonInput::commandFromEvents(
+                            input.update(false, false, false, 700))));
+}
+
+void testShutterOverlaySuccessAndFailureLifecycles() {
+  rvf::UiCoordinator coordinator;
+  coordinator.begin(0);
+  rvf::UiSnapshot snapshot;
+  snapshot.appState = rvf::AppState::PreviewRunning;
+  snapshot.previewRunning = true;
+  rvf::ButtonEvents input;
+  coordinator.update(snapshot, input, rvf::UiOrientation::Portrait, 10);
+  coordinator.notifyShutterStarted(50);
+  coordinator.update(snapshot, input, rvf::UiOrientation::Portrait, 50);
+  TEST_ASSERT_TRUE(coordinator.viewModel().focusActive);
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 1.0f, coordinator.viewModel().focusProgress);
+  coordinator.notifyShutterResult(true, 100);
+  coordinator.update(snapshot, input, rvf::UiOrientation::Portrait, 100);
+  TEST_ASSERT_TRUE(coordinator.viewModel().shutterOverlayActive);
+  TEST_ASSERT_FALSE(coordinator.viewModel().shutterFailed);
+  coordinator.update(snapshot, input, rvf::UiOrientation::Portrait, 400);
+  TEST_ASSERT_FALSE(coordinator.viewModel().shutterOverlayActive);
+
+  coordinator.notifyShutterResult(false, 500);
+  coordinator.update(snapshot, input, rvf::UiOrientation::Portrait, 500);
+  TEST_ASSERT_TRUE(coordinator.viewModel().shutterOverlayActive);
+  TEST_ASSERT_TRUE(coordinator.viewModel().shutterFailed);
+}
+
+void testSleepSceneOverridesOrientationScene() {
+  rvf::UiSnapshot snapshot;
+  snapshot.appState = rvf::AppState::PreviewRunning;
+  snapshot.previewRunning = true;
+  snapshot.cameraSleepLike = true;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiScene::CameraSleep),
+                        static_cast<int>(rvf::UiCoordinator::selectScene(
+                            snapshot, rvf::UiOrientation::Landscape)));
+}
+
+void testErrorSceneOverridesEveryOrdinaryScene() {
+  rvf::UiSnapshot snapshot;
+  snapshot.appState = rvf::AppState::Error;
+  snapshot.previewRunning = true;
+  snapshot.cameraSleepLike = true;
+  snapshot.resettingPairing = true;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiScene::Error),
+                        static_cast<int>(rvf::UiCoordinator::selectScene(
+                            snapshot, rvf::UiOrientation::Landscape, true)));
 }
 
 void testDetectsProtocolOnlyFromSafeEvidence() {
@@ -515,6 +883,10 @@ void testPasskeyCanMoveWithBAndSubmitWithLongA() {
 
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(testPortraitStartupCachesWifiWithoutConnecting);
+  RUN_TEST(testLandscapeStartupRunsOriginalFullFlow);
+  RUN_TEST(testPortraitToLandscapeResumesAfterCredentialCache);
+  RUN_TEST(testLandscapeToPortraitDisconnectsWifiAndKeepsBleReady);
   RUN_TEST(testDetectsProtocolOnlyFromSafeEvidence);
   RUN_TEST(testSecurityProfilesKeepGr4LegacyFrozen);
   RUN_TEST(testProtocolRouterSelectsExactlyOneImplementation);
@@ -546,5 +918,19 @@ int main() {
   RUN_TEST(testSupervisorIgnoresCameraSleepGuard);
   RUN_TEST(testSupervisorReportsPreviewIdleTimeout);
   RUN_TEST(testSupervisorReportsFrameStallDespiteIncomingBytes);
+  RUN_TEST(testUiMapsAppStatesToScenes);
+  RUN_TEST(testUiScenePriority);
+  RUN_TEST(testOrientationRequiresStableCandidate);
+  RUN_TEST(testOrientationMapsStickS3PhysicalAxes);
+  RUN_TEST(testOrientationHysteresisPreventsBoundaryChatter);
+  RUN_TEST(testAnimationProgressAndCompletion);
+  RUN_TEST(testAnimationElapsedIsMillisWrapSafe);
+  RUN_TEST(testButtonBReportsContinuousProgress);
+  RUN_TEST(testButtonBReleaseBeforeThresholdDoesNotReset);
+  RUN_TEST(testButtonBThresholdTriggersOnlyOnce);
+  RUN_TEST(testButtonAOperationTriggersAtMostOneShoot);
+  RUN_TEST(testShutterOverlaySuccessAndFailureLifecycles);
+  RUN_TEST(testSleepSceneOverridesOrientationScene);
+  RUN_TEST(testErrorSceneOverridesEveryOrdinaryScene);
   return UNITY_END();
 }
