@@ -1175,6 +1175,7 @@ bool runBleDiscoveryAtBoot() {
 // and HTTP paths detect that instead.
 bool bleParkedForPreview = false;
 uint32_t previewStableSinceMs = 0;
+uint32_t bleParkedAtMs = 0;
 
 // True when the BLE link is either up or deliberately parked. Everything that
 // asks "is the camera still with us?" wants this - the supervisor, the UI, the
@@ -1968,6 +1969,20 @@ void updateStatusUiIfDue() {
 // opens, and dropping BLE in the middle of that would look like a failure.
 void serviceBleParking(uint32_t nowMs) {
   constexpr uint32_t kParkAfterStablePreviewMs = 3000;
+  // A disconnect is not instant, so do not read the link as "back up" in the
+  // moment right after releasing it.
+  constexpr uint32_t kParkSettleMs = 1000;
+
+  if (bleParkedForPreview && bleCamera.isConnected() &&
+      (nowMs - bleParkedAtMs) >= kParkSettleMs) {
+    // Parked describes a link this code released and which is therefore down.
+    // If it is up again the flag is stale, and staleness here is silent: the
+    // preview keeps working while quietly paying the radio contention that
+    // parking exists to avoid, and the shutter goes over HTTP for no reason.
+    // Seen after a pairing reset, whose reconnect runs while the tick that
+    // would have unparked is blocked inside the BLE flow.
+    unparkBleIfNeeded("BLE link back up");
+  }
 
   const bool previewStreaming =
       appController.isPreviewActive() && grWifi.isConnected() && wifiPreview.isPreviewRunning();
@@ -2001,6 +2016,7 @@ void serviceBleParking(uint32_t nowMs) {
 
   Serial.println("BLE: parking link to free radio time for the preview stream");
   bleParkedForPreview = true;
+  bleParkedAtMs = nowMs;
   bleCamera.disconnect();
   bleCamera.clearDisconnectReason();
 }
