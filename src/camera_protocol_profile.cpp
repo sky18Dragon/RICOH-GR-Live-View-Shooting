@@ -25,6 +25,7 @@ CameraProtocolProfile makeGr3Profile() {
   profile.capabilities.exposesWifiPassphrase = true;
   profile.capabilities.exposesWifiChannel = true;
   profile.capabilities.supportsHttpLiveView = true;
+  profile.capabilities.supportsHttpShutter = true;  // verified on a GR IIIx
   profile.wifiActivationMethod = WifiActivationMethod::BleNetworkTypeUuid;
   profile.wifiCredentialMethod = WifiCredentialMethod::BleUuidCharacteristics;
   profile.requiresPasskeyEntry = true;
@@ -235,7 +236,16 @@ bool operationModeAllowsWifi(const CameraProtocolProfile& profile,
     return false;
   }
   if (profile.generation == RicohProtocolGeneration::Gr3Family) {
-    return operationModeReadSucceeded && mode == RicohCameraOperationMode::Capture;
+    // GR III keeps the stricter requirement of a successful read -- an unknown
+    // mode must never authorise a WLAN write on this generation -- but the set
+    // of safe modes is the same as GR IV's. A GR IIIx sitting ready to shoot
+    // reports Other (0x03), not Capture (0x00), so an allowlist of Capture
+    // alone blocks Wi-Fi activation for the whole session. Verified on a GR
+    // IIIx (firmware 1.60): mode 0x03 followed by WLAN on, credentials read,
+    // /v1/props and a sustained LiveView stream.
+    return operationModeReadSucceeded &&
+           mode != RicohCameraOperationMode::BleStartup &&
+           mode != RicohCameraOperationMode::PowerOffTransfer;
   }
   if (profile.generation == RicohProtocolGeneration::Gr4Family) {
     // Preserve the established GR IV policy: an unavailable mode read does not

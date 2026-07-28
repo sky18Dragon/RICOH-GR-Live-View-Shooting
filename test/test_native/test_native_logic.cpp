@@ -861,14 +861,32 @@ void testUnknownAndGr2ProfilesBlockBleSideEffects() {
 void testOperationModeSafetyIsGenerationSpecific() {
   const CameraProtocolProfile& gr3 = cameraProtocolProfile(RicohProtocolGeneration::Gr3Family);
   TEST_ASSERT_TRUE(operationModeAllowsWifi(gr3, RicohCameraOperationMode::Capture, true));
-  TEST_ASSERT_FALSE(operationModeAllowsWifi(gr3, RicohCameraOperationMode::Playback, true));
+  // A GR IIIx ready to shoot reports Other, not Capture.
+  TEST_ASSERT_TRUE(operationModeAllowsWifi(gr3, RicohCameraOperationMode::Other, true));
+  TEST_ASSERT_TRUE(operationModeAllowsWifi(gr3, RicohCameraOperationMode::Playback, true));
   TEST_ASSERT_FALSE(operationModeAllowsWifi(gr3, RicohCameraOperationMode::BleStartup, true));
+  TEST_ASSERT_FALSE(operationModeAllowsWifi(gr3, RicohCameraOperationMode::PowerOffTransfer, true));
+  // Unlike GR IV, GR III still refuses to act on a mode it could not read.
   TEST_ASSERT_FALSE(operationModeAllowsWifi(gr3, RicohCameraOperationMode::Capture, false));
 
   const CameraProtocolProfile& gr4 = cameraProtocolProfile(RicohProtocolGeneration::Gr4Family);
   TEST_ASSERT_TRUE(operationModeAllowsWifi(gr4, RicohCameraOperationMode::Playback, true));
   TEST_ASSERT_TRUE(operationModeAllowsWifi(gr4, RicohCameraOperationMode::Unknown, false));
   TEST_ASSERT_FALSE(operationModeAllowsWifi(gr4, RicohCameraOperationMode::PowerOffTransfer, true));
+}
+
+void testHttpShutterIsOnlyClaimedWhereItWasVerified() {
+  // Parking the BLE link moves the shutter onto POST /v1/camera/shoot, so a
+  // generation may only be parked once that endpoint is confirmed on real
+  // hardware. GR III is; GR IV has not been tested and must stay untouched.
+  TEST_ASSERT_TRUE(cameraProtocolProfile(RicohProtocolGeneration::Gr3Family)
+                       .capabilities.supportsHttpShutter);
+  TEST_ASSERT_FALSE(cameraProtocolProfile(RicohProtocolGeneration::Gr4Family)
+                        .capabilities.supportsHttpShutter);
+  TEST_ASSERT_FALSE(cameraProtocolProfile(RicohProtocolGeneration::Gr2Family)
+                        .capabilities.supportsHttpShutter);
+  TEST_ASSERT_FALSE(cameraProtocolProfile(RicohProtocolGeneration::Unknown)
+                        .capabilities.supportsHttpShutter);
 }
 
 void testGr3CredentialShapeAllowsOptionalChannel() {
@@ -1067,6 +1085,7 @@ int main() {
   RUN_TEST(testProtocolRouterSelectsExactlyOneImplementation);
   RUN_TEST(testUnknownAndGr2ProfilesBlockBleSideEffects);
   RUN_TEST(testOperationModeSafetyIsGenerationSpecific);
+  RUN_TEST(testHttpShutterIsOnlyClaimedWhereItWasVerified);
   RUN_TEST(testGr3CredentialShapeAllowsOptionalChannel);
   RUN_TEST(testOldGr4ProfileMetadataMigratesWithoutRepairing);
   RUN_TEST(testNewProfileMetadataRoundTrips);

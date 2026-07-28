@@ -1162,8 +1162,40 @@ bool runBleDiscoveryAtBoot() {
   return false;
 }
 
+// Wi-Fi and BLE share one radio, and holding the BLE link open while the
+// preview streams costs more than half the available throughput (measured on
+// a GR IIIx: 380 KiB/s with it up against 831 KiB/s without). The camera does
+// not need BLE once its access point is running - the shutter, state and
+// battery are all served over HTTP - so the link is released while streaming
+// and brought back when the preview stops or the shutter needs it.
+//
+// Parked means "released deliberately", which the flow must not confuse with
+// "the camera vanished". While parked there is no BLE link to lose, and a
+// camera that really goes away takes its access point with it, so the Wi-Fi
+// and HTTP paths detect that instead.
+bool bleParkedForPreview = false;
+uint32_t previewStableSinceMs = 0;
+uint32_t bleParkedAtMs = 0;
+
+// True when the BLE link is either up or deliberately parked. Everything that
+// asks "is the camera still with us?" wants this - the supervisor, the UI, the
+// Wi-Fi guard - because a parked link is not a lost one. Only code about to
+// issue an actual BLE operation should ask bleCamera.isConnected().
+bool bleLinkHealthy() {
+  return bleCamera.isConnected() || bleParkedForPreview;
+}
+
 bool bleStillConnectedForWifi() {
-  return bleCamera.isConnected();
+  return bleLinkHealthy();
+}
+
+void unparkBleIfNeeded(const char* reason) {
+  if (!bleParkedForPreview) {
+    return;
+  }
+  bleParkedForPreview = false;
+  previewStableSinceMs = 0;
+  Serial.printf("BLE: unparking (%s)\n", reason != nullptr ? reason : "unspecified");
 }
 
 bool cameraWifiConnectGuard() {
@@ -1327,7 +1359,7 @@ void requestManualCameraWakeForController(const char* source) {
 }
 
 bool shutterReadyForController() {
-  return bleCamera.shutterReady();
+  return bleParkedForPreview ? grWifi.isConnected() : bleCamera.shutterReady();
 }
 
 void showShutterBleNotReadyForController() {
@@ -1337,20 +1369,39 @@ void showShutterBleNotReadyForController() {
 
 bool shootAutofocusForController() {
   uiCoordinator.notifyShutterStarted(millis());
+  if (bleParkedForPreview) {
+    // BLE is released for bandwidth; the camera takes the shot over HTTP.
+    // Failures are reported by onShutterFailedForController.
+    Serial.println("Button A: shutter over HTTP (BLE parked)");
+    return grApi.shoot(PROPS_TIMEOUT_MS);
+  }
   const rvf::Result shootResult = bleCamera.shoot(true);
   return shootResult.ok();
 }
 
 void onShutterOkForController() {
   uiCoordinator.notifyShutterResult(true, millis());
-  showStatusIfChanged("Button A shutter", "BLE SHOT OK", cameraProps.model, cameraProps.battery, true);
+  showStatusIfChanged("Button A shutter",
+                      bleParkedForPreview ? "HTTP SHOT OK" : "BLE SHOT OK",
+                      cameraProps.model,
+                      cameraProps.battery,
+                      true);
   updateUi();
 }
 
 void onShutterFailedForController() {
-  Serial.printf("Button A: BLE shutter failed: %s\n", bleCamera.lastError().c_str());
+  // The shot goes over BLE normally and over HTTP while the link is parked,
+  // so report whichever one actually ran; bleCamera's error is stale in the
+  // parked case and would send anyone reading the screen down the wrong path.
+  const bool overHttp = bleParkedForPreview;
+  const String& error = overHttp ? grApi.lastError() : bleCamera.lastError();
+  Serial.printf("Button A: %s shutter failed: %s\n", overHttp ? "HTTP" : "BLE", error.c_str());
   uiCoordinator.notifyShutterResult(false, millis());
-  showStatusIfChanged("Button A BLE failed", bleCamera.lastError(), "Preview kept", "", true);
+  showStatusIfChanged(overHttp ? "Button A HTTP failed" : "Button A BLE failed",
+                      error,
+                      "Preview kept",
+                      "",
+                      true);
   updateUi();
 }
 
@@ -1582,10 +1633,10 @@ void updateFps() {
 rvf::UiSnapshot makeUiSnapshot() {
   rvf::UiSnapshot snapshot;
   snapshot.appState = appController.state();
-  snapshot.bleConnected = bleCamera.isConnected();
+  snapshot.bleConnected = bleLinkHealthy();
   snapshot.wifiConnected = grWifi.isConnected();
   snapshot.previewRunning = wifiPreview.isPreviewRunning();
-  snapshot.shutterReady = bleCamera.shutterReady();
+  snapshot.shutterReady = shutterReadyForController();
   snapshot.cameraSleepLike = cameraSleepGuardActive() ||
                              snapshot.appState == rvf::AppState::CameraSleepGuard ||
                              snapshot.appState == rvf::AppState::CameraPowerOff;
@@ -1867,7 +1918,7 @@ const char* appEventTypeName(rvf::AppEventType type) {
 rvf::SystemHealthSnapshot makeSystemHealthSnapshot() {
   rvf::SystemHealthSnapshot snapshot;
   snapshot.appState = appController.state();
-  snapshot.bleConnected = bleCamera.isConnected();
+  snapshot.bleConnected = bleLinkHealthy();
   snapshot.wifiConnected = grWifi.isConnected();
   snapshot.previewRunning = wifiPreview.isPreviewRunning();
   snapshot.liveviewEnabled = liveviewEnabled;
@@ -1912,8 +1963,67 @@ void updateStatusUiIfDue() {
   }
 }
 
+// Releases the BLE link once the preview has been streaming steadily, and
+// takes it back as soon as the preview stops. The settle window matters: the
+// flow is still finishing its Wi-Fi and HTTP bring-up right after the stream
+// opens, and dropping BLE in the middle of that would look like a failure.
+void serviceBleParking(uint32_t nowMs) {
+  constexpr uint32_t kParkAfterStablePreviewMs = 3000;
+  // A disconnect is not instant, so do not read the link as "back up" in the
+  // moment right after releasing it.
+  constexpr uint32_t kParkSettleMs = 1000;
+
+  if (bleParkedForPreview && bleCamera.isConnected() &&
+      (nowMs - bleParkedAtMs) >= kParkSettleMs) {
+    // Parked describes a link this code released and which is therefore down.
+    // If it is up again the flag is stale, and staleness here is silent: the
+    // preview keeps working while quietly paying the radio contention that
+    // parking exists to avoid, and the shutter goes over HTTP for no reason.
+    // Seen after a pairing reset, whose reconnect runs while the tick that
+    // would have unparked is blocked inside the BLE flow.
+    unparkBleIfNeeded("BLE link back up");
+  }
+
+  const bool previewStreaming =
+      appController.isPreviewActive() && grWifi.isConnected() && wifiPreview.isPreviewRunning();
+
+  if (!previewStreaming) {
+    unparkBleIfNeeded("preview stopped");
+    return;
+  }
+
+  if (bleParkedForPreview) {
+    return;
+  }
+
+  if (previewStableSinceMs == 0) {
+    previewStableSinceMs = nowMs;
+    return;
+  }
+  if (nowMs - previewStableSinceMs < kParkAfterStablePreviewMs) {
+    return;
+  }
+  if (!bleCamera.isConnected()) {
+    return;  // Nothing to release.
+  }
+  if (!bleCamera.protocolProfile().capabilities.supportsHttpShutter) {
+    // Releasing BLE moves the shutter onto POST /v1/camera/shoot. Only do it
+    // where that endpoint has actually been confirmed on the camera - a
+    // generation that turns out not to serve it would lose its shutter
+    // entirely, and the frame rate is not worth that.
+    return;
+  }
+
+  Serial.println("BLE: parking link to free radio time for the preview stream");
+  bleParkedForPreview = true;
+  bleParkedAtMs = nowMs;
+  bleCamera.disconnect();
+  bleCamera.clearDisconnectReason();
+}
+
 void runAppTick() {
   const uint32_t now = millis();
+  serviceBleParking(now);
   const rvf::AppTickPlan tickPlan = appController.planTick(now);
 
   if (tickPlan.handleButtons) {
