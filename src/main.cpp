@@ -783,24 +783,24 @@ String storedBleTargetAddress() {
 }
 
 bool candidateMatchesBoundCamera(const RicohBleDeviceInfo& info) {
-  if (bleCamera.bindingState() == CameraBindingState::Unpaired) {
-    return true;
-  }
-  if (bleCamera.bindingState() == CameraBindingState::BondInvalid) {
-    return false;
+  const CameraBindingState state = bleCamera.bindingState();
+  if (state == CameraBindingState::Unpaired ||
+      state == CameraBindingState::Pairing ||
+      state == CameraBindingState::BondInvalid) {
+    return bindingStateAllowsCandidate(state, "", info.address.c_str());
   }
   const bool peerIdentityMatch =
-      cameraProfile.peerIdentityAddress.length() > 0 &&
-      bleCandidateMatchesStoredIdentity(cameraProfile.peerIdentityAddress.c_str(),
-                                        info.address.c_str());
+      bindingStateAllowsCandidate(state,
+                                  cameraProfile.peerIdentityAddress.c_str(),
+                                  info.address.c_str());
   const bool legacyAddressMatch =
-      cameraProfile.bleAddress.length() > 0 &&
-      bleCandidateMatchesStoredIdentity(cameraProfile.bleAddress.c_str(),
-                                        info.address.c_str());
+      bindingStateAllowsCandidate(state,
+                                  cameraProfile.bleAddress.c_str(),
+                                  info.address.c_str());
   const bool otaAddressMatch =
-      cameraProfile.lastSeenOtaAddress.length() > 0 &&
-      bleCandidateMatchesStoredIdentity(cameraProfile.lastSeenOtaAddress.c_str(),
-                                        info.address.c_str());
+      bindingStateAllowsCandidate(state,
+                                  cameraProfile.lastSeenOtaAddress.c_str(),
+                                  info.address.c_str());
   return peerIdentityMatch || legacyAddressMatch || otaAddressMatch;
 }
 

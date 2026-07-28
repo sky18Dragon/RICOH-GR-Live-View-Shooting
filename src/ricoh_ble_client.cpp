@@ -1341,7 +1341,7 @@ bool RicohBleClient::connect(const RicohBleDeviceInfo& info, const RicohBleConne
 #if RICOH_BLE_GATT_DIAGNOSTICS
     logGattTable(client);
 #endif
-    Serial.printf("BLE discovery: generation=%s gr3_service=%d gr3_network=%d gr4_power_handle=%d gr4_wlan_handles=%u\n",
+    Serial.printf("BLE discovery: generation=%s shared_wlan_service=%d shared_network_type=%d gr4_power_handle=%d gr4_wlan_handles=%u\n",
                   ricohProtocolGenerationName(detected),
                   discoveryEvidence.hasGr3WlanService ? 1 : 0,
                   discoveryEvidence.hasGr3NetworkTypeCharacteristic ? 1 : 0,

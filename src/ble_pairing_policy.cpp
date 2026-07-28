@@ -34,7 +34,8 @@ bool bindingStateAllowsCandidate(CameraBindingState state,
   if (state == CameraBindingState::BondInvalid) {
     return false;
   }
-  if (state == CameraBindingState::Unpaired) {
+  if (state == CameraBindingState::Unpaired ||
+      state == CameraBindingState::Pairing) {
     return candidateIdentity != nullptr && candidateIdentity[0] != '\0';
   }
   if (storedIdentity == nullptr || storedIdentity[0] == '\0' ||

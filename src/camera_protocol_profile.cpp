@@ -115,15 +115,18 @@ RicohProtocolGeneration detectRicohProtocol(const ProtocolDetectionEvidence& evi
       evidence.hasControlService &&
       evidence.hasGr4PowerCharacteristicAtExpectedHandle &&
       evidence.gr4ExpectedWlanCharacteristicCount >= 4;
+  const bool partialGr4FixedHandleEvidence =
+      evidence.hasGr4PowerCharacteristicAtExpectedHandle ||
+      evidence.gr4ExpectedWlanCharacteristicCount > 0;
 
-  if (gr3Evidence && gr4Evidence) {
-    return RicohProtocolGeneration::Unknown;
-  }
-  if (gr3Evidence) {
-    return RicohProtocolGeneration::Gr3Family;
-  }
+  // GR IV also exposes the WLAN service/Network Type UUIDs used by GR III.
+  // Its complete fixed-handle layout is the generation-specific signature and
+  // therefore takes precedence over those shared UUIDs.
   if (gr4Evidence) {
     return RicohProtocolGeneration::Gr4Family;
+  }
+  if (gr3Evidence && !partialGr4FixedHandleEvidence) {
+    return RicohProtocolGeneration::Gr3Family;
   }
   return RicohProtocolGeneration::Unknown;
 }

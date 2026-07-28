@@ -721,11 +721,17 @@ void testDetectsProtocolOnlyFromSafeEvidence() {
   TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohProtocolGeneration::Gr4Family),
                         static_cast<int>(detectRicohProtocol(gr4)));
 
-  ProtocolDetectionEvidence conflict = gr4;
-  conflict.hasGr3WlanService = true;
-  conflict.hasGr3NetworkTypeCharacteristic = true;
+  ProtocolDetectionEvidence gr4WithSharedWlanUuids = gr4;
+  gr4WithSharedWlanUuids.hasGr3WlanService = true;
+  gr4WithSharedWlanUuids.hasGr3NetworkTypeCharacteristic = true;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohProtocolGeneration::Gr4Family),
+                        static_cast<int>(detectRicohProtocol(gr4WithSharedWlanUuids)));
+
+  ProtocolDetectionEvidence incompleteFixedHandleConflict = gr3;
+  incompleteFixedHandleConflict.hasGr4PowerCharacteristicAtExpectedHandle = true;
+  incompleteFixedHandleConflict.gr4ExpectedWlanCharacteristicCount = 3;
   TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohProtocolGeneration::Unknown),
-                        static_cast<int>(detectRicohProtocol(conflict)));
+                        static_cast<int>(detectRicohProtocol(incompleteFixedHandleConflict)));
 }
 
 void testSecurityProfilesKeepGr4LegacyFrozen() {
@@ -875,6 +881,21 @@ void testLockedBindingRejectsNewPairingAndOtherCameras() {
                                                 "AA:BB:CC:DD:EE:FF"));
 }
 
+void testPairingBindingAcceptsFirstValidCandidateWithoutStoredIdentity() {
+  TEST_ASSERT_TRUE(bindingStateAllowsCandidate(CameraBindingState::Unpaired,
+                                               "",
+                                               "F0:3E:05:26:44:57"));
+  TEST_ASSERT_TRUE(bindingStateAllowsCandidate(CameraBindingState::Pairing,
+                                               "",
+                                               "F0:3E:05:26:44:57"));
+  TEST_ASSERT_FALSE(bindingStateAllowsCandidate(CameraBindingState::Pairing,
+                                                "",
+                                                ""));
+  TEST_ASSERT_FALSE(bindingStateAllowsCandidate(CameraBindingState::Pairing,
+                                                "",
+                                                nullptr));
+}
+
 void testNormalizesResolvedPeerAddressTypes() {
   TEST_ASSERT_EQUAL_UINT8(0x00, normalizedPeerAddressType(0x00));
   TEST_ASSERT_EQUAL_UINT8(0x01, normalizedPeerAddressType(0x01));
@@ -992,6 +1013,7 @@ int main() {
   RUN_TEST(testPasskeyButtonEntryCompletesResetsAndTimesOut);
   RUN_TEST(testPasskeyCanMoveWithBAndSubmitWithLongA);
   RUN_TEST(testLockedBindingRejectsNewPairingAndOtherCameras);
+  RUN_TEST(testPairingBindingAcceptsFirstValidCandidateWithoutStoredIdentity);
   RUN_TEST(testCameraSleepGuardKeepsControllerOutOfScan);
   RUN_TEST(testBeginRejectsInvalidInputs);
   RUN_TEST(testDeliversFrameSplitAcrossChunks);

@@ -16,9 +16,9 @@
 
 1. 扫描阶段只按保存身份、广播服务和名称选择候选设备。
 2. 未绑定设备建立只读发现连接；交换 MTU 并完整发现 GATT，不发起安全过程。
-3. 同时发现 WLAN Service `F37F568F-9071-445D-A938-5441F2E82399` 与 Network Type Characteristic `9111CDD0-9F01-45C4-A2D4-E09E8FB0424D` 时，识别为 `Gr3Family`。
-4. GR IV 必须同时具备 Camera/Operation Mode、Shooting/Flavor/Operation Request、Control Service，以及多个已验证固定 Handle 的 GATT 结构；识别阶段不读取 `0x00EB` 的值。
-5. GR III 与 GR IV 证据同时成立时返回 `Unknown`，不尝试任一协议写入。
+3. WLAN Service `F37F568F-9071-445D-A938-5441F2E82399` 与 Network Type Characteristic `9111CDD0-9F01-45C4-A2D4-E09E8FB0424D` 是 GR III/IV 共享证据，不能单独排除 GR IV；只有不存在 GR IV 固定 Handle 痕迹时才识别为 `Gr3Family`。
+4. GR IV 必须同时具备 Camera/Operation Mode、Shooting/Flavor/Operation Request、Control Service，以及多个已验证固定 Handle 的 GATT 结构；完整固定 Handle 签名优先识别为 `Gr4Family`，识别阶段不读取 `0x00EB` 的值。
+5. 只有不完整的 GR IV 固定 Handle 痕迹与共享 WLAN UUID 同时出现时才返回 `Unknown`，不尝试任一协议写入。
 6. 发现后断开、清理 Client，重建 NimBLE Stack 并应用对应 Security Profile，再进行正式配对连接。
 7. 已绑定设备直接使用 NVS 保存的 generation/security profile，不在每次启动时重新识别。
 8. 无法识别时为 `Unknown`，只允许诊断、断开和重新扫描，禁止 WLAN、Power 和快门写入。
