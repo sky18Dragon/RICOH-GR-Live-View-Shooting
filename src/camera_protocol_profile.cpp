@@ -158,6 +158,19 @@ RicohSecurityProfileId securityProfileForGeneration(RicohProtocolGeneration gene
   return RicohSecurityProfileId::Unknown;
 }
 
+bool canPromoteDiscoveryConnectionInPlace(RicohSecurityProfileId activeProfile,
+                                          RicohProtocolGeneration detectedGeneration) {
+  if (detectedGeneration != RicohProtocolGeneration::Gr4Family) {
+    return false;
+  }
+
+  // Unknown discovery mode deliberately applies the byte-for-byte GR IV
+  // legacy security baseline. Promoting that live connection only changes
+  // the selected protocol identity; no GAP address or SMP setting changes.
+  return activeProfile == RicohSecurityProfileId::Unknown ||
+         activeProfile == RicohSecurityProfileId::Gr4Legacy;
+}
+
 const RicohSecurityProfile& ricohSecurityProfile(RicohSecurityProfileId id) {
   switch (id) {
     case RicohSecurityProfileId::Gr3Passkey:

@@ -759,6 +759,21 @@ void testSecurityProfilesKeepGr4LegacyFrozen() {
   TEST_ASSERT_EQUAL_UINT32(123456, gr4.fixedPasskey);
 }
 
+void testOnlyGr4DiscoveryCanReuseTheLegacyConnection() {
+  TEST_ASSERT_TRUE(canPromoteDiscoveryConnectionInPlace(
+      RicohSecurityProfileId::Unknown,
+      RicohProtocolGeneration::Gr4Family));
+  TEST_ASSERT_TRUE(canPromoteDiscoveryConnectionInPlace(
+      RicohSecurityProfileId::Gr4Legacy,
+      RicohProtocolGeneration::Gr4Family));
+  TEST_ASSERT_FALSE(canPromoteDiscoveryConnectionInPlace(
+      RicohSecurityProfileId::Unknown,
+      RicohProtocolGeneration::Gr3Family));
+  TEST_ASSERT_FALSE(canPromoteDiscoveryConnectionInPlace(
+      RicohSecurityProfileId::Gr3Passkey,
+      RicohProtocolGeneration::Gr4Family));
+}
+
 void testProtocolRouterSelectsExactlyOneImplementation() {
   RicohBleProtocolRouter router;
   TEST_ASSERT_FALSE(router.hasProtocol());
@@ -913,6 +928,13 @@ void testPairingRecoveryCountsOnlyExplicitSecurityFailures() {
   TEST_ASSERT_TRUE(policy.onBondedSecurityFailure(0x213));
 }
 
+void testPairingLatencyPolicyAvoidsNestedUnbondedRetries() {
+  TEST_ASSERT_EQUAL_UINT8(0, bleClientConnectRetries(false));
+  TEST_ASSERT_EQUAL_UINT8(1, bleClientConnectRetries(true));
+  TEST_ASSERT_EQUAL_UINT32(150, bleRetryDelayMs(true, 1000, 150));
+  TEST_ASSERT_EQUAL_UINT32(1000, bleRetryDelayMs(false, 1000, 150));
+}
+
 void testPairingRecoveryDropsUnauthenticatedBondAfterTwoReads() {
   PairingRecoveryPolicy policy;
   TEST_ASSERT_FALSE(policy.onInsufficientAuthRead(0x105));
@@ -1000,6 +1022,7 @@ int main() {
   RUN_TEST(testLandscapeToPortraitDisconnectsWifiAndKeepsBleReady);
   RUN_TEST(testDetectsProtocolOnlyFromSafeEvidence);
   RUN_TEST(testSecurityProfilesKeepGr4LegacyFrozen);
+  RUN_TEST(testOnlyGr4DiscoveryCanReuseTheLegacyConnection);
   RUN_TEST(testProtocolRouterSelectsExactlyOneImplementation);
   RUN_TEST(testUnknownAndGr2ProfilesBlockBleSideEffects);
   RUN_TEST(testOperationModeSafetyIsGenerationSpecific);
@@ -1008,6 +1031,7 @@ int main() {
   RUN_TEST(testNewProfileMetadataRoundTrips);
   RUN_TEST(testNormalizesResolvedPeerAddressTypes);
   RUN_TEST(testPairingRecoveryCountsOnlyExplicitSecurityFailures);
+  RUN_TEST(testPairingLatencyPolicyAvoidsNestedUnbondedRetries);
   RUN_TEST(testPairingRecoveryDropsUnauthenticatedBondAfterTwoReads);
   RUN_TEST(testPasskeySerialCollectorCompletesWithoutLoggingValue);
   RUN_TEST(testPasskeyButtonEntryCompletesResetsAndTimesOut);

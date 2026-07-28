@@ -22,6 +22,10 @@ PairingRequestDecision pairingRequestDecision(CameraBindingState state);
 bool bindingStateAllowsCandidate(CameraBindingState state,
                                  const char* storedIdentity,
                                  const char* candidateIdentity);
+uint8_t bleClientConnectRetries(bool peerBonded);
+uint32_t bleRetryDelayMs(bool firstPairing,
+                         uint32_t normalDelayMs,
+                         uint32_t firstPairingDelayMs);
 
 class PairingRecoveryPolicy {
 public:

@@ -39,7 +39,8 @@ extern "C" {
 namespace {
 constexpr uint32_t HANDLE_WRITE_TIMEOUT_MS = 3000;
 constexpr uint32_t HANDLE_READ_TIMEOUT_MS = 800;
-constexpr uint32_t BLE_SCAN_SLICE_MS = 250;
+constexpr uint32_t BLE_SCAN_POLL_MS = 5;
+constexpr uint32_t BLE_SCAN_STOP_SETTLE_MS = 100;
 std::atomic<int> g_lastDisconnectReason{0};
 std::atomic<int> g_powerOffDisconnectReason{0};
 std::atomic<int> g_powerStateNotifyValue{-1};
@@ -1195,35 +1196,29 @@ RicohBleDeviceInfo RicohBleClient::scanForCamera(const String& preferredAddress,
   const uint32_t durationMs = scanSeconds * 1000;
   Serial.printf("BLE: scanning for GR camera (%lus max)\n", static_cast<unsigned long>(scanSeconds));
   const uint32_t startMs = millis();
-  uint32_t remainingMs = durationMs;
   bool aborted = false;
-  bool startFailed = false;
+  callbacks.prepareForScan();
+  const bool scanStarted = scan->start(durationMs, false, true);
 
-  // NimBLE dispatches scan callbacks on its host task. Stopping and clearing
-  // results from this task can delete an advertised device while onResult()
-  // is still parsing it. Use short blocking scan slices instead: getResults()
-  // returns only after onScanEnd(), so the callback and result lifetimes are
-  // quiescent before this task reads them or starts the next slice.
-  while (remainingMs > 0 && !callbacks.foundPreferred()) {
+  // NimBLE invokes result callbacks on its host task. The application task
+  // polls only copied candidate data and stops the scan here, never inside the
+  // callback. This follows the ESP-IDF recommendation to stop discovery as
+  // soon as the target is found without risking callback/result lifetime races.
+  while (scanStarted && scan->isScanning() && !callbacks.foundPreferred()) {
     if (g_serviceCallback != nullptr && g_serviceCallback()) {
       aborted = true;
       break;
     }
+    delay(BLE_SCAN_POLL_MS);
+  }
 
-    const uint32_t sliceMs = std::min(remainingMs, BLE_SCAN_SLICE_MS);
-    callbacks.prepareForScan();
-    (void)scan->getResults(sliceMs, false);
-    if (!callbacks.scanEnded()) {
-      startFailed = true;
-      break;
-    }
-
-    remainingMs -= sliceMs;
-    if (g_serviceCallback != nullptr && g_serviceCallback()) {
-      aborted = true;
-      break;
-    }
-    yield();
+  if (scan->isScanning()) {
+    (void)scan->stop();
+  }
+  const uint32_t settleStartMs = millis();
+  while (!callbacks.scanEnded() &&
+         static_cast<uint32_t>(millis() - settleStartMs) < BLE_SCAN_STOP_SETTLE_MS) {
+    delay(1);
   }
 
   RicohBleDeviceInfo best = callbacks.best();
@@ -1234,7 +1229,7 @@ RicohBleDeviceInfo RicohBleClient::scanForCamera(const String& preferredAddress,
     _lastError = "BLE scan aborted";
     return RicohBleDeviceInfo{};
   }
-  if (startFailed) {
+  if (!scanStarted) {
     _lastError = "BLE scan start failed";
     return RicohBleDeviceInfo{};
   }
@@ -1263,8 +1258,9 @@ bool RicohBleClient::connect(const RicohBleDeviceInfo& info, uint32_t timeoutMs)
 }
 
 bool RicohBleClient::connect(const RicohBleDeviceInfo& info, const RicohBleConnectOptions& options) {
+  RicohProtocolGeneration selectedGeneration = options.protocolHint;
   const RicohSecurityProfileId requiredProfile =
-      securityProfileForGeneration(options.protocolHint);
+      securityProfileForGeneration(selectedGeneration);
   if (requiredProfile != RicohSecurityProfileId::Unknown &&
       requiredProfile != _securityProfile) {
     if (!switchSecurityProfile(requiredProfile)) {
@@ -1304,7 +1300,11 @@ bool RicohBleClient::connect(const RicohBleDeviceInfo& info, const RicohBleConne
   _client = client;
   client->setClientCallbacks(&g_callbacks, false);
   client->setConnectTimeout(options.timeoutMs);
-  client->setConnectRetries(1);
+  const uint8_t connectRetries = bleClientConnectRetries(peerBonded);
+  client->setConnectRetries(connectRetries);
+  Serial.printf("BLE: client retries=%u bonded=%d\n",
+                static_cast<unsigned>(connectRetries),
+                peerBonded ? 1 : 0);
   client->setConnectionParams(BLE_GAP_INITIAL_CONN_ITVL_MIN,
                               BLE_GAP_INITIAL_CONN_ITVL_MAX,
                               1,
@@ -1330,9 +1330,10 @@ bool RicohBleClient::connect(const RicohBleDeviceInfo& info, const RicohBleConne
   _connected = true;
   NimBLEDevice::setPowerLevel(ESP_PWR_LVL_P9);
 
-  if (options.protocolHint == RicohProtocolGeneration::Unknown) {
-    // First binding is deliberately two phase. This connection performs only
-    // discovery; no security request or control write is issued.
+  if (selectedGeneration == RicohProtocolGeneration::Unknown) {
+    // First binding starts with read-only discovery. No security request or
+    // control write is issued until the generation is identified.
+    const uint32_t discoveryStartMs = millis();
     (void)client->getServices(true);
     const ProtocolDetectionEvidence discoveryEvidence =
         collectProtocolEvidence(client);
@@ -1341,29 +1342,38 @@ bool RicohBleClient::connect(const RicohBleDeviceInfo& info, const RicohBleConne
 #if RICOH_BLE_GATT_DIAGNOSTICS
     logGattTable(client);
 #endif
-    Serial.printf("BLE discovery: generation=%s shared_wlan_service=%d shared_network_type=%d gr4_power_handle=%d gr4_wlan_handles=%u\n",
+    Serial.printf("BLE discovery: generation=%s elapsed=%lums shared_wlan_service=%d shared_network_type=%d gr4_power_handle=%d gr4_wlan_handles=%u\n",
                   ricohProtocolGenerationName(detected),
+                  static_cast<unsigned long>(millis() - discoveryStartMs),
                   discoveryEvidence.hasGr3WlanService ? 1 : 0,
                   discoveryEvidence.hasGr3NetworkTypeCharacteristic ? 1 : 0,
                   discoveryEvidence.hasGr4PowerCharacteristicAtExpectedHandle ? 1 : 0,
                   static_cast<unsigned>(discoveryEvidence.gr4ExpectedWlanCharacteristicCount));
-    disconnect();
     if (detected == RicohProtocolGeneration::Unknown) {
+      disconnect();
       _lastError = "RICOH BLE protocol unknown or conflicting; side effects blocked";
       return false;
     }
     const RicohSecurityProfileId detectedSecurity =
         securityProfileForGeneration(detected);
-    if (!switchSecurityProfile(detectedSecurity)) {
-      return false;
+    if (client->isConnected() &&
+        canPromoteDiscoveryConnectionInPlace(_securityProfile, detected)) {
+      _securityProfile = detectedSecurity;
+      selectedGeneration = detected;
+      Serial.println("BLE discovery: reusing live GR IV connection for security");
+    } else {
+      disconnect();
+      if (!switchSecurityProfile(detectedSecurity)) {
+        return false;
+      }
+      RicohBleConnectOptions formalOptions = options;
+      formalOptions.protocolHint = detected;
+      formalOptions.exchangeMtu = true;
+      return connect(info, formalOptions);
     }
-    RicohBleConnectOptions formalOptions = options;
-    formalOptions.protocolHint = detected;
-    formalOptions.exchangeMtu = true;
-    return connect(info, formalOptions);
   }
 
-  if (!_protocolRouter.select(options.protocolHint)) {
+  if (!_protocolRouter.select(selectedGeneration)) {
     _lastError = "No BLE protocol selected for formal connection";
     disconnect();
     return false;

@@ -54,6 +54,19 @@ bool bindingStateAllowsCandidate(CameraBindingState state,
   return storedIdentity[index] == '\0' && candidateIdentity[index] == '\0';
 }
 
+uint8_t bleClientConnectRetries(bool peerBonded) {
+  // The application already owns the retry loop. Keep one controller-level
+  // retry for a known bond, but fail fast while pairing so a stale connection
+  // attempt cannot multiply every outer attempt.
+  return peerBonded ? 1 : 0;
+}
+
+uint32_t bleRetryDelayMs(bool firstPairing,
+                         uint32_t normalDelayMs,
+                         uint32_t firstPairingDelayMs) {
+  return firstPairing ? firstPairingDelayMs : normalDelayMs;
+}
+
 uint8_t normalizedPeerAddressType(uint8_t type) {
   if (type == kAddrPublicId) {
     return kAddrPublic;

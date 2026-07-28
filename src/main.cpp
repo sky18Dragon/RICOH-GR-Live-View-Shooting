@@ -1122,7 +1122,15 @@ bool runBleDiscoveryAtBoot() {
       consumeCameraPowerOffDisconnectAfterReady("BLE connect failed");
       showStatusIfChanged("BLE connect failed", bleCamera.lastError(), "Retrying...", "", true);
       bleCamera.disconnect();
-      if (bleCamera.lastFailureWasResourceExhausted()) {
+      const bool protocolDiscoveryIncomplete =
+          bleCamera.lastError().startsWith("RICOH BLE protocol unknown");
+      if (protocolDiscoveryIncomplete) {
+        // The camera rejected or interrupted read-only GATT discovery. This is
+        // a peer timing outcome, not evidence that the local NimBLE host is
+        // unhealthy, so retry without paying for a full stack reset.
+        consecutiveConnectFailures = 0;
+        Serial.println("BLE: protocol discovery incomplete; retrying without stack reset");
+      } else if (bleCamera.lastFailureWasResourceExhausted()) {
         Serial.println("BLE: host resources exhausted during connect; rebuild stack objects before retry");
         bleCamera.resetStack(true);
         consecutiveConnectFailures = 0;
@@ -1138,7 +1146,9 @@ bool runBleDiscoveryAtBoot() {
     }
 
     if (attempt < attempts && !skipRetryDelay) {
-      delay(BLE_CONNECT_RETRY_DELAY_MS);
+      delay(bleRetryDelayMs(firstBootPairing,
+                            BLE_CONNECT_RETRY_DELAY_MS,
+                            BLE_FIRST_PAIRING_RETRY_DELAY_MS));
       yield();
       if (resetBlePairingIfRequested()) {
         return false;

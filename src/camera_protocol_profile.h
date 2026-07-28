@@ -112,6 +112,8 @@ const CameraProtocolProfile& cameraProtocolProfile(RicohProtocolGeneration gener
 RicohProtocolGeneration detectRicohProtocol(const ProtocolDetectionEvidence& evidence);
 const char* ricohProtocolGenerationName(RicohProtocolGeneration generation);
 RicohSecurityProfileId securityProfileForGeneration(RicohProtocolGeneration generation);
+bool canPromoteDiscoveryConnectionInPlace(RicohSecurityProfileId activeProfile,
+                                          RicohProtocolGeneration detectedGeneration);
 const RicohSecurityProfile& ricohSecurityProfile(RicohSecurityProfileId id);
 const char* ricohSecurityProfileName(RicohSecurityProfileId id);
 
