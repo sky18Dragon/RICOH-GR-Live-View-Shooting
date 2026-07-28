@@ -25,6 +25,7 @@ CameraProtocolProfile makeGr3Profile() {
   profile.capabilities.exposesWifiPassphrase = true;
   profile.capabilities.exposesWifiChannel = true;
   profile.capabilities.supportsHttpLiveView = true;
+  profile.capabilities.supportsHttpShutter = true;  // verified on a GR IIIx
   profile.wifiActivationMethod = WifiActivationMethod::BleNetworkTypeUuid;
   profile.wifiCredentialMethod = WifiCredentialMethod::BleUuidCharacteristics;
   profile.requiresPasskeyEntry = true;

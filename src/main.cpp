@@ -1991,6 +1991,13 @@ void serviceBleParking(uint32_t nowMs) {
   if (!bleCamera.isConnected()) {
     return;  // Nothing to release.
   }
+  if (!bleCamera.protocolProfile().capabilities.supportsHttpShutter) {
+    // Releasing BLE moves the shutter onto POST /v1/camera/shoot. Only do it
+    // where that endpoint has actually been confirmed on the camera - a
+    // generation that turns out not to serve it would lose its shutter
+    // entirely, and the frame rate is not worth that.
+    return;
+  }
 
   Serial.println("BLE: parking link to free radio time for the preview stream");
   bleParkedForPreview = true;

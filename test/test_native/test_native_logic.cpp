@@ -875,6 +875,20 @@ void testOperationModeSafetyIsGenerationSpecific() {
   TEST_ASSERT_FALSE(operationModeAllowsWifi(gr4, RicohCameraOperationMode::PowerOffTransfer, true));
 }
 
+void testHttpShutterIsOnlyClaimedWhereItWasVerified() {
+  // Parking the BLE link moves the shutter onto POST /v1/camera/shoot, so a
+  // generation may only be parked once that endpoint is confirmed on real
+  // hardware. GR III is; GR IV has not been tested and must stay untouched.
+  TEST_ASSERT_TRUE(cameraProtocolProfile(RicohProtocolGeneration::Gr3Family)
+                       .capabilities.supportsHttpShutter);
+  TEST_ASSERT_FALSE(cameraProtocolProfile(RicohProtocolGeneration::Gr4Family)
+                        .capabilities.supportsHttpShutter);
+  TEST_ASSERT_FALSE(cameraProtocolProfile(RicohProtocolGeneration::Gr2Family)
+                        .capabilities.supportsHttpShutter);
+  TEST_ASSERT_FALSE(cameraProtocolProfile(RicohProtocolGeneration::Unknown)
+                        .capabilities.supportsHttpShutter);
+}
+
 void testGr3CredentialShapeAllowsOptionalChannel() {
   TEST_ASSERT_TRUE(validGr3WifiCredentials("GR_TEST", "secret", 0));
   TEST_ASSERT_TRUE(validGr3WifiCredentials("GR_TEST", "secret", 11));
@@ -1071,6 +1085,7 @@ int main() {
   RUN_TEST(testProtocolRouterSelectsExactlyOneImplementation);
   RUN_TEST(testUnknownAndGr2ProfilesBlockBleSideEffects);
   RUN_TEST(testOperationModeSafetyIsGenerationSpecific);
+  RUN_TEST(testHttpShutterIsOnlyClaimedWhereItWasVerified);
   RUN_TEST(testGr3CredentialShapeAllowsOptionalChannel);
   RUN_TEST(testOldGr4ProfileMetadataMigratesWithoutRepairing);
   RUN_TEST(testNewProfileMetadataRoundTrips);
