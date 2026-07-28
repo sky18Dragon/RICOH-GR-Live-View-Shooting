@@ -73,11 +73,27 @@ This is a plausible cause of the GR III "connection issue" reported against
 PR #8, and it is invisible on GR IV, whose gate is a denylist of the two
 standby modes rather than an allowlist of one.
 
-### The fix
+### The fix, in two places
 
-Keep the stricter GR III rule that the mode read must succeed — an unknown
-mode must still never authorise a WLAN write on this generation — and reject
-the same two standby modes GR IV rejects:
+The allowlist existed twice: once in `operationModeAllowsWifi()` and again
+inside `openWifi()`'s `NetworkTypeUuid` branch. Fixing only the first is not
+enough — the session then gets one step further and fails at WLAN activation
+instead:
+
+```
+BLE: Wi-Fi open failed: BLE UUID WiFi activation requires a fresh Capture mode read
+Flow: ACTIVATING_WIFI -> BLE_READY (BLE WiFi open failed)
+```
+
+That is worth stating plainly because it caught this testing out: the first
+fix appeared to work end to end, and only did because the camera happened to
+report `Capture` on that run. `openWifi()` now delegates to
+`operationModeAllowsWifi()` so the policy exists in one place and the two
+gates cannot drift apart again.
+
+The policy itself keeps the stricter GR III rule that the mode read must
+succeed — an unknown mode must still never authorise a WLAN write on this
+generation — and rejects the same two standby modes GR IV rejects:
 
 ```cpp
 if (profile.generation == RicohProtocolGeneration::Gr3Family) {
