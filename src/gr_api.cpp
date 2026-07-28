@@ -161,6 +161,35 @@ bool GrApi::fetchProps(CameraProps& props, uint32_t timeoutMs) {
 }
 
 
+bool GrApi::shoot(uint32_t timeoutMs) {
+  WiFiClient client;
+  if (!connectClient(client, timeoutMs)) {
+    return false;
+  }
+
+  const String host = _host.length() ? _host : String(GR_HOST);
+  client.print(String("POST /v1/camera/shoot HTTP/1.1\r\nHost: ") + host +
+               "\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+
+  String headers;
+  if (!readHttpHeaders(client, timeoutMs, headers)) {
+    setError("Timed out reading /v1/camera/shoot response");
+    client.stop();
+    return false;
+  }
+
+  const int status = parseHttpStatus(headers);
+  client.stop();
+  if (status < 200 || status >= 300) {
+    setError(String("POST /v1/camera/shoot HTTP ") + status);
+    return false;
+  }
+
+  _lastError = "";
+  return true;
+}
+
+
 bool GrApi::openLiveView() {
   closeLiveView();
 

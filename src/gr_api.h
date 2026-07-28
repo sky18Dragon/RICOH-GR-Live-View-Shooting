@@ -13,6 +13,9 @@ class GrApi {
 public:
   void setEndpoint(const char* host, uint16_t port = 80);
   bool fetchProps(CameraProps& props, uint32_t timeoutMs);
+  // POST /v1/camera/shoot. The camera exposes the shutter over Wi-Fi as well
+  // as BLE, which is what lets the BLE link be released while streaming.
+  bool shoot(uint32_t timeoutMs);
   bool openLiveView();
   void closeLiveView();
   bool isLiveViewOpen();
