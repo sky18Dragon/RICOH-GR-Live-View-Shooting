@@ -861,8 +861,12 @@ void testUnknownAndGr2ProfilesBlockBleSideEffects() {
 void testOperationModeSafetyIsGenerationSpecific() {
   const CameraProtocolProfile& gr3 = cameraProtocolProfile(RicohProtocolGeneration::Gr3Family);
   TEST_ASSERT_TRUE(operationModeAllowsWifi(gr3, RicohCameraOperationMode::Capture, true));
-  TEST_ASSERT_FALSE(operationModeAllowsWifi(gr3, RicohCameraOperationMode::Playback, true));
+  // A GR IIIx ready to shoot reports Other, not Capture.
+  TEST_ASSERT_TRUE(operationModeAllowsWifi(gr3, RicohCameraOperationMode::Other, true));
+  TEST_ASSERT_TRUE(operationModeAllowsWifi(gr3, RicohCameraOperationMode::Playback, true));
   TEST_ASSERT_FALSE(operationModeAllowsWifi(gr3, RicohCameraOperationMode::BleStartup, true));
+  TEST_ASSERT_FALSE(operationModeAllowsWifi(gr3, RicohCameraOperationMode::PowerOffTransfer, true));
+  // Unlike GR IV, GR III still refuses to act on a mode it could not read.
   TEST_ASSERT_FALSE(operationModeAllowsWifi(gr3, RicohCameraOperationMode::Capture, false));
 
   const CameraProtocolProfile& gr4 = cameraProtocolProfile(RicohProtocolGeneration::Gr4Family);
