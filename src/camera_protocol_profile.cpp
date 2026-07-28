@@ -104,8 +104,17 @@ const CameraProtocolProfile& cameraProtocolProfile(RicohProtocolGeneration gener
 
 RicohProtocolGeneration detectRicohProtocol(const ProtocolDetectionEvidence& evidence) {
   const bool gr3Evidence =
+      evidence.gattDiscoveryComplete &&
       evidence.hasGr3WlanService &&
-      evidence.hasGr3NetworkTypeCharacteristic;
+      evidence.hasGr3NetworkTypeCharacteristic &&
+      evidence.hasGr3SsidCharacteristic &&
+      evidence.hasGr3PassphraseCharacteristic &&
+      evidence.hasCameraService &&
+      evidence.hasOperationModeCharacteristic &&
+      evidence.hasShootingService &&
+      evidence.hasShootingFlavorCharacteristic &&
+      evidence.hasOperationRequestCharacteristic &&
+      evidence.hasControlService;
   const bool gr4Evidence =
       evidence.hasCameraService &&
       evidence.hasOperationModeCharacteristic &&
@@ -114,14 +123,20 @@ RicohProtocolGeneration detectRicohProtocol(const ProtocolDetectionEvidence& evi
       evidence.hasOperationRequestCharacteristic &&
       evidence.hasControlService &&
       evidence.hasGr4PowerCharacteristicAtExpectedHandle &&
-      evidence.gr4ExpectedWlanCharacteristicCount >= 4;
+      evidence.gr4WlanHandlesInExpectedService &&
+      evidence.gr4KnownWlanUuidHandleMapping &&
+      evidence.gr4ExpectedWlanCharacteristicCount == 6;
   const bool partialGr4FixedHandleEvidence =
       evidence.hasGr4PowerCharacteristicAtExpectedHandle ||
+      evidence.gr4WlanHandlesInExpectedService ||
+      evidence.gr4KnownWlanUuidHandleMapping ||
       evidence.gr4ExpectedWlanCharacteristicCount > 0;
 
   // GR IV also exposes the WLAN service/Network Type UUIDs used by GR III.
-  // Its complete fixed-handle layout is the generation-specific signature and
-  // therefore takes precedence over those shared UUIDs.
+  // Never classify those shared UUIDs as GR III after an interrupted GATT
+  // discovery. GR III requires a complete, coherent read-only profile.
+  // GR IV requires all six WLAN handles inside the WLAN service, the Power
+  // handle inside Camera service, and known UUIDs at their expected handles.
   if (gr4Evidence) {
     return RicohProtocolGeneration::Gr4Family;
   }

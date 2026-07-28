@@ -699,15 +699,33 @@ void testErrorSceneOverridesEveryOrdinaryScene() {
 
 void testDetectsProtocolOnlyFromSafeEvidence() {
   ProtocolDetectionEvidence gr3;
+  gr3.gattDiscoveryComplete = true;
   gr3.hasGr3WlanService = true;
   gr3.hasGr3NetworkTypeCharacteristic = true;
+  gr3.hasGr3SsidCharacteristic = true;
+  gr3.hasGr3PassphraseCharacteristic = true;
+  gr3.hasCameraService = true;
+  gr3.hasOperationModeCharacteristic = true;
+  gr3.hasShootingService = true;
+  gr3.hasShootingFlavorCharacteristic = true;
+  gr3.hasOperationRequestCharacteristic = true;
+  gr3.hasControlService = true;
   TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohProtocolGeneration::Gr3Family),
                         static_cast<int>(detectRicohProtocol(gr3)));
 
   ProtocolDetectionEvidence incompleteGr3;
+  incompleteGr3.gattDiscoveryComplete = true;
   incompleteGr3.hasGr3WlanService = true;
   TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohProtocolGeneration::Unknown),
                         static_cast<int>(detectRicohProtocol(incompleteGr3)));
+
+  ProtocolDetectionEvidence interruptedGr4MisleadingAsGr3 = gr3;
+  interruptedGr4MisleadingAsGr3.gattDiscoveryComplete = false;
+  interruptedGr4MisleadingAsGr3.hasGr4PowerCharacteristicAtExpectedHandle = false;
+  interruptedGr4MisleadingAsGr3.gr4ExpectedWlanCharacteristicCount = 0;
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(RicohProtocolGeneration::Unknown),
+      static_cast<int>(detectRicohProtocol(interruptedGr4MisleadingAsGr3)));
 
   ProtocolDetectionEvidence gr4;
   gr4.hasCameraService = true;
@@ -717,7 +735,9 @@ void testDetectsProtocolOnlyFromSafeEvidence() {
   gr4.hasOperationRequestCharacteristic = true;
   gr4.hasControlService = true;
   gr4.hasGr4PowerCharacteristicAtExpectedHandle = true;
-  gr4.gr4ExpectedWlanCharacteristicCount = 5;
+  gr4.gr4WlanHandlesInExpectedService = true;
+  gr4.gr4KnownWlanUuidHandleMapping = true;
+  gr4.gr4ExpectedWlanCharacteristicCount = 6;
   TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohProtocolGeneration::Gr4Family),
                         static_cast<int>(detectRicohProtocol(gr4)));
 
@@ -727,8 +747,29 @@ void testDetectsProtocolOnlyFromSafeEvidence() {
   TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohProtocolGeneration::Gr4Family),
                         static_cast<int>(detectRicohProtocol(gr4WithSharedWlanUuids)));
 
+  ProtocolDetectionEvidence crossServiceNumericCollision = gr4;
+  crossServiceNumericCollision.gr4WlanHandlesInExpectedService = false;
+  crossServiceNumericCollision.gr4KnownWlanUuidHandleMapping = false;
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(RicohProtocolGeneration::Unknown),
+      static_cast<int>(detectRicohProtocol(crossServiceNumericCollision)));
+
+  ProtocolDetectionEvidence fiveOfSixGr4Handles = gr4;
+  fiveOfSixGr4Handles.gr4ExpectedWlanCharacteristicCount = 5;
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(RicohProtocolGeneration::Unknown),
+      static_cast<int>(detectRicohProtocol(fiveOfSixGr4Handles)));
+
+  ProtocolDetectionEvidence wrongKnownUuidMapping = gr4;
+  wrongKnownUuidMapping.gr4KnownWlanUuidHandleMapping = false;
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(RicohProtocolGeneration::Unknown),
+      static_cast<int>(detectRicohProtocol(wrongKnownUuidMapping)));
+
   ProtocolDetectionEvidence incompleteFixedHandleConflict = gr3;
   incompleteFixedHandleConflict.hasGr4PowerCharacteristicAtExpectedHandle = true;
+  incompleteFixedHandleConflict.gr4WlanHandlesInExpectedService = false;
+  incompleteFixedHandleConflict.gr4KnownWlanUuidHandleMapping = false;
   incompleteFixedHandleConflict.gr4ExpectedWlanCharacteristicCount = 3;
   TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohProtocolGeneration::Unknown),
                         static_cast<int>(detectRicohProtocol(incompleteFixedHandleConflict)));

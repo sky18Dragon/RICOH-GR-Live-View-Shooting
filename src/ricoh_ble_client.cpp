@@ -909,6 +909,18 @@ bool handleMatchesAny(uint16_t handle, const uint16_t* expected, size_t count) {
   return false;
 }
 
+bool characteristicUuidAtHandle(NimBLERemoteService* service,
+                                const char* uuid,
+                                uint16_t expectedHandle) {
+  if (service == nullptr || uuid == nullptr) {
+    return false;
+  }
+  NimBLERemoteCharacteristic* characteristic =
+      service->getCharacteristic(NimBLEUUID(uuid));
+  return characteristic != nullptr &&
+         characteristic->getHandle() == expectedHandle;
+}
+
 ProtocolDetectionEvidence collectProtocolEvidence(NimBLEClient* client) {
   ProtocolDetectionEvidence evidence;
   if (client == nullptr || !client->isConnected()) {
@@ -927,6 +939,9 @@ ProtocolDetectionEvidence collectProtocolEvidence(NimBLEClient* client) {
     evidence.hasGr3ChannelCharacteristic =
         gr3Wlan->getCharacteristic(NimBLEUUID(RICOH_BLE_GR3_WLAN_CHANNEL_UUID)) != nullptr;
   }
+  if (!client->isConnected()) {
+    return evidence;
+  }
 
   NimBLERemoteService* camera =
       client->getService(NimBLEUUID(RICOH_BLE_CAMERA_SERVICE_UUID));
@@ -934,6 +949,9 @@ ProtocolDetectionEvidence collectProtocolEvidence(NimBLEClient* client) {
   evidence.hasOperationModeCharacteristic =
       camera != nullptr &&
       camera->getCharacteristic(NimBLEUUID(RICOH_BLE_OPERATION_MODE_UUID)) != nullptr;
+  if (!client->isConnected()) {
+    return evidence;
+  }
 
   NimBLERemoteService* shooting =
       client->getService(NimBLEUUID(RICOH_BLE_SHOOTING_SERVICE_UUID));
@@ -944,8 +962,14 @@ ProtocolDetectionEvidence collectProtocolEvidence(NimBLEClient* client) {
   evidence.hasOperationRequestCharacteristic =
       shooting != nullptr &&
       shooting->getCharacteristic(NimBLEUUID(RICOH_BLE_OPERATION_REQUEST_UUID)) != nullptr;
+  if (!client->isConnected()) {
+    return evidence;
+  }
   evidence.hasControlService =
       client->getService(NimBLEUUID(RICOH_BLE_CONTROL_SERVICE_UUID)) != nullptr;
+  if (!client->isConnected()) {
+    return evidence;
+  }
 
   constexpr uint16_t expectedWlanHandles[] = {
       RICOH_BLE_GR4_WLAN_POWER_HANDLE,
@@ -960,23 +984,44 @@ ProtocolDetectionEvidence collectProtocolEvidence(NimBLEClient* client) {
     if (service == nullptr) {
       continue;
     }
-    const std::vector<NimBLERemoteCharacteristic*>& characteristics =
-        service->getCharacteristics(true);
-    for (NimBLERemoteCharacteristic* characteristic : characteristics) {
-      if (characteristic == nullptr) {
-        continue;
-      }
-      const uint16_t handle = characteristic->getHandle();
-      if (handle == RICOH_BLE_GR4_POWER_STATE_HANDLE) {
-        evidence.hasGr4PowerCharacteristicAtExpectedHandle = true;
-      }
-      if (handleMatchesAny(handle,
-                           expectedWlanHandles,
-                           sizeof(expectedWlanHandles) / sizeof(expectedWlanHandles[0]))) {
+    (void)service->getCharacteristics(true);
+    if (!client->isConnected()) {
+      return evidence;
+    }
+  }
+
+  evidence.hasGr4PowerCharacteristicAtExpectedHandle =
+      characteristicUuidAtHandle(camera,
+                                 RICOH_BLE_CAMERA_POWER_UUID,
+                                 RICOH_BLE_GR4_POWER_STATE_HANDLE);
+
+  if (gr3Wlan != nullptr) {
+    const std::vector<NimBLERemoteCharacteristic*>& wlanCharacteristics =
+        gr3Wlan->getCharacteristics(false);
+    for (NimBLERemoteCharacteristic* characteristic : wlanCharacteristics) {
+      if (characteristic != nullptr &&
+          handleMatchesAny(
+              characteristic->getHandle(),
+              expectedWlanHandles,
+              sizeof(expectedWlanHandles) / sizeof(expectedWlanHandles[0]))) {
         ++evidence.gr4ExpectedWlanCharacteristicCount;
       }
     }
+    evidence.gr4WlanHandlesInExpectedService =
+        evidence.gr4ExpectedWlanCharacteristicCount ==
+        sizeof(expectedWlanHandles) / sizeof(expectedWlanHandles[0]);
+    evidence.gr4KnownWlanUuidHandleMapping =
+        characteristicUuidAtHandle(gr3Wlan,
+                                   RICOH_BLE_GR3_WLAN_NETWORK_TYPE_UUID,
+                                   RICOH_BLE_GR4_WLAN_POWER_HANDLE) &&
+        characteristicUuidAtHandle(gr3Wlan,
+                                   RICOH_BLE_GR3_WLAN_SSID_UUID,
+                                   RICOH_BLE_GR4_WLAN_SSID_HANDLE) &&
+        characteristicUuidAtHandle(gr3Wlan,
+                                   RICOH_BLE_GR3_WLAN_PASSPHRASE_UUID,
+                                   RICOH_BLE_GR4_WLAN_PASSPHRASE_HANDLE);
   }
+  evidence.gattDiscoveryComplete = client->isConnected();
   return evidence;
 }
 
@@ -1342,12 +1387,16 @@ bool RicohBleClient::connect(const RicohBleDeviceInfo& info, const RicohBleConne
 #if RICOH_BLE_GATT_DIAGNOSTICS
     logGattTable(client);
 #endif
-    Serial.printf("BLE discovery: generation=%s elapsed=%lums shared_wlan_service=%d shared_network_type=%d gr4_power_handle=%d gr4_wlan_handles=%u\n",
+    Serial.printf("BLE discovery: generation=%s elapsed=%lums complete=%d connected=%d shared_wlan_service=%d shared_network_type=%d gr4_power_handle=%d gr4_wlan_scope=%d gr4_uuid_map=%d gr4_wlan_handles=%u\n",
                   ricohProtocolGenerationName(detected),
                   static_cast<unsigned long>(millis() - discoveryStartMs),
+                  discoveryEvidence.gattDiscoveryComplete ? 1 : 0,
+                  client->isConnected() ? 1 : 0,
                   discoveryEvidence.hasGr3WlanService ? 1 : 0,
                   discoveryEvidence.hasGr3NetworkTypeCharacteristic ? 1 : 0,
                   discoveryEvidence.hasGr4PowerCharacteristicAtExpectedHandle ? 1 : 0,
+                  discoveryEvidence.gr4WlanHandlesInExpectedService ? 1 : 0,
+                  discoveryEvidence.gr4KnownWlanUuidHandleMapping ? 1 : 0,
                   static_cast<unsigned>(discoveryEvidence.gr4ExpectedWlanCharacteristicCount));
     if (detected == RicohProtocolGeneration::Unknown) {
       disconnect();

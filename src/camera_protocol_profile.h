@@ -93,6 +93,7 @@ struct CameraProtocolProfile {
 };
 
 struct ProtocolDetectionEvidence {
+  bool gattDiscoveryComplete = false;
   bool hasGr3WlanService = false;
   bool hasGr3NetworkTypeCharacteristic = false;
   bool hasGr3SsidCharacteristic = false;
@@ -105,6 +106,8 @@ struct ProtocolDetectionEvidence {
   bool hasOperationRequestCharacteristic = false;
   bool hasControlService = false;
   bool hasGr4PowerCharacteristicAtExpectedHandle = false;
+  bool gr4WlanHandlesInExpectedService = false;
+  bool gr4KnownWlanUuidHandleMapping = false;
   uint8_t gr4ExpectedWlanCharacteristicCount = 0;
 };
 

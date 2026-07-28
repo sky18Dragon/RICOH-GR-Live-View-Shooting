@@ -16,8 +16,8 @@
 
 1. 扫描阶段只按保存身份、广播服务和名称选择候选设备。
 2. 未绑定设备建立只读发现连接；交换 MTU 并完整发现 GATT，不发起安全过程。
-3. WLAN Service `F37F568F-9071-445D-A938-5441F2E82399` 与 Network Type Characteristic `9111CDD0-9F01-45C4-A2D4-E09E8FB0424D` 是 GR III/IV 共享证据，不能单独排除 GR IV；只有不存在 GR IV 固定 Handle 痕迹时才识别为 `Gr3Family`。
-4. GR IV 必须同时具备 Camera/Operation Mode、Shooting/Flavor/Operation Request、Control Service，以及多个已验证固定 Handle 的 GATT 结构；完整固定 Handle 签名优先识别为 `Gr4Family`，识别阶段不读取 `0x00EB` 的值。
+3. WLAN Service `F37F568F-9071-445D-A938-5441F2E82399` 与 Network Type Characteristic `9111CDD0-9F01-45C4-A2D4-E09E8FB0424D` 是 GR III/IV 共享证据，不能单独排除 GR IV；只有 GATT 发现完整，并同时具备 GR III WLAN、Camera、Shooting、Control 的完整只读证据且不存在 GR IV 固定 Handle 痕迹时，才识别为 `Gr3Family`。特征发现中途断开必须返回 `Unknown` 重试。
+4. GR IV 必须同时具备 Camera/Operation Mode、Shooting/Flavor/Operation Request、Control Service；Power UUID 必须位于 Camera Service 的 `0x00EB`，六个 WLAN Handle 必须 6/6 位于 WLAN Service，且 Network Type、SSID、Passphrase UUID 必须分别落在预期 Handle。只有完整的服务归属、UUID 和固定 Handle 签名才识别为 `Gr4Family`，识别阶段不读取 `0x00EB` 的值。
 5. 只有不完整的 GR IV 固定 Handle 痕迹与共享 WLAN UUID 同时出现时才返回 `Unknown`，不尝试任一协议写入。
 6. 发现 GR III 后断开并切换到独立的 `Gr3Passkey` Security Profile，再进行正式配对连接；发现 GR IV 时，由于 `Unknown` 发现态冻结使用与 `Gr4Legacy` 完全相同的安全参数，可以复用当前只读连接直接进入安全协商，避免重复建连和 1.5 秒 Stack 重建。
 7. 已绑定设备直接使用 NVS 保存的 generation/security profile，不在每次启动时重新识别。
