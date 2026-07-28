@@ -1572,8 +1572,12 @@ bool RicohBleClient::openWifi() {
         _lastError = "BLE UUID WiFi activation requires authenticated encryption";
         return false;
       }
-      if (!_lastOperationModeValid || _lastOperationMode != RicohCameraOperationMode::Capture) {
-        _lastError = "BLE UUID WiFi activation requires a fresh Capture mode read";
+      // Delegate to the shared policy rather than repeating it. The two used
+      // to be separate copies of the same allowlist, which is how one of them
+      // came to be fixed on its own; whichever mode the camera reports, both
+      // gates now agree on whether it is safe to raise the WLAN.
+      if (!operationModeAllowsWifi(protocolProfile(), _lastOperationMode, _lastOperationModeValid)) {
+        _lastError = "BLE UUID WiFi activation blocked by camera operation mode";
         return false;
       }
       NimBLERemoteCharacteristic* networkType =
