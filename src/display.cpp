@@ -39,7 +39,10 @@ uint16_t gray565(float intensity) {
 bool DisplayUi::begin() {
     auto cfg = M5.config();
     cfg.serial_baudrate = 115200;
+    cfg.output_power = false;
     cfg.internal_imu = true;
+    cfg.internal_mic = false;
+    cfg.internal_rtc = false;
     cfg.internal_spk = rvf::UiTheme::kSoundEnabled;
     M5.begin(cfg);
 
