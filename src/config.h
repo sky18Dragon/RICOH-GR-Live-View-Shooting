@@ -18,8 +18,11 @@ constexpr size_t STREAM_READ_BUFFER_SIZE = 8192;
 
 constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 15000;
 constexpr uint32_t WIFI_CHANNEL_HINT_CONNECT_TIMEOUT_MS = 6000;
-constexpr uint32_t WIFI_CACHED_CONNECT_TIMEOUT_MS = 1200;
-constexpr uint32_t WIFI_CACHED_CONNECT_GRACE_MS = 700;
+// Start association as soon as the BLE WLAN-on write is acknowledged. The
+// previous 700 ms fixed sleep plus 1200 ms attempt is preserved as one 1900 ms
+// bounded attempt, allowing DHCP to complete as soon as the AP is actually up.
+constexpr uint32_t WIFI_CACHED_CONNECT_TIMEOUT_MS = 1900;
+constexpr uint32_t WIFI_CACHED_CONNECT_GRACE_MS = 0;
 constexpr uint32_t WIFI_CACHE_REFRESH_DELAY_MS = 5000;
 constexpr uint32_t BLE_SCAN_RETRY_INTERVAL_MS = 1000;
 constexpr uint32_t PROPS_TIMEOUT_MS = 3500;
@@ -31,6 +34,7 @@ constexpr uint32_t POWER_BUTTON_RELEASE_WAIT_MS = 3000;
 constexpr uint8_t KEY2_FALLBACK_GPIO = 12;
 constexpr uint32_t KEY2_PAIRING_RESET_HOLD_MS = 3000;
 constexpr uint32_t PROPS_REFRESH_INTERVAL_MS = 60000;
+constexpr uint32_t INITIAL_PROPS_REFRESH_DELAY_MS = 1500;
 
 // GR III/IIIx LiveView is 720x480. Espressif's scaler requires dimensions
 // divisible by eight; 216x144 preserves 3:2 and is the first exact-aspect size
@@ -39,7 +43,8 @@ constexpr uint16_t JPEG_DECODE_WIDTH = 216;
 constexpr uint16_t JPEG_DECODE_HEIGHT = 144;
 
 constexpr uint32_t BLE_SCAN_SECONDS = 2;
-constexpr uint32_t BLE_FAST_CONNECT_TIMEOUT_MS = 3000;
+constexpr bool BLE_DIRECT_RECONNECT_ON_BOOT = true;
+constexpr uint32_t BLE_FAST_CONNECT_TIMEOUT_MS = 1500;
 constexpr uint32_t BLE_CONNECT_TIMEOUT_MS = 8000;
 constexpr uint8_t BLE_CONNECT_ATTEMPTS = 12;
 constexpr uint32_t BLE_CONNECT_RETRY_DELAY_MS = 1000;
@@ -54,7 +59,10 @@ constexpr uint32_t RICOH_BLE_SECURITY_WAIT_MS = 7000;
 constexpr uint32_t RICOH_BLE_PASSKEY_ENTRY_WAIT_MS = 45000;
 constexpr uint32_t PASSKEY_DIGIT_CONFIRM_HOLD_MS = 600;
 constexpr uint8_t FIRST_BOOT_BLE_PAIRING_ATTEMPTS = 12;
-constexpr uint32_t SERIAL_BOOT_WAIT_MS = 500;
+#ifndef RVF_SERIAL_BOOT_WAIT_MS
+#define RVF_SERIAL_BOOT_WAIT_MS 0
+#endif
+constexpr uint32_t SERIAL_BOOT_WAIT_MS = RVF_SERIAL_BOOT_WAIT_MS;
 constexpr uint32_t CAMERA_POWER_OFF_COOLDOWN_MS = 15000;
 constexpr uint32_t CAMERA_POWER_OFF_PROBE_BACKOFF_MS = 8000;
 constexpr uint32_t CAMERA_SLEEP_AUTO_POWER_OFF_MS = 30000;

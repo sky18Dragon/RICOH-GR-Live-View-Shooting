@@ -17,9 +17,10 @@ runCameraFlowOnce()
   -> ensureCameraPowerReadyForWifi()
   -> open Wi-Fi over BLE
   -> cached Wi-Fi connect or fresh BLE Wi-Fi params
-  -> HTTP /v1/props
   -> HTTP /v1/liveview
   -> LIVEVIEW_RUNNING
+  -> render first frame
+  -> deferred HTTP /v1/props
 
 loop()
   -> ensureLiveView()
@@ -48,7 +49,8 @@ loop()
 - `WiFi.setAutoReconnect(true)`。
 - 支持 SSID/password、BSSID、channel hint。
 - `ConnectGuard` 可在连接轮询中检查 BLE 是否仍连接，失败时提前断开 Wi-Fi。
-- 缓存连接短超时：`WIFI_CACHED_CONNECT_TIMEOUT_MS=1200`。
+- 缓存连接在 WLAN-on 应答后立即开始，无固定等待：`WIFI_CACHED_CONNECT_GRACE_MS=0`。
+- 缓存连接总预算：`WIFI_CACHED_CONNECT_TIMEOUT_MS=1900`。
 - 使用信道提示连接超时：`WIFI_CHANNEL_HINT_CONNECT_TIMEOUT_MS=6000`。
 - 总连接超时：`WIFI_CONNECT_TIMEOUT_MS=15000`。
 - 缓存连接成功后延迟刷新 BLE Wi-Fi 参数：`WIFI_CACHE_REFRESH_DELAY_MS=5000`。

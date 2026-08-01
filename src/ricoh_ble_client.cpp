@@ -1345,7 +1345,9 @@ bool RicohBleClient::connect(const RicohBleDeviceInfo& info, const RicohBleConne
   _client = client;
   client->setClientCallbacks(&g_callbacks, false);
   client->setConnectTimeout(options.timeoutMs);
-  const uint8_t connectRetries = bleClientConnectRetries(peerBonded);
+  const uint8_t connectRetries = options.connectRetries >= 0
+                                   ? static_cast<uint8_t>(options.connectRetries)
+                                   : bleClientConnectRetries(peerBonded);
   client->setConnectRetries(connectRetries);
   Serial.printf("BLE: client retries=%u bonded=%d\n",
                 static_cast<unsigned>(connectRetries),

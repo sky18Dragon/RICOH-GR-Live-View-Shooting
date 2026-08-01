@@ -31,7 +31,7 @@
 
 ## 核心能力
 
-- **姿态门控的连接生命周期**：竖握只完成 BLE 连接、相机 Wi-Fi 开启和参数缓存，不建立 Wi-Fi STA 连接；横握才继续 HTTP Probe 与 LiveView。
+- **姿态门控的连接生命周期**：竖握只完成 BLE 连接、相机 Wi-Fi 开启和参数缓存，不建立 Wi-Fi STA 连接；横握直接启动 LiveView，首帧后再延迟刷新相机属性。
 - **横竖屏专属界面**：竖握显示 135×240 遥控光圈，横握显示 240×135 满屏预览；姿态切换采用低通滤波、滞回、稳定时间和最短保持时间抑制抖动。
 - **流畅的 LiveView 渲染**：MJPEG 流解析后由 Espressif `esp_new_jpeg` 直接 SIMD 缩放到 216×144 RGB565，再居中裁为 216×135，无二次 resample。
 - **分层内存策略**：横屏 16 位 Canvas 优先 internal RAM 以保留 DMA 路径，JPEG decode buffer 与 256 KB MJPEG frame buffer 放在 PSRAM；分配失败均有安全回退。
@@ -72,7 +72,7 @@ pio device monitor -b 115200
 
 1. BLE 建立后，固件读取相机电源与运行模式；允许连接时，通过 BLE 请求开启相机 Wi-Fi 并读取最新参数。
 2. **竖握启动**：参数写入缓存后停在 `WIFI_CREDENTIALS_READY`，不加入相机 AP。
-3. **横握启动**：读取并缓存参数后继续连接相机 AP，完成 HTTP Probe，进入 `PREVIEW_RUNNING`。
+3. **横握启动**：读取并缓存参数后继续连接相机 AP，直接打开 LiveView 并进入 `PREVIEW_RUNNING`；`/v1/props` 在首帧后延迟刷新。
 4. **竖握转横握**：从已缓存参数继续后续流程，无需重新扫描 BLE。
 5. **横握转竖握**：关闭 LiveView、断开相机 Wi-Fi，回到 `WIFI_CREDENTIALS_READY`；BLE 与参数缓存继续保留。
 
@@ -125,7 +125,7 @@ platformio run -e m5stack-sticks3
 - **[SystemSupervisor](src/supervisor/SystemSupervisor.h)**：由主循环周期调用的健康监视器，检测预览关闭、流停滞和有效帧超时。
 - **[BleCameraService](src/services/BleCameraService.h)**：负责 BLE 扫描、绑定、重连、相机状态与 Wi-Fi 参数读取，以及快门控制。
 - **[CameraProtocolProfile](src/camera_protocol_profile.h)**：描述 GR II/III/IV 代际能力、WLAN 动作和凭据来源；未知 Profile 默认禁止 WLAN/Power/快门写入。
-- **[WifiPreviewService](src/services/WifiPreviewService.h)**：负责 Wi-Fi STA、HTTP Probe、MJPEG 流和 LiveView 生命周期。
+- **[WifiPreviewService](src/services/WifiPreviewService.h)**：负责 Wi-Fi STA、延迟属性刷新、MJPEG 流和 LiveView 生命周期。
 - **[UiCoordinator](src/ui/UiCoordinator.h)**：将应用状态、姿态和用户输入映射为 UI 场景与命令。
 - **[OrientationTracker](src/ui/OrientationTracker.h)**：根据 StickS3 实机坐标轴完成低通、滞回和稳定时间判断。
 
@@ -154,7 +154,8 @@ flowchart TD
     O -->|稳定转为横握| P
     P --> Q{连接成功且仍为横握?}
     Q -->|否| O
-    Q -->|是| R[HTTP_PROBING -> PREVIEW_STARTING -> PREVIEW_RUNNING]
+    Q -->|是| R[PREVIEW_STARTING -> PREVIEW_RUNNING]
+    R --> W[首帧后延迟刷新 /v1/props]
     R -->|稳定转为竖握| V[关闭预览并断开 Wi-Fi]
     V --> O
     L --> S[防误唤醒状态: GR III 最短 8s 后建立新连接只读探测]
@@ -179,16 +180,18 @@ flowchart TD
 | 参数 | 默认值 | 说明 |
 | :--- | :---: | :--- |
 | `BLE_SCAN_SECONDS` | `2` | 单轮 BLE 扫描时长（秒） |
-| `BLE_FAST_CONNECT_TIMEOUT_MS` | `3000` | 已保存 BLE 地址直连超时 |
+| `BLE_DIRECT_RECONNECT_ON_BOOT` | `true` | 已保存且已绑定的 Profile 在启动时先尝试 BLE 地址直连 |
+| `BLE_FAST_CONNECT_TIMEOUT_MS` | `1500` | 已保存 BLE 地址直连超时；失败后立即回退扫描 |
 | `BLE_CONNECT_TIMEOUT_MS` | `8000` | 扫描后 BLE 建连超时 |
-| `BLE_CONNECT_ATTEMPTS` | `12` | 存在已配对身份时的最大直连尝试轮数 |
+| `BLE_CONNECT_ATTEMPTS` | `12` | 快速直连失败后，运行期扫描重连的最大尝试轮数 |
 | `RICOH_BLE_BONDED_SECURITY_WAIT_MS` | `1500` | 已绑定设备建立连接后，等待安全加密完成的等待延时 |
 | `RICOH_BLE_SECURITY_WAIT_MS` | `7000` | 首次配对时，等待安全加密完成的最大超时 |
 | `RICOH_BLE_PASSKEY_ENTRY_WAIT_MS` | `45000` | GR III 六位 Passkey 的设备端输入窗口 |
 | `RICOH_BLE_GATT_DIAGNOSTICS` | `0` | 编译期 GATT 表诊断开关；默认关闭且不读取/输出特征值 |
 | `RICOH_BLE_POWER_NOTIFY_SETTLE_MS` | `30` | 开启 Power Notify 后的短暂等待窗口，用于在 Wi-Fi ON 前捕获立即到来的关机通知 |
-| `WIFI_CACHED_CONNECT_GRACE_MS` | `700` | 请求 Wi-Fi ON 后的缓存连接等待时间 |
-| `WIFI_CACHED_CONNECT_TIMEOUT_MS` | `1200` | 使用缓存 BSSID 与信道的快速连接超时 |
+| `WIFI_CACHED_CONNECT_GRACE_MS` | `0` | 请求 Wi-Fi ON 后立即开始缓存连接，不再固定等待 |
+| `WIFI_CACHED_CONNECT_TIMEOUT_MS` | `1900` | 使用缓存 BSSID 与信道的快速连接总预算 |
+| `INITIAL_PROPS_REFRESH_DELAY_MS` | `1500` | 首帧后延迟刷新 `/v1/props` 的时间 |
 | `WIFI_CONNECT_TIMEOUT_MS` | `15000` | Wi-Fi STA 总连接超时 |
 | `LIVEVIEW_STALL_TIMEOUT_MS` | `5000` | 有效预览帧停滞阈值 |
 | `CAMERA_POWER_OFF_COOLDOWN_MS` | `15000` | 关机保护冷却时间 |
@@ -251,7 +254,9 @@ Flow: ACTIVATING_WIFI -> WIFI_CREDENTIALS_READY (portrait cached WiFi params; co
 ### 正常开机直连并启动 LiveView（GR IV 结构示例）
 
 ```text
-BLE: connected secure connect_ms=2800
+BLE fast path: direct connect addr=34:90:EA:CC:87:35 type=0 timeout=1500ms
+BLE: connected secure connect_ms=<measured> security_ms=<measured> total_ms=<measured>
+BLE fast path: ready in <measured>ms
 BLE profile detected=GR4_FAMILY source=gr4_read_probe
 Flow: BLE_SCAN -> BLE_READY (BLE connected)
 BLE: power profile=GR4_FAMILY value=0x01
@@ -259,11 +264,10 @@ BLE: operation mode read value=0x00 state=CAPTURE
 BLE: power notify enabled cccd=0x00EC
 BLE WLAN activation method=FIXED_HANDLE result=OK
 BLE WiFi params profile=GR4_FAMILY ssid_present=1 passphrase_present=1 bssid_present=1 channel=1
-WiFi cache: waiting 700ms for camera AP before cached connect
-WiFi cache: trying cached params ssid='GR_H264456' bssid='F2:3E:05:26:45:56' channel=1 short_timeout=1200ms
+WiFi cache: trying cached params ssid='GR_H264456' bssid='F2:3E:05:26:45:56' channel=1 short_timeout=1900ms
 WiFi: connect completed in 450ms channel=1 status=CONNECTED
 Flow: WIFI_CONNECTING -> LIVEVIEW_RUNNING (LiveView opened)
-LiveView: connected
+LiveView: connected; props deferred until first frame + 1500ms
 ```
 
 ### 相机处于待机状态（防止意外唤醒）
@@ -281,10 +285,10 @@ BLE guard: remote disconnect reason=533; waiting for camera power on, auto scan 
 
 ```text
 Flow: WIFI_CREDENTIALS_READY -> CONNECTING_WIFI (landscape resumes cached WiFi params)
-Flow: CONNECTING_WIFI -> HTTP_PROBING
-Flow: HTTP_PROBING -> PREVIEW_STARTING
+Flow: CONNECTING_WIFI -> PREVIEW_STARTING
 JPEG: viewport synced 240x135
 Flow: PREVIEW_STARTING -> PREVIEW_RUNNING
+LiveView: connected; props deferred until first frame + 1500ms
 ```
 
 ### 横握转竖握：关闭预览并断开 Wi-Fi

@@ -98,7 +98,7 @@ platformio device monitor --port COM6 --baud 115200 --filter time
     - 期望：状态停在 `WIFI_CREDENTIALS_READY`，日志有 `WiFi cache: saved`，StickS3 不连接相机 AP，也不发起 HTTP/LiveView。
 12. **竖转横恢复流程**
     - 从 `WIFI_CREDENTIALS_READY` 转为横屏。
-    - 期望：不重新 BLE 扫描，直接进入 `CONNECTING_WIFI -> HTTP_PROBING -> PREVIEW_RUNNING`。
+    - 期望：不重新 BLE 扫描，直接进入 `CONNECTING_WIFI -> PREVIEW_STARTING -> PREVIEW_RUNNING`；首帧显示后才刷新 `/v1/props`。
 13. **横转竖断开流程**
      - LiveView 运行时转为竖屏。
      - 期望：关闭 LiveView、断开相机 Wi-Fi、回到 `WIFI_CREDENTIALS_READY`，BLE 保持连接；重新横屏可再次恢复。

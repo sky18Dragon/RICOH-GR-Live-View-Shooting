@@ -29,9 +29,6 @@ struct AppFlowActions {
     bool (*connectFreshWifiFromProfile)() = nullptr;
     void (*onFreshWifiConnected)() = nullptr;
 
-    bool (*fetchCameraProps)() = nullptr;
-    void (*onHttpProbeSucceeded)() = nullptr;
-    void (*onHttpProbeFailed)() = nullptr;
     void (*showStartingLiveView)() = nullptr;
     bool (*openLiveView)() = nullptr;
     void (*onLiveViewOpened)() = nullptr;
