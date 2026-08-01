@@ -25,7 +25,7 @@
 class JpegDecoder {
 public:
     bool begin();
-    bool drawFrame(LovyanGFX* dst, const uint8_t* data, size_t length);
+    bool drawFrame(LovyanGFX* dst, const uint8_t* data, size_t length, bool mirrorHorizontal = false);
 
     uint32_t lastDecodeMs() const;
     int lastWidth() const;
@@ -48,6 +48,7 @@ private:
     int _targetH = 0;
     int _displayW = DISPLAY_WIDTH;
     int _displayH = DISPLAY_HEIGHT;
+    bool _mirrorHorizontal = false;
     uint16_t _fitRow[(DISPLAY_WIDTH > DISPLAY_HEIGHT) ? DISPLAY_WIDTH : DISPLAY_HEIGHT] = {};
 
     bool setError(const char* error);

@@ -142,6 +142,15 @@ void DisplayUi::pushCanvas() {
     if (_canvasReady) _canvas.pushSprite(&M5.Display, 0, 0);
 }
 
+void DisplayUi::setMirrored(bool mirrored) {
+    _mirrored = mirrored;
+}
+
+bool DisplayUi::toggleMirror() {
+    _mirrored = !_mirrored;
+    return _mirrored;
+}
+
 void DisplayUi::clear(uint16_t color) {
     if (_canvasReady) _canvas.fillScreen(color);
 }

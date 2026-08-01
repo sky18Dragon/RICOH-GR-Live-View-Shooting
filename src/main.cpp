@@ -106,6 +106,7 @@ void updateUi();
 void updateUi(const ButtonEvents& input);
 rvf::AppFlowActions makeAppFlowActions();
 int32_t pollPasskeyButtonEntry(RicohPasskeyPollAction action);
+void toggleDisplayMirror();
 
 bool beginStickPower() {
   const int8_t sda = M5.getPin(m5::pin_name_t::in_i2c_sda);
@@ -602,6 +603,22 @@ void applyDefaultProfile() {
                 cameraProfile.wifi.cameraIp.c_str());
 }
 
+void restoreDisplaySettings() {
+  bool mirrored = false;
+  if (profileStore.loadDisplayMirror(mirrored)) {
+    ui.setMirrored(mirrored);
+  }
+  Serial.printf("Display: restored mirrored=%d\n", ui.mirrored() ? 1 : 0);
+}
+
+void toggleDisplayMirror() {
+  const bool mirrored = ui.toggleMirror();
+  const bool persisted = profileStore.saveDisplayMirror(mirrored);
+  Serial.printf("Display: mirrored=%d persisted=%d\n",
+                mirrored ? 1 : 0,
+                persisted ? 1 : 0);
+}
+
 bool ensureCameraPowerReadyForWifi(const char* source) {
   if (!cameraPowerPolicy.requiresPowerCheck()) {
     return true;
@@ -933,7 +950,10 @@ int32_t pollPasskeyButtonEntry(RicohPasskeyPollAction action) {
     changed = true;
   } else if (M5.BtnB.wasClicked()) {
     changed = true;
-    (void)passkeyEntry.confirmDigit();
+    if (passkeyEntry.confirmDigit() == PasskeyEntryStatus::Complete) {
+      ui.showPasskeyEntry(passkeyEntry.digits(), passkeyEntry.activeIndex());
+      return passkeyEntry.code();
+    }
   } else if (M5.BtnA.wasHold()) {
     changed = true;
     if (passkeyEntry.submit() == PasskeyEntryStatus::Complete) {
@@ -1688,6 +1708,7 @@ void updateUi(const ButtonEvents& input) {
   currentUiInput.buttonADown = false;
   currentUiInput.buttonAReleased = false;
   currentUiInput.resetPairing = false;
+  currentUiInput.toggleDisplayMirror = false;
   currentUiInput.powerOff = false;
 }
 
@@ -1741,7 +1762,7 @@ void onJpegFrame(const uint8_t* data, size_t len, void*) {
     lastFrameAt = millis();
     return;
   }
-  if (!decoder.drawFrame(canvas, data, len)) {
+  if (!decoder.drawFrame(canvas, data, len, ui.mirrored())) {
     Serial.printf("JPEG decode failed len=%u err=%s\n", static_cast<unsigned>(len), decoder.lastError().c_str());
     ui.finishLiveFrame(false);
     wifiPreview.recordRenderedFrame(decoder.lastDecodeMs(), millis() - renderStartMs);
@@ -1880,6 +1901,10 @@ void handleButtons() {
   if (command == rvf::UserCommand::ResetPairing) {
     resetBlePairingFromKey2();
     return;
+  }
+
+  if (command == rvf::UserCommand::ToggleDisplayMirror) {
+    toggleDisplayMirror();
   }
 
   if (command == rvf::UserCommand::Shoot) {
@@ -2093,6 +2118,7 @@ void setup() {
   grWifi.begin();
 
   applyDefaultProfile();
+  restoreDisplaySettings();
 
   if (!psramFound()) {
     LOGLINE_W("MEM", "PSRAM not found; JPEG buffer allocation may fail");

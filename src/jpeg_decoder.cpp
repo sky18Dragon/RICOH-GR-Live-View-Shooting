@@ -35,7 +35,7 @@ bool JpegDecoder::begin() {
     return true;
 }
 
-bool JpegDecoder::drawFrame(LovyanGFX* dst, const uint8_t* data, size_t length) {
+bool JpegDecoder::drawFrame(LovyanGFX* dst, const uint8_t* data, size_t length, bool mirrorHorizontal) {
     if (data == nullptr || length < 4) {
         return setError("empty jpeg frame");
     }
@@ -44,6 +44,7 @@ bool JpegDecoder::drawFrame(LovyanGFX* dst, const uint8_t* data, size_t length) 
     }
 
     _dst = dst != nullptr ? dst : &M5.Display;
+    _mirrorHorizontal = mirrorHorizontal;
     const uint32_t started = millis();
     activeDecoder = this;
 
@@ -149,15 +150,22 @@ int JpegDecoder::drawBlock(JPEGDRAW* draw) {
         return 1;
     }
 
+    const int dstX = _drawX + (_mirrorHorizontal ? (_targetW - targetX1) : targetX0);
     for (int targetY = targetY0; targetY < targetY1; ++targetY) {
         const int sourceY = (targetY * _sourceH) / _targetH;
         const int localY = sourceY - sourceY0;
-        for (int targetX = targetX0; targetX < targetX1; ++targetX) {
+        for (int offsetX = 0; offsetX < drawWidth; ++offsetX) {
+            const int targetX = _mirrorHorizontal ? (targetX1 - 1 - offsetX)
+                                                  : (targetX0 + offsetX);
             const int sourceX = (targetX * _sourceW) / _targetW;
             const int localX = sourceX - sourceX0;
-            _fitRow[targetX - targetX0] = pixels[localY * stride + localX];
+            if (localX >= 0 && localX < stride) {
+                _fitRow[offsetX] = pixels[localY * stride + localX];
+            } else {
+                _fitRow[offsetX] = COLOR_BLACK;
+            }
         }
-        _dst->pushImage(_drawX + targetX0,
+        _dst->pushImage(dstX,
                         _drawY + targetY,
                         drawWidth,
                         1,

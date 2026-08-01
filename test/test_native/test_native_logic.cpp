@@ -618,12 +618,15 @@ void testButtonBReportsContinuousProgress() {
   TEST_ASSERT_FALSE(halfway.resetPairing);
 }
 
-void testButtonBReleaseBeforeThresholdDoesNotReset() {
+void testButtonBShortReleaseTogglesMirrorWithoutReset() {
   rvf::ButtonInput input(3000);
   input.update(false, true, false, 100);
   const rvf::ButtonEvents released = input.update(false, false, false, 2500);
   TEST_ASSERT_FALSE(released.resetPairing);
   TEST_ASSERT_FALSE(released.resetHoldActive);
+  TEST_ASSERT_TRUE(released.toggleDisplayMirror);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UserCommand::ToggleDisplayMirror),
+                        static_cast<int>(rvf::ButtonInput::commandFromEvents(released)));
 }
 
 void testButtonBThresholdTriggersOnlyOnce() {
@@ -632,6 +635,8 @@ void testButtonBThresholdTriggersOnlyOnce() {
   TEST_ASSERT_TRUE(input.update(false, true, false, 3100).resetPairing);
   TEST_ASSERT_FALSE(input.update(false, true, false, 4100).resetPairing);
   TEST_ASSERT_FALSE(input.update(false, true, false, 5100).resetPairing);
+  const rvf::ButtonEvents released = input.update(false, false, false, 5200);
+  TEST_ASSERT_FALSE(released.toggleDisplayMirror);
 }
 
 void testButtonAOperationTriggersAtMostOneShoot() {
@@ -1124,7 +1129,7 @@ int main() {
   RUN_TEST(testAnimationProgressAndCompletion);
   RUN_TEST(testAnimationElapsedIsMillisWrapSafe);
   RUN_TEST(testButtonBReportsContinuousProgress);
-  RUN_TEST(testButtonBReleaseBeforeThresholdDoesNotReset);
+  RUN_TEST(testButtonBShortReleaseTogglesMirrorWithoutReset);
   RUN_TEST(testButtonBThresholdTriggersOnlyOnce);
   RUN_TEST(testButtonAOperationTriggersAtMostOneShoot);
   RUN_TEST(testShutterOverlaySuccessAndFailureLifecycles);
