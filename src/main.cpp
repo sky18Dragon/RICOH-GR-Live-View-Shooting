@@ -1765,11 +1765,17 @@ void onJpegFrame(const uint8_t* data, size_t len, void*) {
   if (!decoder.drawFrame(canvas, data, len, ui.mirrored())) {
     Serial.printf("JPEG decode failed len=%u err=%s\n", static_cast<unsigned>(len), decoder.lastError().c_str());
     ui.finishLiveFrame(false);
-    wifiPreview.recordRenderedFrame(decoder.lastDecodeMs(), millis() - renderStartMs);
+    wifiPreview.recordRenderedFrame(decoder.lastDecodeMs(),
+                                    millis() - renderStartMs,
+                                    decoder.lastWidth(),
+                                    decoder.lastHeight());
   } else {
     ui.renderLiveFrameOverlay(uiCoordinator.viewModel());
     ui.finishLiveFrame(true);
-    wifiPreview.recordRenderedFrame(decoder.lastDecodeMs(), millis() - renderStartMs);
+    wifiPreview.recordRenderedFrame(decoder.lastDecodeMs(),
+                                    millis() - renderStartMs,
+                                    decoder.lastWidth(),
+                                    decoder.lastHeight());
   }
   lastFrameAt = millis();
 }

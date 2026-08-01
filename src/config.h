@@ -14,7 +14,7 @@ constexpr uint16_t DISPLAY_WIDTH = 240;
 constexpr uint16_t DISPLAY_HEIGHT = 135;
 
 constexpr size_t FRAME_BUFFER_SIZE = 256 * 1024;
-constexpr size_t STREAM_READ_BUFFER_SIZE = 2048;
+constexpr size_t STREAM_READ_BUFFER_SIZE = 8192;
 
 constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 15000;
 constexpr uint32_t WIFI_CHANNEL_HINT_CONNECT_TIMEOUT_MS = 6000;
@@ -32,9 +32,11 @@ constexpr uint8_t KEY2_FALLBACK_GPIO = 12;
 constexpr uint32_t KEY2_PAIRING_RESET_HOLD_MS = 3000;
 constexpr uint32_t PROPS_REFRESH_INTERVAL_MS = 60000;
 
-#ifndef JPEG_SCALE_POLICY
-#define JPEG_SCALE_POLICY JPEG_SCALE_HALF
-#endif
+// GR III/IIIx LiveView is 720x480. Espressif's scaler requires dimensions
+// divisible by eight; 216x144 preserves 3:2 and is the first exact-aspect size
+// above the 240x135 display's 203x135 contain rectangle.
+constexpr uint16_t JPEG_DECODE_WIDTH = 216;
+constexpr uint16_t JPEG_DECODE_HEIGHT = 144;
 
 constexpr uint32_t BLE_SCAN_SECONDS = 2;
 constexpr uint32_t BLE_FAST_CONNECT_TIMEOUT_MS = 3000;

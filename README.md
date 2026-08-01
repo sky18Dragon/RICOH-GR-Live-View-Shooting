@@ -33,8 +33,8 @@
 
 - **姿态门控的连接生命周期**：竖握只完成 BLE 连接、相机 Wi-Fi 开启和参数缓存，不建立 Wi-Fi STA 连接；横握才继续 HTTP Probe 与 LiveView。
 - **横竖屏专属界面**：竖握显示 135×240 遥控光圈，横握显示 240×135 满屏预览；姿态切换采用低通滤波、滞回、稳定时间和最短保持时间抑制抖动。
-- **流畅的 LiveView 渲染**：MJPEG 流解析后由 JPEGDEC（含 ESP32-S3 优化）解码到 LovyanGFX / M5Canvas，并在 Canvas 尺寸变化后同步 JPEG 视口。
-- **PSRAM 安全画布与帧缓冲**：16 位 Canvas 优先显式分配到 PSRAM；分配失败时保留原画布并每 2 秒重试。MJPEG 使用独立的 256 KB 帧缓冲降低内存碎片风险。
+- **流畅的 LiveView 渲染**：MJPEG 流解析后由 Espressif `esp_new_jpeg` 直接 SIMD 缩放到 216×144 RGB565，再居中裁为 216×135，无二次 resample。
+- **分层内存策略**：横屏 16 位 Canvas 优先 internal RAM 以保留 DMA 路径，JPEG decode buffer 与 256 KB MJPEG frame buffer 放在 PSRAM；分配失败均有安全回退。
 - **相机待机保护**：读取 `Power State` 和 `Operation Mode`，在相机待机或关机状态下进入 `CAMERA_SLEEP_GUARD`，避免自动流程反复唤醒相机。
 - **运行时协议 Profile**：安全连接后根据 GATT 证据识别 GR III Family 或 GR IV Family；GR III 使用 UUID，GR IV 保留已验证的固定 Handle 路径，未知协议拒绝有副作用的写入。
 - **WLAN 参数缓存**：将 SSID、BSSID、信道、密码和加密信息持久化到 NVS，用于后续横握连接的缓存快速路径；BLE 仍是连接与相机 Wi-Fi 激活的控制锚点。

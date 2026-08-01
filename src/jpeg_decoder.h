@@ -2,9 +2,7 @@
 
 #include <Arduino.h>
 #include <M5Unified.h>
-#include <JPEGDEC.h>
-
-#include "image_fit.h"
+#include <esp_jpeg_dec.h>
 
 #if __has_include("config.h")
 #include "config.h"
@@ -18,8 +16,12 @@
 #define DISPLAY_HEIGHT 135
 #endif
 
-#ifndef JPEG_SCALE_POLICY
-#define JPEG_SCALE_POLICY JPEG_SCALE_QUARTER
+#ifndef JPEG_DECODE_WIDTH
+#define JPEG_DECODE_WIDTH 216
+#endif
+
+#ifndef JPEG_DECODE_HEIGHT
+#define JPEG_DECODE_HEIGHT 144
 #endif
 
 class JpegDecoder {
@@ -33,26 +35,22 @@ public:
     const String& lastError() const;
 
 private:
-    JPEGDEC _jpeg;
+    jpeg_dec_handle_t _jpeg = nullptr;
+    uint8_t* _outputBuffer = nullptr;
+    size_t _outputCapacity = 0;
     LovyanGFX* _dst = nullptr;
     uint32_t _lastDecodeMs = 0;
     int _lastWidth = 0;
     int _lastHeight = 0;
     String _lastError = "not started";
 
-    int _drawX = 0;
-    int _drawY = 0;
-    int _sourceW = 0;
-    int _sourceH = 0;
-    int _targetW = 0;
-    int _targetH = 0;
     int _displayW = DISPLAY_WIDTH;
     int _displayH = DISPLAY_HEIGHT;
     bool _mirrorHorizontal = false;
-    uint16_t _fitRow[(DISPLAY_WIDTH > DISPLAY_HEIGHT) ? DISPLAY_WIDTH : DISPLAY_HEIGHT] = {};
+    uint16_t _mirrorRow[JPEG_DECODE_WIDTH] = {};
 
     bool setError(const char* error);
-
-    static int jpegDrawCallback(JPEGDRAW* draw);
-    int drawBlock(JPEGDRAW* draw);
+    bool ensureDecoder();
+    bool renderCenterCrop(int decodedWidth, int decodedHeight);
+    static bool readJpegDimensions(const uint8_t* data, size_t length, int& width, int& height);
 };
