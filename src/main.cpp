@@ -704,19 +704,11 @@ String displayBleName(const RicohBleDeviceInfo& info) {
   return connectedName;
 }
 
-bool hasAdvertisedCameraIdentity(const RicohBleDeviceInfo& info) {
-  return info.name.length() > 0 ||
-         info.hasInfoService ||
-         info.hasCameraService ||
-         info.hasShootingService ||
-         info.hasControlService;
-}
-
 bool shouldSkipWeakStoredIdentityCandidate(const RicohBleDeviceInfo& info, bool firstBootPairing) {
   return !firstBootPairing &&
          hasStoredBleIdentity() &&
          info.address.equalsIgnoreCase(cameraProfile.bleAddress) &&
-         !hasAdvertisedCameraIdentity(info);
+         !hasRicohIdentitySignal(info);
 }
 
 bool shouldDelayStoredIdentityPowerProbe(const RicohBleDeviceInfo& info, bool firstBootPairing) {
@@ -758,8 +750,87 @@ void saveConnectedBleIdentity(const String& connectedName, const RicohBleDeviceI
                                cameraProfile.bleBonded);
 }
 
+// On-device GR III passkey entry. Serial entry is unusable on hosts whose
+// CDC driver straps the S3 into download mode whenever the port opens, so
+// the six digits are entered with the buttons: A cycles the current digit,
+// a short press of B commits it and moves on.
+bool passkeyEntryUiActive = false;
+bool passkeyEntrySubmitted = false;
+uint8_t passkeyEntryDigits[6] = {0};
+uint8_t passkeyEntryIndex = 0;
+bool passkeyEntryPrevBDown = false;
+uint32_t passkeyEntryPrevBHoldMs = 0;
+
+void renderPasskeyEntry() {
+  ui.showPasskeyEntry(passkeyEntryDigits, passkeyEntryIndex);
+}
+
+void beginPasskeyEntryUi() {
+  passkeyEntryUiActive = true;
+  passkeyEntrySubmitted = false;
+  for (uint8_t i = 0; i < 6; ++i) {
+    passkeyEntryDigits[i] = 0;
+  }
+  passkeyEntryIndex = 0;
+  passkeyEntryPrevBDown = false;
+  passkeyEntryPrevBHoldMs = 0;
+  renderPasskeyEntry();
+}
+
+void resetPasskeyEntryUi() {
+  passkeyEntryUiActive = false;
+  passkeyEntrySubmitted = false;
+}
+
+void servicePasskeyEntryButtons(const ButtonEvents& events) {
+  if (passkeyEntrySubmitted) {
+    return;
+  }
+  if (!passkeyEntryUiActive) {
+    beginPasskeyEntryUi();
+  }
+
+  if (events.buttonAReleased && events.buttonAHoldMs < 700) {
+    passkeyEntryDigits[passkeyEntryIndex] =
+        static_cast<uint8_t>((passkeyEntryDigits[passkeyEntryIndex] + 1) % 10);
+    renderPasskeyEntry();
+  }
+
+  const bool bTapped = passkeyEntryPrevBDown && !events.resetHoldActive &&
+                       passkeyEntryPrevBHoldMs < 600;
+  passkeyEntryPrevBDown = events.resetHoldActive;
+  passkeyEntryPrevBHoldMs = events.resetHoldMs;
+  if (!bTapped) {
+    return;
+  }
+
+  ++passkeyEntryIndex;
+  if (passkeyEntryIndex < 6) {
+    renderPasskeyEntry();
+    return;
+  }
+
+  uint32_t code = 0;
+  for (uint8_t i = 0; i < 6; ++i) {
+    code = code * 10 + passkeyEntryDigits[i];
+  }
+  RicohBleClient::submitPasskey(code);
+  passkeyEntrySubmitted = true;
+  Serial.println("BLE pairing: passkey submitted via buttons");
+  showStatusIfChanged("Pairing...", "Code sent", "", preferredBleName(), true);
+}
+
 bool serviceButtonsDuringBleOperation() {
   const ButtonEvents events = buttons.poll();
+  if (RicohBleClient::passkeyEntryPending()) {
+    // The buttons belong to the digit entry screen; a long B hold must not
+    // fire the pairing reset mid-entry.
+    servicePasskeyEntryButtons(events);
+    return false;
+  }
+  if (passkeyEntryUiActive || passkeyEntrySubmitted) {
+    resetPasskeyEntryUi();
+  }
   updateUi(events);
   if (!events.resetPairing) {
     return false;
@@ -768,6 +839,10 @@ bool serviceButtonsDuringBleOperation() {
   key2PairingResetRequested = true;
   Serial.println("BLE pairing reset: requested during BLE operation");
   return true;
+}
+
+void showGr3PasskeyPrompt() {
+  beginPasskeyEntryUi();
 }
 
 bool resetBlePairingIfRequested() {
@@ -850,14 +925,15 @@ bool runBleDiscoveryAtBoot() {
       // all configured connection attempts after the cooldown expires.
       --attempt;
     } else if (shouldSkipWeakStoredIdentityCandidate(info, firstBootPairing)) {
-      Serial.printf("BLE: weak stored-address candidate addr=%s rssi=%d has_name=%d services=%d%d%d%d; waiting for camera power on\n",
+      Serial.printf("BLE: weak stored-address candidate addr=%s rssi=%d has_name=%d services=%d%d%d%d%d; waiting for camera power on\n",
                     info.address.c_str(),
                     info.rssi,
                     info.name.length() > 0 ? 1 : 0,
                     info.hasInfoService ? 1 : 0,
                     info.hasCameraService ? 1 : 0,
                     info.hasShootingService ? 1 : 0,
-                    info.hasControlService ? 1 : 0);
+                    info.hasControlService ? 1 : 0,
+                    info.hasGr3WlanService ? 1 : 0);
       showStatusIfChanged("Camera standby", "Waiting power on", "Auto scan active", preferredBleName(), true);
     } else {
       const String connectedName = displayBleName(info);
@@ -1595,9 +1671,13 @@ void shutdownStickS3() {
     delay(300);
   }
   M5.Power.powerOff();
-  while (true) {
-    delay(1000);
-  }
+  // With USB power present the PMIC cannot cut the rails, and execution falls
+  // through to here: rebooting resumes scanning instead of leaving a zombie
+  // (black screen, dead loop, silent console) until the cable is pulled.
+  delay(500);
+  Serial.println("Power: power off ineffective (USB power?); restarting");
+  Serial.flush();
+  ESP.restart();
 }
 
 void handleButtons() {
@@ -1759,6 +1839,7 @@ void setup() {
   beginStickPower();
   buttons.begin();
   ricohBle.setServiceCallback(serviceButtonsDuringBleOperation);
+  ricohBle.setPasskeyPromptCallback(showGr3PasskeyPrompt);
   decoder.begin();
   jpegViewportWidth = M5.Display.width();
   jpegViewportHeight = M5.Display.height();

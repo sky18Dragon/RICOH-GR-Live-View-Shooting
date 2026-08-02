@@ -83,7 +83,7 @@ loop()
 - 相机 LiveView MJPEG 分辨率、帧率和单帧最大大小需要采样确认。
 - Wi-Fi RSSI 与卡顿关联阈值需要实测。
 
-## 后续 Codex 修改代码时必须注意
+## 维护注意事项
 
 - Preview 优化必须保留相机电源保护和 BLE guard。
 - 不要为了流畅度删除 stall watchdog；可以调整但必须记录依据。

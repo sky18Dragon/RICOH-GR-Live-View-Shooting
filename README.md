@@ -24,8 +24,7 @@
 > [!NOTE]
 > 通信协议和状态机细节请参阅 [项目架构概览](docs/project_overview.md) 与 [RICOH BLE 协议说明](docs/ricoh_ble_protocol.md)。UI 架构、姿态阈值和实机验证清单见 [UI 与交互设计](docs/ui_interaction_design.md)。
 
-> [!NOTE]
-> **开发背景**：本仓库的固件代码、架构设计和文档由作者与 AI 助手（Codex）协作完成。欢迎通过 [Issues](https://github.com/sky18Dragon/RICOH-GR-Live-View-Shooting/issues) 或 Pull Request 反馈问题与改进建议。
+欢迎通过 [Issues](https://github.com/sky18Dragon/RICOH-GR-Live-View-Shooting/issues) 或 Pull Request 反馈问题与改进建议。
 
 ---
 
@@ -41,7 +40,7 @@
 - **WLAN 参数缓存**：将 SSID、BSSID、信道、密码和加密信息持久化到 NVS，用于后续横握连接的缓存快速路径；BLE 仍是连接与相机 Wi-Fi 激活的控制锚点。
 - **低延迟 BLE AF 快门**：Button A 按下沿立即发送一次 AF+拍摄命令；连接建立时预热 Shooting Service/Characteristic，缓存 GATT 对象并请求低延迟连接参数，后续拍摄复用已准备好的链路。
 - **可恢复的运行监控**：周期性检查 Wi-Fi、HTTP 流和有效 JPEG 帧健康度，LiveView 卡死时触发连接恢复。
-- **Host Native 测试**：43 项本地测试覆盖姿态门控状态机、CameraSleep、MJPEG 解析、Supervisor、按键输入、图像适配、姿态判断和 UI 动画。
+- **Host Native 测试**：50 项本地测试覆盖姿态门控状态机、CameraSleep、MJPEG 解析、Supervisor、按键输入、图像适配、姿态判断、UI 动画和相机协议识别。
 
 ---
 
@@ -81,7 +80,8 @@ pio device monitor -b 115200
 1. 打开 RICOH GR 相机，并在菜单中启用蓝牙连接。
 2. StickS3 上电后自动扫描以 `GR_` 开头的 BLE 广播。
 3. 找到有效且可连接的 RICOH 广播后会立即结束本轮扫描并开始安全绑定（Bonding）。
-4. 相机显示配对确认码时，在相机上确认；成功后相机身份、BLE 地址与绑定信息保存到 NVS。
+4. GR III 系列相机会显示六位配对码。在 StickS3 上用 Button A 修改当前数字，短按 Button B 确认并移到下一位。GR IV 系列继续使用原有确认流程。
+5. 配对成功后，相机身份、BLE 地址与绑定信息会保存到 NVS。
 
 首次安全协商如果没有真正启动，固件会在 3 秒探测窗口后以 150 ms 间隔快速进入第二轮，而不是完整空等；第二轮及后续尝试仍保留 7 秒确认窗口。
 
@@ -101,14 +101,14 @@ pio device monitor -b 115200
 # 编译 Host Native 目标
 platformio run -e native
 
-# 运行 43 项 Native 测试
+# 运行 50 项 Native 测试
 platformio test -e native
 
 # 编译 StickS3 固件
 platformio run -e m5stack-sticks3
 ```
 
-当前基线构建占用：RAM 76,708 / 327,680 bytes（23.4%），Flash 1,301,641 / 3,342,336 bytes（38.9%）。
+当前基线构建占用：RAM 82,892 / 327,680 bytes（25.3%），Flash 1,322,213 / 3,342,336 bytes（39.6%）。
 
 ---
 
@@ -116,6 +116,8 @@ platformio run -e m5stack-sticks3
 
 | 实体按键 | 状态场景 | 行为 |
 | :--- | :--- | :--- |
+| **Button A** | GR III 配对码输入 | 修改当前高亮数字 |
+| **Button B** | GR III 配对码输入，短按 | 确认当前数字并移到下一位 |
 | **Button A** | 相机可拍摄状态 | 按下时立即发送一次 AF+拍摄命令；持续按住只显示光圈收缩、亮绿色和提示音，不会重复发送或连拍 |
 | **Button A** | `CAMERA_SLEEP_GUARD` | 退出保护态、重建 BLE 栈并进入扫描场景，不触发拍摄 |
 | **Button B** | 任意状态，长按 3 秒 | 显示连续进度；达到阈值后只触发一次 BLE 配对与缓存重置，中途松开则取消 |
@@ -215,13 +217,14 @@ StickS3 实机轴映射为：`abs(X)` 主导时判定竖握，`abs(Y)` 主导时
 ## 相机兼容性
 
 > [!NOTE]
-> 当前固件与协议参数已在 **RICOH GR IV** 和 **RICOH GR IV HDF** 上完成实机验证。
+> 当前固件已在 **RICOH GR IV**、**RICOH GR IV HDF** 和 **RICOH GR III HDF** 上完成实机验证。其他 GR III 系列机型仍需单独回归测试。
 
 | 相机系列 | 状态 | 说明 |
 | :--- | :---: | :--- |
 | **RICOH GR IV HDF** | **已验证** | 核心开发与实机测试目标，支持 BLE 快门和 LiveView |
 | **RICOH GR IV** | **已验证** | 已验证 BLE 配对/重连、Wi-Fi 激活、LiveView 和 BLE AF 快门 |
-| **RICOH GR III / GR IIIx** | **不支持** | BLE 握手与唤醒时序存在代际差异，不属于当前设计目标 |
+| **RICOH GR III HDF** | **已验证** | 2026-08-01 实机验证首次配对、认证绑定、Wi-Fi 激活、`/v1/props` 和 LiveView |
+| **RICOH GR III / GR IIIx** | **实验性支持** | 与已验证的 GR III HDF 共用 UUID 协议路径，但仍需在本分支上完成独立实机回归 |
 | **RICOH GR II** | **不支持** | 缺少当前固件依赖的 BLE 优先广播和按需 Wi-Fi AP 控制链路 |
 
 ---
@@ -240,7 +243,7 @@ StickS3 实机轴映射为：`abs(X)` 主导时判定竖握，`abs(Y)` 主导时
 - [src/services/PreviewFrameBuffer.cpp](src/services/PreviewFrameBuffer.cpp) — 256 KB 预览帧缓冲与统计
 - [src/image_fit.h](src/image_fit.h) — LiveView 等比例完整显示（contain）矩形计算
 - [src/camera_sleep_policy.h](src/camera_sleep_policy.h) — CameraSleep 30 秒自动关机判定
-- [test/test_native/](test/test_native/) — 43 项 Host Native 单元测试
+- [test/test_native/](test/test_native/) — 50 项 Host Native 单元测试
 
 ---
 

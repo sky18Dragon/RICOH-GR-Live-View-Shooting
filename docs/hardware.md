@@ -12,7 +12,7 @@
 - PSRAM：代码使用 `psramFound()` 检查，并优先用 `heap_caps_malloc(..., MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)` 分配 256KB JPEG frame buffer。
 - PMIC/电源：`M5PM1`，代码通过 `M5PM1_DEFAULT_ADDR` 和 `M5PM1_I2C_FREQ_100K` 初始化。
 - 显示：M5Unified/LovyanGFX，横屏 240x135，`M5Canvas` 双缓冲。
-- 按键：`M5.BtnA`、`M5.BtnPWR`；另有 M5PM1 power button state 轮询。
+- 按键：`M5.BtnA`、`M5.BtnB`、`M5.BtnPWR`；另有 M5PM1 power button state 轮询。GR III 首次配对时，A 修改数字，短按 B 确认数字。
 
 ## 外设与库
 
@@ -28,14 +28,14 @@
 - 默认 camera IP：`192.168.0.1`。
 - LiveView：HTTP `/v1/liveview`。
 - Props：HTTP `/v1/props`。
-- BLE 协议以 GR IV HDF 实测为准。
+- GR IV 固定 handle 路径已在 GR IV / GR IV HDF 上实测。GR III UUID 路径已在 GR III HDF 上实测。
 
 ## TODO_UNVERIFIED
 
 - StickS3 LCD、Button A、Power Button、I2C 的实际 GPIO 编号未在代码中直接写死；M5Unified/M5PM1 动态封装。
 - 是否所有 StickS3 硬件批次都使用相同 PMIC/引脚映射，需要查官方板级资料或实机确认。
 
-## 后续 Codex 修改代码时必须注意
+## 维护注意事项
 
 - 新增外设前必须先更新 `pin_map.md`，确认 GPIO 冲突。
 - 不要绕过 M5Unified 的板级 pin API 直接猜测 GPIO。

@@ -1,9 +1,9 @@
-# Codex Review Checklist
+# 代码审查清单
 
 ## 修改前
 
 - [ ] 明确本次任务是否允许改代码；若用户限定文档-only，不得触碰 `src/`、`platformio.ini`。
-- [ ] 阅读 `AGENTS.md`。
+- [ ] 阅读 `PROJECT_NOTES.md`。
 - [ ] 根据影响范围阅读相关文档：
   - BLE：`ricoh_ble_protocol.md`
   - Wi-Fi/Preview：`wifi_preview_flow.md`
@@ -41,7 +41,7 @@
 
 ## 验证
 
-- [ ] 文档-only：`git diff --stat`、`git diff -- AGENTS.md docs logs`。
+- [ ] 仅文档改动：`git diff --stat`、`git diff -- PROJECT_NOTES.md docs logs`。
 - [ ] native 逻辑：`platformio test -e native`。
 - [ ] 固件构建：`platformio run`。
 - [ ] 实机：串口日志包含启动、BLE、Power/Operation Mode、Wi-Fi、HTTP、LiveView。
@@ -55,7 +55,7 @@
 - [ ] 验证命令和结果。
 - [ ] 风险和下一步。
 
-## 后续 Codex 修改代码时必须注意
+## 审查重点
 
 - 审查时优先查误唤醒、卡顿、阻塞、内存和 GPIO 冲突。
 - 对没有实测证据的协议结论必须打回。

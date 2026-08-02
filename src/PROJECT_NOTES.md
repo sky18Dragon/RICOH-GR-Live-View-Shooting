@@ -1,6 +1,6 @@
-# CLAUDE.md — `src/` 模块详尽
+# `src/` 模块说明
 
-[← 根目录 CLAUDE.md](../CLAUDE.md) ｜ 生成时间：2026-06-29 17:19:32 CST
+[返回项目说明](../PROJECT_NOTES.md)
 
 `src/` 扁平存放全部固件源码（10 个 `.cpp`/`.h` 对 + `config.h`，约 3711 行）。本文按层记录每个模块的职责、对外接口、依赖与实现要点。
 
@@ -57,7 +57,7 @@ BleScan → BleReady → WifiConnecting → HttpProbe → LiveViewRunning
 
 - `setup()`：`Serial` → `ui.begin()` → boot 画面 → 等串口 → `buttons/decoder/grWifi.begin()` → `applyDefaultProfile()` → PSRAM 检查 → 分配 `frameBuffer`（PSRAM 优先，回退内部 RAM，失败则停机）→ `mjpeg.begin(frameBuffer, ..., onJpegFrame)` → `runCameraFlowOnce()`。
 - `loop()`（每轮 `delay(1)`）：
-  1. `handleButtons()` — 仅 `M5.BtnA`：保护态则 `requestManualCameraWake`，否则 `triggerShutterFromButtonA()`（`bleCamera.shoot(true)`）。
+  1. `handleButtons()`：Button A 在保护态调用 `requestManualCameraWake`，其余可拍摄状态调用 `triggerShutterFromButtonA()`；Button B 长按重置配对。GR III 首次配对时两个按钮由六位码输入界面接管。
   2. `serviceCameraFlowIfNeeded()` — 非运行态按 `BLE_SCAN_RETRY_INTERVAL_MS` 周期推进。
   3. `ensureWiFi()` — LiveView 中 Wi-Fi 掉线即恢复。
   4. `refreshPropsIfDue()` — 每 `PROPS_REFRESH_INTERVAL_MS=60s` 刷新 `/v1/props`。
@@ -181,7 +181,7 @@ BleScan → BleReady → WifiConnecting → HttpProbe → LiveViewRunning
 
 `Buttons` 使用 `M5.update()` 轮询 `M5.BtnA.wasPressed()`、`M5.BtnPWR.wasHold()`。
 
-> ⚠️ **无 GPIO11/G11 外接快门**（README 描述已过时，见根级 CLAUDE.md「文档漂移」）。
+> ⚠️ **无 GPIO11/G11 外接快门**（README 描述已过时，见根级项目说明中的「文档漂移」）。
 
 ---
 
@@ -189,7 +189,7 @@ BleScan → BleReady → WifiConnecting → HttpProbe → LiveViewRunning
 
 全局 `constexpr` 常量与 `#define` 守卫。**改 BLE 行为前必读**。
 
-- 显示/缓冲：`DISPLAY_WIDTH/HEIGHT`、`FRAME_BUFFER_SIZE=256KB`、`STREAM_READ_BUFFER_SIZE=2048`、`JPEG_SCALE_POLICY=JPEG_SCALE_HALF`。
+- 显示/缓冲：`DISPLAY_WIDTH/HEIGHT`、`FRAME_BUFFER_SIZE=256KB`、`STREAM_READ_BUFFER_SIZE=8192`、`JPEG_SCALE_POLICY=JPEG_SCALE_HALF`。
 - 超时/周期：`WIFI_CONNECT_TIMEOUT_MS`、`PROPS_TIMEOUT_MS`、`LIVEVIEW_STALL_TIMEOUT_MS`、`UI_STATUS_INTERVAL_MS`、`PROPS_REFRESH_INTERVAL_MS`。
 - BLE 时序：`BLE_SCAN_SECONDS`、`BLE_CONNECT_ATTEMPTS`、`FIRST_BOOT_BLE_PAIRING_ATTEMPTS`、`BLE_STACK_RESET_AFTER_FAILURES`、`RICOH_BLE_SECURITY_WAIT_MS` 等。
 - 电源/保护：`CAMERA_POWER_OFF_COOLDOWN_MS`、`BLE_MANUAL_WAKE_REINIT_SETTLE_MS`、`RICOH_BLE_DISCONNECT_REMOTE_USER=0x213`、`RICOH_BLE_DISCONNECT_REMOTE_POWER_OFF=0x215`、`RICOH_BLE_REQUIRE_POWER_ON_BEFORE_WIFI=true`。

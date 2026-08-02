@@ -25,7 +25,7 @@
 2. 不允许根据网上其他 ESP32-S3 板卡猜测 StickS3 引脚。
 3. 不允许占用 M5Unified/M5PM1/LCD/USB 已使用引脚。
 
-## 后续 Codex 修改代码时必须注意
+## 维护注意事项
 
 - GPIO 信息缺失时只能写 `TODO_UNVERIFIED`，不能编造。
 - 外设初始化失败必须有日志和 fallback，不要阻塞主循环。

@@ -56,7 +56,7 @@ TODO_UNVERIFIED：需要补充原始完整串口日志和对应固件 commit。
 - [ ] 冷却后按 Button A，确认手动唤醒成功。
 - [ ] LiveView 运行中关闭相机，确认 power notify 或 disconnect reason 进入 guard。
 
-## 后续 Codex 修改代码时必须注意
+## 维护注意事项
 
 - 任何连接加速都不得删除 Operation Mode 检查。
 - 任何恢复流程都必须先检查 `cameraSleepGuardBlocksFlow()`。

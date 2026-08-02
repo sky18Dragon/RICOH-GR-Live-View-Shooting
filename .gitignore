@@ -6,8 +6,10 @@ platformio.local.ini
 .vscode/launch.json
 .vscode/ipch/
 
-# Local AI workflow artifacts
-.agents/
-.claude/
-AGENTS.md
+# Local development files
 openspec/
+
+# Bluetooth captures can contain the camera Wi-Fi passphrase and pairing data.
+captures/private/
+*.btsnoop
+*.btsnoop.log

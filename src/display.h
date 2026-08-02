@@ -21,6 +21,7 @@ public:
     void showBoot(const char* message = nullptr);
     void showStatus(const char* line1, const char* line2, const char* line3, const char* line4);
     void showStatus(const String& line1, const String& line2, const String& line3, const String& line4);
+    void showPasskeyEntry(const uint8_t digits[6], uint8_t currentIndex);
     void showError(const char* message, const char* detail = nullptr);
     void showError(const String& message, const String& detail = String());
     void drawOverlay(const String& wifiStatus,

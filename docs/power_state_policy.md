@@ -80,7 +80,7 @@ Button A 手动唤醒：
 - Power State handle / Operation Mode UUID 在 GR IV 非 HDF 上的兼容性未确认。
 - `OTHER` mode 是否允许 Wi-Fi ON 未由代码特殊处理，语义仍未确认。
 
-## 后续 Codex 修改代码时必须注意
+## 维护注意事项
 
 - 任何降低等待时间、减少读取次数、跳过 Operation Mode 的优化都可能重新引入误唤醒。
 - 修复连接速度问题时不能以自动唤醒关机相机为代价。

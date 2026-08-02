@@ -40,7 +40,7 @@ TODO_UNVERIFIED
 
 - [ ] TODO_UNVERIFIED
 
-## 后续 Codex 修改代码时必须注意
+## 维护注意事项
 
 - 不要只根据单次日志下结论。
 - 需要区分相机状态、StickS3 状态、串口监视器问题。

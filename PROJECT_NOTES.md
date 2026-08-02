@@ -1,8 +1,6 @@
-# CLAUDE.md — RICOH GR Live View Shooting
+# RICOH GR Live View Shooting project notes
 
-> 项目 AI 上下文索引（根级简明）。模块级详尽文档见 [`src/CLAUDE.md`](src/CLAUDE.md)。
->
-> 生成时间：2026-06-29 17:19:32 CST ｜ 工具：`/ccg:init`
+本文概述项目结构和开发约定。模块级说明见 [`src/PROJECT_NOTES.md`](src/PROJECT_NOTES.md)。
 
 ## 一句话概述
 
@@ -46,7 +44,7 @@ platformio test -e native      # host-side 纯逻辑单元测试
 | 输入 | [`src/buttons.*`](src/buttons.h) | 仅轮询 `M5.BtnA` |
 | 配置 | [`src/config.h`](src/config.h) | 全局常量：BLE GATT 句柄、超时、扫描次数、缩放策略、Service UUID |
 
-详细接口、依赖、状态机说明见 [`src/CLAUDE.md`](src/CLAUDE.md)。
+详细接口、依赖、状态机说明见 [`src/PROJECT_NOTES.md`](src/PROJECT_NOTES.md)。
 
 ## 架构图
 
@@ -92,7 +90,7 @@ flowchart TD
 4. **帧缓冲在 PSRAM** —— `FRAME_BUFFER_SIZE=256KB`，优先 `MALLOC_CAP_SPIRAM`，回退内部 RAM；无 PSRAM 直接报错停机。
 5. **JPEG 缩放** —— `config.h` 设 `JPEG_SCALE_POLICY=JPEG_SCALE_HALF`（覆盖 `display.h`/`jpeg_decoder.h` 的 `QUARTER` 默认）。
 6. **NVS schema** —— namespace `ricoh2`，`proto_ver`（当前 3）/`cam_name`/`ble_addr`/`ble_addr_type`/`ble_bonded`/`cam_ip`/Wi-Fi cache。保护态只在 RAM 中生效，StickS3 重启后会重新走自动连接流程。已保存 BLE 身份的 `setup()` 启动流只做一轮快速扫描，失败后交给主循环处理 KEY1 和周期重试。
-7. **按键 = 仅 `M5.BtnA`** —— 见下方「文档漂移」。
+7. **按键输入**：Button A 负责快门、手动恢复和 GR III 配对码数字修改；Button B 长按重置配对，GR III 配对码界面中短按确认数字。
 
 ## 按键实现说明
 

@@ -24,8 +24,7 @@
 > [!NOTE]
 > For protocol and state-machine details, see the [architecture overview](docs/project_overview.md) and [RICOH BLE protocol notes](docs/ricoh_ble_protocol.md). See [UI and interaction design](docs/ui_interaction_design.md) for the UI architecture, orientation thresholds, and hardware verification checklist.
 
-> [!NOTE]
-> **Development note**: The firmware, architecture, and documentation in this repository were developed collaboratively by the author and the AI assistant Codex. Feedback and improvements are welcome through [Issues](https://github.com/sky18Dragon/RICOH-GR-Live-View-Shooting/issues) or Pull Requests.
+Bug reports and contributions are welcome through [Issues](https://github.com/sky18Dragon/RICOH-GR-Live-View-Shooting/issues) and Pull Requests.
 
 ---
 
@@ -41,7 +40,7 @@
 - **WLAN parameter caching**: SSID, BSSID, channel, passphrase, and security data are persisted in NVS for the landscape fast path. BLE remains the control anchor for connection and camera Wi-Fi activation.
 - **Low-latency BLE AF shutter**: Button A sends one AF+shoot request immediately on the press edge. The Shooting Service and characteristics are warmed and cached at connection time, with low-latency connection parameters requested for subsequent shots.
 - **Recoverable runtime monitoring**: Wi-Fi, HTTP stream, and valid JPEG frame health are checked periodically; a stalled LiveView triggers connection recovery.
-- **Host-side Native tests**: 43 tests cover the orientation-gated state machine, CameraSleep, MJPEG parsing, Supervisor, button input, image fitting, orientation tracking, and UI animation.
+- **Host-side Native tests**: 50 tests cover the orientation-gated state machine, CameraSleep, MJPEG parsing, Supervisor, button input, image fitting, orientation tracking, UI animation, and camera protocol detection.
 
 ---
 
@@ -81,7 +80,8 @@ If port detection fails, append `--upload-port <port>`.
 1. Turn on the RICOH GR camera and enable Bluetooth in its settings.
 2. Power on the StickS3. It scans automatically for BLE advertisements beginning with `GR_`.
 3. Discovery ends as soon as a valid, connectable RICOH advertisement is found, and secure bonding begins.
-4. Confirm the pairing code on the camera when prompted. The camera identity, BLE address, and bond are then saved in NVS.
+4. On a GR III-family camera, copy the six-digit code from the camera to the StickS3. Button A changes the highlighted digit and a short press of Button B accepts it. GR IV-family cameras keep their existing confirmation flow.
+5. The firmware saves the camera identity, BLE address, and bond in NVS after pairing.
 
 If the first security exchange never starts, the firmware leaves the 3-second probe window and retries after 150 ms instead of waiting out a long dead attempt. The second and later attempts keep the full 7-second confirmation window.
 
@@ -101,14 +101,14 @@ If the device turns portrait during a blocking Wi-Fi connection attempt, the con
 # Build the host-side Native target
 platformio run -e native
 
-# Run all 43 Native tests
+# Run all 50 Native tests
 platformio test -e native
 
 # Build the StickS3 firmware
 platformio run -e m5stack-sticks3
 ```
 
-Current baseline build usage: RAM 76,708 / 327,680 bytes (23.4%), Flash 1,301,641 / 3,342,336 bytes (38.9%).
+Current baseline build usage: RAM 82,892 / 327,680 bytes (25.3%), Flash 1,322,213 / 3,342,336 bytes (39.6%).
 
 ---
 
@@ -116,6 +116,8 @@ Current baseline build usage: RAM 76,708 / 327,680 bytes (23.4%), Flash 1,301,64
 
 | Physical Button | Context | Action |
 | :--- | :--- | :--- |
+| **Button A** | GR III pairing code | Changes the highlighted digit. |
+| **Button B** | GR III pairing code, short press | Accepts the highlighted digit and moves to the next one. |
 | **Button A** | Camera ready | Immediately sends one AF+shoot command on press. Continuing to hold only contracts the aperture, turns it bright green, and plays feedback; it never repeats the command or starts continuous shooting. |
 | **Button A** | `CAMERA_SLEEP_GUARD` | Leaves the guard, rebuilds the BLE stack, and returns to scanning without shooting. |
 | **Button B** | Any state, hold for 3 seconds | Shows continuous progress and triggers the BLE pairing/cache reset once at the threshold. Releasing early cancels it. |
@@ -215,13 +217,14 @@ The StickS3 hardware mapping treats dominant `abs(X)` as portrait and dominant `
 ## Camera Compatibility
 
 > [!NOTE]
-> The current firmware and protocol parameters have been verified on **RICOH GR IV** and **RICOH GR IV HDF**.
+> RICOH GR IV, GR IV HDF, and GR III HDF have completed hardware tests. Other GR III-family models still need their own regression runs.
 
 | Camera Series | Status | Notes |
 | :--- | :---: | :--- |
 | **RICOH GR IV HDF** | **Verified** | Core development and hardware test target; supports BLE shutter and LiveView |
 | **RICOH GR IV** | **Verified** | BLE pairing/reconnect, Wi-Fi activation, LiveView, and BLE AF shutter verified |
-| **RICOH GR III / GR IIIx** | **Not supported** | BLE handshake and wake timing differ by generation and are outside the current design target |
+| **RICOH GR III HDF** | **Verified** | Clean passkey pairing, authenticated bond, Wi-Fi activation, `/v1/props`, and LiveView verified on hardware on August 1, 2026 |
+| **RICOH GR III / GR IIIx** | **Experimental** | Uses the same UUID-based WLAN path as the verified GR III HDF, but these models still need a fresh regression run on this branch |
 | **RICOH GR II** | **Not supported** | Lacks the BLE-first advertising and on-demand Wi-Fi AP control path required by this firmware |
 
 ---
@@ -240,7 +243,8 @@ The StickS3 hardware mapping treats dominant `abs(X)` as portrait and dominant `
 - [src/services/PreviewFrameBuffer.cpp](src/services/PreviewFrameBuffer.cpp) — 256 KB preview frame buffer and statistics
 - [src/image_fit.h](src/image_fit.h) — Aspect-preserving contain rectangle for LiveView
 - [src/camera_sleep_policy.h](src/camera_sleep_policy.h) — 30-second CameraSleep shutdown policy
-- [test/test_native/](test/test_native/) — 43 host-side Native tests
+- [test/test_native/](test/test_native/): 50 host-side Native tests
+- [docs/gr3_porting_guide.md](docs/gr3_porting_guide.md): GR III protocol map, optional Android capture procedure, and hardware test checklist
 
 ---
 

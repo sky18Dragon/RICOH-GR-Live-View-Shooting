@@ -13,7 +13,7 @@
 - 依赖：M5Unified、M5PM1、JPEGDEC、ArduinoJson、NimBLE-Arduino 2.5.0、WiFi、Preferences、Wire。
 - 显示默认尺寸：`DISPLAY_WIDTH=240`、`DISPLAY_HEIGHT=135`。
 - LiveView frame buffer：`FRAME_BUFFER_SIZE=256 * 1024`。
-- Stream read buffer：`STREAM_READ_BUFFER_SIZE=2048`。
+- Stream read buffer：`STREAM_READ_BUFFER_SIZE=8192`。
 - Camera HTTP 默认地址：`GR_HOST=192.168.0.1`，`GR_PORT=80`。
 - 主状态机枚举：`BleScan`、`CameraSleepGuard`、`BleReady`、`WifiConnecting`、`HttpProbe`、`LiveViewRunning`。
 - 主循环顺序：`handleButtons()`、`serviceCameraFlowIfNeeded()`、`ensureWiFi()`、`refreshPropsIfDue()`、`ensureLiveView()`、`refreshWifiCacheIfDue()`、`updateStatusUiIfDue()`、`delay(1)`。
@@ -27,8 +27,9 @@ README 声明：
 | 机型 | 状态 |
 | --- | --- |
 | RICOH GR IV HDF | 已验证可用 |
-| RICOH GR IV 系列 | 理论可用，仍需实机确认 |
-| RICOH GR III / GR IIIx | 当前不可用 |
+| RICOH GR IV | 已验证可用 |
+| RICOH GR III HDF | 已验证配对、Wi-Fi、HTTP props 与 LiveView |
+| RICOH GR III / GR IIIx | 实验性支持，需在当前分支单独回归 |
 | RICOH GR II | 当前不可用 |
 
 ## 功能模块
@@ -46,9 +47,10 @@ README 声明：
 
 ## TODO_UNVERIFIED
 
-- GR IV 非 HDF 机型的完整兼容性：README 标记为理论可用，需实机确认。
+- 标准 GR III 与 GR IIIx 的完整兼容性仍需实机确认。
+- GR III HDF 的 Button A 快门发送仍需独立日志记录。
 
-## 后续 Codex 修改代码时必须注意
+## 维护注意事项
 
 - 修改任何流程前先确认状态机入口和恢复路径。
 - 涉及相机唤醒的改动必须同时读 `power_state_policy.md`。

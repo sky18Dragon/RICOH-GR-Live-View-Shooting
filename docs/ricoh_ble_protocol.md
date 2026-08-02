@@ -2,7 +2,7 @@
 
 ## 适用范围
 
-以下信息从当前代码、README 和配置常量提取。README 声明协议以 RICOH GR IV HDF 实测为准；GR III / GR II 当前不可用。
+以下信息从当前代码、README 和配置常量提取。GR IV 固定 handle 路径已在 RICOH GR IV / GR IV HDF 上实测，GR III UUID 路径已在 GR III HDF 上实测。GR II 当前不可用。
 
 ## BLE 服务 UUID
 
@@ -17,6 +17,17 @@
 | Shooting Flavor | `B29E6DE3-1AEC-48C1-9D05-02CEA57CE664` |
 | Operation Request | `559644B8-E0BC-4011-929B-5CF9199851E7` |
 | Control Service | `0F291746-0C80-4726-87A7-3C501FD3B4B6` |
+
+## GR III WLAN UUID
+
+| 功能 | UUID |
+| --- | --- |
+| WLAN Service | `F37F568F-9071-445D-A938-5441F2E82399` |
+| Network Type / AP ON | `9111CDD0-9F01-45C4-A2D4-E09E8FB0424D` |
+| SSID | `90638E5A-E77D-409D-B550-78F7E1CA5AB4` |
+| Passphrase | `0F38279C-FE9E-461B-8596-81287E8C9A81` |
+| Channel | `51DE6EBC-0F22-4357-87E4-B1FA1D385AB8` |
+| Camera Power | `B58CE84C-0666-4DE9-BEC8-2D27B27B3211` |
 
 ## GR IV WLAN / Power handles
 
@@ -56,14 +67,14 @@
 从 `src/ricoh_ble_client.cpp` 确认：
 
 - 候选设备通过广告服务或名称判断。
-- `advertisesAnyRicohService()` 匹配 Info/Camera/Shooting/Control 四个服务之一。
+- `advertisesAnyRicohService()` 匹配 Info、Camera、Shooting、Control 或 GR III WLAN 服务。
 - `nameLooksLikeRicoh()` 接受 `GR`、`GR_`、包含 `RICOH`、`PENTAX`、`GRIII`、`GR III` 等名称特征。
-- 连接后调用 `secureConnection(true)` 等待加密。
+- 连接后调用 `secureConnection(true)` 等待加密。GR III 首次配对使用相机显示的六位 passkey，并要求 authenticated bond。
 - Security wait 默认来自 `RICOH_BLE_SECURITY_WAIT_MS`，bonded 直连使用 `RICOH_BLE_BONDED_SECURITY_WAIT_MS`。
 
 ## Wi-Fi 参数读取
 
-`waitForWifiCredentials()` 会在超时窗口内轮询 WLAN SSID/PASSPHRASE/SECURITY/FREQUENCY/BSSID handles。每个 handle 读取后有短 `delay(20)` 和 `yield()`；未得到 valid credentials 时按 `RICOH_BLE_WIFI_CREDENTIAL_POLL_MS` 延迟重试。
+`waitForWifiCredentials()` 按检测到的协议选择读取方式。GR IV 使用固定 handles；GR III 按 UUID 读取 SSID、passphrase 和 channel。每次读取后有短 `delay(20)` 和 `yield()`，未得到 valid credentials 时按 `RICOH_BLE_WIFI_CREDENTIAL_POLL_MS` 延迟重试。
 
 ## 快门控制
 
@@ -86,11 +97,11 @@
 ## TODO_UNVERIFIED
 
 - UUID/handle 是否适用于所有 GR IV 非 HDF 机型。
-- GR III / GR II 的等价协议、handle 和状态值。
+- 标准 GR III 与 GR IIIx 是否与已验证的 GR III HDF 完全一致。
 - `0x03 OTHER` 的具体相机语义。
-- Passkey 的相机侧交互细节；代码中存在 passkey request 和 confirm passkey 流程，但完整 UX 需实机日志确认。
+- GR III HDF 的 Button A 快门发送仍需独立日志确认。
 
-## 后续 Codex 修改代码时必须注意
+## 维护注意事项
 
 - 不得新增或修改 UUID/handle，除非有抓包、官方资料或实机日志证据。
 - 任何 BLE 重连优化不得绕过 `ensureCameraPowerReadyForWifi()`。

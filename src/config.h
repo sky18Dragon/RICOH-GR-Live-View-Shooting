@@ -14,7 +14,10 @@ constexpr uint16_t DISPLAY_WIDTH = 240;
 constexpr uint16_t DISPLAY_HEIGHT = 135;
 
 constexpr size_t FRAME_BUFFER_SIZE = 256 * 1024;
-constexpr size_t STREAM_READ_BUFFER_SIZE = 2048;
+// Sizes main.cpp's streamReadBuffer (via AppConfig::Buffer). Larger reads
+// drain the live-view TCP stream in fewer readFrame/processFrameData
+// iterations per JPEG frame; +6 KB static RAM is well within headroom.
+constexpr size_t STREAM_READ_BUFFER_SIZE = 8192;
 
 constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 15000;
 constexpr uint32_t WIFI_CHANNEL_HINT_CONNECT_TIMEOUT_MS = 6000;
@@ -49,6 +52,10 @@ constexpr uint32_t BLE_RECOVERY_STACK_RESET_GRACE_MS = 700;
 constexpr uint32_t BLE_DISCONNECT_WAIT_MS = 1200;
 constexpr uint32_t RICOH_BLE_BONDED_SECURITY_WAIT_MS = 1500;
 constexpr uint32_t RICOH_BLE_SECURITY_WAIT_MS = 7000;
+// Capped at NimBLE's ~30 s SMP transaction timeout: digits typed after the
+// procedure dies would be injected into nothing, so waiting longer only
+// pretends the window is still open.
+constexpr uint32_t RICOH_BLE_GR3_PASSKEY_ENTRY_WAIT_MS = 30000;
 // A GR that has just entered pairing mode sometimes accepts the first link but
 // does not start SMP. Retry that probe promptly; later attempts retain the full
 // window so the user has time to confirm the passkey on the camera.
@@ -115,4 +122,27 @@ constexpr uint8_t RICOH_BLE_GR4_POWER_STATE_OFF_VALUE = 0x00;
 #endif
 #ifndef RICOH_BLE_CONTROL_SERVICE_UUID
 #define RICOH_BLE_CONTROL_SERVICE_UUID "0F291746-0C80-4726-87A7-3C501FD3B4B6"
+#endif
+
+// GR III / GR IIIx UUID protocol. These values come from the independently
+// documented GR Bluetooth API and the repository's previously hardware-tested
+// GR IIIx implementation. Unlike GR IV, GR III WLAN attributes are discovered
+// by UUID and must never be addressed with the GR IV fixed handles above.
+#ifndef RICOH_BLE_CAMERA_POWER_UUID
+#define RICOH_BLE_CAMERA_POWER_UUID "B58CE84C-0666-4DE9-BEC8-2D27B27B3211"
+#endif
+#ifndef RICOH_BLE_GR3_WLAN_SERVICE_UUID
+#define RICOH_BLE_GR3_WLAN_SERVICE_UUID "F37F568F-9071-445D-A938-5441F2E82399"
+#endif
+#ifndef RICOH_BLE_GR3_WLAN_NETWORK_TYPE_UUID
+#define RICOH_BLE_GR3_WLAN_NETWORK_TYPE_UUID "9111CDD0-9F01-45C4-A2D4-E09E8FB0424D"
+#endif
+#ifndef RICOH_BLE_GR3_WLAN_SSID_UUID
+#define RICOH_BLE_GR3_WLAN_SSID_UUID "90638E5A-E77D-409D-B550-78F7E1CA5AB4"
+#endif
+#ifndef RICOH_BLE_GR3_WLAN_PASSPHRASE_UUID
+#define RICOH_BLE_GR3_WLAN_PASSPHRASE_UUID "0F38279C-FE9E-461B-8596-81287E8C9A81"
+#endif
+#ifndef RICOH_BLE_GR3_WLAN_CHANNEL_UUID
+#define RICOH_BLE_GR3_WLAN_CHANNEL_UUID "51DE6EBC-0F22-4357-87E4-B1FA1D385AB8"
 #endif

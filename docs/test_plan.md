@@ -4,7 +4,7 @@
 
 ```powershell
 git diff --stat
-git diff -- AGENTS.md docs logs
+git diff -- PROJECT_NOTES.md docs logs
 ```
 
 本类任务不需要 `platformio run`，除非用户明确要求。
@@ -15,6 +15,7 @@ git diff -- AGENTS.md docs logs
 
 - `ble_reconnect_policy.cpp`
 - `camera_identity.cpp`
+- `camera_protocol_profile.cpp`
 - `mjpeg_stream.cpp`
 - `ui/ButtonInput.cpp`
 - `ui/OrientationTracker.cpp`
@@ -53,7 +54,8 @@ COM 端口按实际设备替换。
 
 1. **首次配对**
    - 擦除 NVS/flash 后启动。
-   - 期望：扫描、配对、安全连接、保存 BLE 身份、打开 Wi-Fi、进入 LiveView。
+   - GR III 系列：用 Button A 修改高亮数字，短按 Button B 逐位输入相机显示的六位码。
+   - 期望：扫描、认证绑定、保存 BLE 身份、打开 Wi-Fi、进入 LiveView。配对不依赖 USB 串口。
 2. **已配对直连**
    - StickS3 重启，相机处于工作状态。
    - 期望：优先直连保存的 BLE 地址，Wi-Fi cache 可短超时尝试，失败后 fresh BLE 参数回退。
@@ -91,6 +93,9 @@ COM 端口按实际设备替换。
 13. **横转竖断开流程**
     - LiveView 运行时转为竖屏。
     - 期望：关闭 LiveView、断开相机 Wi-Fi、回到 `WIFI_CREDENTIALS_READY`，BLE 保持连接；重新横屏可再次恢复。
+14. **GR III 协议回归**
+    - 在 GR III HDF、标准 GR III 和 GR IIIx 上分别执行首次配对、重启重连、Wi-Fi 激活、`/v1/props`、LiveView 和 Button A 快门。
+    - 期望：只使用 UUID WLAN 路径，不触发 GR IV 固定 handle 写入。记录机型、相机固件版本和每一步结果，不记录 SSID 或 passphrase。
 
 ## Preview 性能测试
 
@@ -105,7 +110,7 @@ COM 端口按实际设备替换。
 - 横竖 Canvas 切换前后 heap/PSRAM 可用量（串口 `UI Canvas:` 日志）。
 
 
-## 后续 Codex 修改代码时必须注意
+## 维护注意事项
 
 - 测试计划要随代码能力更新。
 - 新增协议/外设必须新增对应实机测试用例。

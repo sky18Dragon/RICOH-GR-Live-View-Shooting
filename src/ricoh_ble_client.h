@@ -2,6 +2,8 @@
 
 #include <Arduino.h>
 
+#include "camera_protocol_profile.h"
+
 struct RicohBleDeviceInfo {
   bool found = false;
   String name;
@@ -13,6 +15,7 @@ struct RicohBleDeviceInfo {
   bool hasCameraService = false;
   bool hasShootingService = false;
   bool hasControlService = false;
+  bool hasGr3WlanService = false;
 };
 
 struct RicohBleWifiCredentials {
@@ -48,12 +51,25 @@ enum class RicohCameraOperationMode {
   PowerOffTransfer,
 };
 
+// True when the advertisement carries any Ricoh identity marker (name or a
+// known service UUID). Shared by scan scoring and main's candidate gating.
+bool hasRicohIdentitySignal(const RicohBleDeviceInfo& info);
+
 class RicohBleClient {
 public:
   using ServiceCallback = bool (*)();
+  // Invoked once (from the connect task) when a GR III pairing starts waiting
+  // for the camera's six-digit code, so the UI can tell the user.
+  using PasskeyPromptCallback = void (*)();
 
   void begin();
   void setServiceCallback(ServiceCallback callback);
+  void setPasskeyPromptCallback(PasskeyPromptCallback callback);
+  // GR III passkey entry without a serial console: while a pairing waits for
+  // the camera's six-digit code, passkeyEntryPending() is true and the code
+  // can be delivered via submitPasskey() (e.g. from an on-device button UI).
+  static bool passkeyEntryPending();
+  static void submitPasskey(uint32_t passkey);
   RicohBleDeviceInfo scanForCamera(const String& preferredAddress, const String& preferredName, uint32_t scanSeconds);
   bool connect(const RicohBleDeviceInfo& info, uint32_t timeoutMs);
   bool connect(const RicohBleDeviceInfo& info, const RicohBleConnectOptions& options);
@@ -73,6 +89,7 @@ public:
   bool deleteAllBonds();
   void resetStack(bool clearObjects = false);
   bool lastFailureWasResourceExhausted() const;
+  const CameraProtocolProfile& protocolProfile() const;
 
   String statusText() const;
   const String& lastError() const;
@@ -85,6 +102,7 @@ private:
   bool _connected = false;
   bool _shutterPrepared = false;
   bool _lastFailureResourceExhausted = false;
+  RicohProtocolGeneration _protocolGeneration = RicohProtocolGeneration::Unknown;
   String _lastError;
   void* _client = nullptr;
   void* _shootingFlavor = nullptr;

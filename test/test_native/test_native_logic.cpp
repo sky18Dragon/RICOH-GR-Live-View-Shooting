@@ -12,6 +12,7 @@ void tearDown(void) {}
 
 #include "app/AppController.h"
 #include "camera_identity.h"
+#include "camera_protocol_profile.h"
 #include "camera_sleep_policy.h"
 #include "image_fit.h"
 #include "mjpeg_stream.h"
@@ -419,6 +420,93 @@ void testBleCandidateMustMatchStoredIdentity() {
   TEST_ASSERT_FALSE(bleCandidateMatchesStoredIdentity("34:90:ea:cc:87:35", nullptr));
 }
 
+void testDetectsGr3OnlyFromCompleteUuidEvidence() {
+  ProtocolDetectionEvidence evidence;
+  evidence.hasGr3WlanService = true;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohProtocolGeneration::Unknown),
+                        static_cast<int>(detectRicohProtocol(evidence)));
+
+  evidence.hasGr3NetworkTypeCharacteristic = true;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohProtocolGeneration::Gr3Family),
+                        static_cast<int>(detectRicohProtocol(evidence)));
+}
+
+void testGr3EvidenceWinsOverGr4Advertisement() {
+  ProtocolDetectionEvidence evidence;
+  evidence.hasGr3WlanService = true;
+  evidence.hasGr3NetworkTypeCharacteristic = true;
+  evidence.hasGr4ControlService = true;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohProtocolGeneration::Gr3Family),
+                        static_cast<int>(detectRicohProtocol(evidence)));
+}
+
+void testFallsBackToGr4ControlService() {
+  ProtocolDetectionEvidence evidence;
+  evidence.hasGr4ControlService = true;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohProtocolGeneration::Gr4Family),
+                        static_cast<int>(detectRicohProtocol(evidence)));
+}
+
+void testFallsBackToGr4ReadOnlyHandleProbe() {
+  ProtocolDetectionEvidence evidence;
+  evidence.gr4PowerHandleReadSucceeded = true;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohProtocolGeneration::Gr4Family),
+                        static_cast<int>(detectRicohProtocol(evidence)));
+}
+
+void testValidatesGr3WifiCredentials() {
+  TEST_ASSERT_TRUE(validGr3WifiCredentials("GR_123456", "abcdefgh", 1));
+  TEST_ASSERT_TRUE(validGr3WifiCredentials("GR_123456", "abcdefgh", 0));
+  TEST_ASSERT_FALSE(validGr3WifiCredentials("", "abcdefgh", 1));
+  TEST_ASSERT_FALSE(validGr3WifiCredentials("GR_123456", "", 1));
+  // 12-14 are legal outside the FCC domain; a EU/JP camera must not be
+  // stranded by its own AP channel.
+  TEST_ASSERT_TRUE(validGr3WifiCredentials("GR_123456", "abcdefgh", 12));
+  TEST_ASSERT_TRUE(validGr3WifiCredentials("GR_123456", "abcdefgh", 13));
+  TEST_ASSERT_TRUE(validGr3WifiCredentials("GR_123456", "abcdefgh", 14));
+  TEST_ASSERT_FALSE(validGr3WifiCredentials("GR_123456", "abcdefgh", 15));
+}
+
+void testGr3WlanServiceVetoesGr4Fallback() {
+  // A GR III whose characteristic discovery hiccuped must never be
+  // classified GR IV: that verdict unlocks fixed-handle writes against
+  // attributes that are something else entirely on a GR III.
+  ProtocolDetectionEvidence evidence;
+  evidence.hasGr3WlanService = true;
+  evidence.gr4PowerHandleReadSucceeded = true;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohProtocolGeneration::Unknown),
+                        static_cast<int>(detectRicohProtocol(evidence)));
+
+  evidence.hasGr4ControlService = true;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohProtocolGeneration::Unknown),
+                        static_cast<int>(detectRicohProtocol(evidence)));
+
+  evidence.hasGr3NetworkTypeCharacteristic = true;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohProtocolGeneration::Gr3Family),
+                        static_cast<int>(detectRicohProtocol(evidence)));
+}
+
+void testParsesGr3WifiChannelEncodings() {
+  const uint8_t binaryEleven[] = {0x0B};
+  TEST_ASSERT_EQUAL_UINT8(11, parseGr3WifiChannel(binaryEleven, sizeof(binaryEleven)));
+
+  const uint8_t asciiEleven[] = {'1', '1'};
+  TEST_ASSERT_EQUAL_UINT8(11, parseGr3WifiChannel(asciiEleven, sizeof(asciiEleven)));
+
+  const uint8_t asciiSixNulTerminated[] = {'6', 0x00};
+  TEST_ASSERT_EQUAL_UINT8(6, parseGr3WifiChannel(asciiSixNulTerminated, sizeof(asciiSixNulTerminated)));
+
+  const uint8_t binaryThirteen[] = {0x0D};
+  TEST_ASSERT_EQUAL_UINT8(13, parseGr3WifiChannel(binaryThirteen, sizeof(binaryThirteen)));
+
+  // Garbage stays garbage so validation downstream rejects it.
+  const uint8_t garbage[] = {0xFF, 0x10};
+  TEST_ASSERT_EQUAL_UINT8(0xFF, parseGr3WifiChannel(garbage, sizeof(garbage)));
+
+  TEST_ASSERT_EQUAL_UINT8(0, parseGr3WifiChannel(nullptr, 4));
+  TEST_ASSERT_EQUAL_UINT8(0, parseGr3WifiChannel(binaryEleven, 0));
+}
+
 rvf::SystemHealthSnapshot healthyPreviewSnapshot() {
   rvf::SystemHealthSnapshot snapshot;
   snapshot.appState = rvf::AppState::PreviewRunning;
@@ -720,6 +808,13 @@ int main() {
   RUN_TEST(testRequiresBleAddressAndAddressTypeForDirectReconnect);
   RUN_TEST(testBleCandidateDiscoveryIsOpenWithoutStoredIdentity);
   RUN_TEST(testBleCandidateMustMatchStoredIdentity);
+  RUN_TEST(testDetectsGr3OnlyFromCompleteUuidEvidence);
+  RUN_TEST(testGr3EvidenceWinsOverGr4Advertisement);
+  RUN_TEST(testFallsBackToGr4ControlService);
+  RUN_TEST(testFallsBackToGr4ReadOnlyHandleProbe);
+  RUN_TEST(testValidatesGr3WifiCredentials);
+  RUN_TEST(testGr3WlanServiceVetoesGr4Fallback);
+  RUN_TEST(testParsesGr3WifiChannelEncodings);
   RUN_TEST(testSupervisorWaitsForIntervalAndIgnoresHealthyPreview);
   RUN_TEST(testSupervisorReportsPreviewClosed);
   RUN_TEST(testSupervisorIgnoresCameraSleepGuard);

@@ -392,6 +392,48 @@ void DisplayUi::showStatus(const String& line1, const String& line2, const Strin
     showStatus(line1.c_str(), line2.c_str(), line3.c_str(), line4.c_str());
 }
 
+void DisplayUi::showPasskeyEntry(const uint8_t digits[6], uint8_t currentIndex) {
+    if (digits == nullptr || currentIndex >= 6 ||
+        !setOrientation(rvf::UiOrientation::Portrait) || !_canvasReady) {
+        return;
+    }
+
+    _sceneDrawn = false;
+    clear(rvf::UiTheme::kBlack);
+    drawCenteredText("PAIRING CODE", 34, rvf::UiTheme::kGray);
+
+    constexpr int16_t digitWidth = 12;
+    constexpr int16_t digitGap = 6;
+    constexpr int16_t totalWidth = 6 * digitWidth + 5 * digitGap;
+    const int16_t startX = (_width - totalWidth) / 2;
+    constexpr int16_t digitY = 82;
+
+    _canvas.setTextSize(2);
+    for (uint8_t i = 0; i < 6; ++i) {
+        const int16_t x = startX + i * (digitWidth + digitGap);
+        if (i == currentIndex) {
+            _canvas.fillRoundRect(x - 3, digitY - 5, digitWidth + 6, 25, 3,
+                                  rvf::UiTheme::kGreen);
+            _canvas.setTextColor(rvf::UiTheme::kBlack, rvf::UiTheme::kGreen);
+            _canvas.setCursor(x, digitY);
+            _canvas.print(static_cast<char>('0' + digits[i]));
+        } else if (i < currentIndex) {
+            _canvas.setTextColor(rvf::UiTheme::kWhite, rvf::UiTheme::kBlack);
+            _canvas.setCursor(x, digitY);
+            _canvas.print(static_cast<char>('0' + digits[i]));
+        } else {
+            _canvas.setTextColor(rvf::UiTheme::kDarkGray, rvf::UiTheme::kBlack);
+            _canvas.setCursor(x, digitY);
+            _canvas.print('-');
+        }
+    }
+
+    drawCenteredText("A changes digit", 132, rvf::UiTheme::kWhite);
+    drawCenteredText("B accepts digit", 149, rvf::UiTheme::kWhite);
+    drawCenteredText("Match the camera screen", 184, rvf::UiTheme::kGray);
+    pushCanvas();
+}
+
 void DisplayUi::showError(const char* message, const char* detail) {
     rvf::UiViewModel view;
     view.scene = rvf::UiScene::Error;
