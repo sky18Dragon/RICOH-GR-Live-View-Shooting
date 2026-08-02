@@ -33,6 +33,7 @@ struct RicohBleConnectOptions {
   uint32_t timeoutMs = 0;
   uint32_t securityWaitMs = 0;
   uint32_t preConnectDelayMs = 0;
+  int8_t connectRetries = -1;
   bool exchangeMtu = true;
 };
 

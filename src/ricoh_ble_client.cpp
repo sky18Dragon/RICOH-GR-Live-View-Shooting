@@ -1182,7 +1182,9 @@ bool RicohBleClient::connect(const RicohBleDeviceInfo& info, const RicohBleConne
   _client = client;
   client->setClientCallbacks(&g_callbacks, false);
   client->setConnectTimeout(options.timeoutMs);
-  client->setConnectRetries(1);
+  client->setConnectRetries(options.connectRetries >= 0
+                                ? static_cast<uint8_t>(options.connectRetries)
+                                : 1);
   client->setConnectionParams(RICOH_BLE_SHUTTER_CONN_INTERVAL_MIN,
                               RICOH_BLE_SHUTTER_CONN_INTERVAL_MAX,
                               RICOH_BLE_SHUTTER_CONN_LATENCY,

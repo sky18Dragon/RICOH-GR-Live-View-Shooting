@@ -39,7 +39,10 @@ public:
     size_t processFrameData(const uint8_t* data, size_t len);
 
     void resetStats(uint32_t nowMs = 0);
-    void recordRenderedFrame(uint32_t decodeMs, uint32_t renderMs);
+    void recordRenderedFrame(uint32_t decodeMs,
+                             uint32_t renderMs,
+                             int jpegWidth,
+                             int jpegHeight);
     void logStatsIfDue(uint32_t nowMs, uint32_t intervalMs = 5000);
 
     uint32_t lastReadMs() const { return _lastReadMs; }
@@ -65,6 +68,12 @@ private:
     uint32_t _lastRenderMs = 0;
     uint32_t _framesInWindow = 0;
     uint32_t _bytesInWindow = 0;
+    uint32_t _decodeMsTotal = 0;
+    uint32_t _renderMsTotal = 0;
+    uint32_t _maxDecodeMs = 0;
+    uint32_t _maxRenderMs = 0;
+    int _jpegWidth = 0;
+    int _jpegHeight = 0;
 };
 
 }  // namespace rvf

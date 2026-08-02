@@ -2,6 +2,20 @@
 
 本文件记录会影响后续开发的项目级事实。具体代码变更仍以 Git 提交记录为准。
 
+## 2026-08-01：合入 PR #14 的预览改进
+
+感谢 Willy Hardy 在 PR #14 中完成 GR IIIx HDF 的预览性能测试和实现。当前分支保留自己的 GR III 协议代码，因为它直接基于当前 `main`，并已在 GR III HDF 上完成配对、Wi-Fi 和 LiveView 验证。
+
+本次移植了以下部分：
+
+- Espressif `esp_new_jpeg` 解码器和 216 x 144 RGB565 输出。
+- 8 KiB 读流、内部 RAM 横屏 Canvas 和更完整的预览统计。
+- Button B 短按切换镜像，设置保存到 NVS。
+- 已绑定相机启动时先尝试 BLE 地址直连，失败后回退扫描。
+- LiveView 首帧优先，相机属性请求延后执行。
+
+代码已通过 51 项 native 测试和 StickS3 production build。优化后的 GR III HDF FPS 和长时间稳定性仍需实机复测。
+
 ## 2026-07-03：整理项目参考资料
 
 新增/完善：

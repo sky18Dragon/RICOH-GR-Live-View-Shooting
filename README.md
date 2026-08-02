@@ -30,17 +30,17 @@
 
 ## 核心能力
 
-- **姿态门控的连接生命周期**：竖握只完成 BLE 连接、相机 Wi-Fi 开启和参数缓存，不建立 Wi-Fi STA 连接；横握才继续 HTTP Probe 与 LiveView。
+- **姿态门控的连接生命周期**：竖握只完成 BLE 连接、相机 Wi-Fi 开启和参数缓存，不建立 Wi-Fi STA 连接；横握先启动 LiveView，首帧显示后再读取相机属性。
 - **横竖屏专属界面**：竖握显示 135×240 遥控光圈，横握使用 240×135 预览画布；姿态切换采用低通滤波、滞回、稳定时间和最短保持时间抑制抖动。
-- **不裁切的 LiveView 渲染**：MJPEG 流解析后由 JPEGDEC（含 ESP32-S3 优化）解码到 LovyanGFX / M5Canvas；画面按原始宽高比完整缩放并居中显示，比例不匹配时留黑边，不再放大裁切。
-- **PSRAM 安全画布与帧缓冲**：16 位 Canvas 优先显式分配到 PSRAM；分配失败时保留原画布并每 2 秒重试。MJPEG 使用独立的 256 KB 帧缓冲降低内存碎片风险。
+- **更快的 LiveView 渲染**：Espressif SIMD JPEG 解码器把 GR III 系列画面直接缩放为 216 x 144 RGB565，再居中显示 216 x 135 区域，不做第二次缩放。
+- **分层内存策略**：横屏 Canvas 优先使用内部 RAM，JPEG 输出和 256 KB MJPEG 帧缓冲使用 PSRAM；分配失败时均有安全回退。
 - **更快的首次 BLE 配对**：识别到有效 RICOH 广播后提前结束扫描，扫描到连接的等待缩短为 50 ms；若首次 SMP 未启动，会在短探测窗口后快速重试，同时为后续相机确认保留完整时间。
 - **真实连接驱动的扫描动画**：扫描与连接期间两个亮绿色圆点循环靠近、分开；只有 BLE 链路真正建立后才合并为一个圆。
 - **相机待机保护与自动关机**：相机主动关机、发送关机通知或 BLE 断链后进入 `CAMERA_SLEEP_GUARD`，停止自动扫描和重连；30 秒无操作后 StickS3 自动关机。
 - **WLAN 参数缓存**：将 SSID、BSSID、信道、密码和加密信息持久化到 NVS，用于后续横握连接的缓存快速路径；BLE 仍是连接与相机 Wi-Fi 激活的控制锚点。
 - **低延迟 BLE AF 快门**：Button A 按下沿立即发送一次 AF+拍摄命令；连接建立时预热 Shooting Service/Characteristic，缓存 GATT 对象并请求低延迟连接参数，后续拍摄复用已准备好的链路。
 - **可恢复的运行监控**：周期性检查 Wi-Fi、HTTP 流和有效 JPEG 帧健康度，LiveView 卡死时触发连接恢复。
-- **Host Native 测试**：50 项本地测试覆盖姿态门控状态机、CameraSleep、MJPEG 解析、Supervisor、按键输入、图像适配、姿态判断、UI 动画和相机协议识别。
+- **Host Native 测试**：51 项本地测试覆盖姿态门控状态机、CameraSleep、MJPEG 解析、Supervisor、按键输入、图像适配、姿态判断、UI 动画和相机协议识别。
 
 ---
 
@@ -89,7 +89,7 @@ pio device monitor -b 115200
 
 1. BLE 建立后，固件读取相机电源与运行模式；允许连接时，通过 BLE 请求开启相机 Wi-Fi 并读取最新参数。
 2. **竖握启动**：参数写入缓存后停在 `WIFI_CREDENTIALS_READY`，不加入相机 AP。
-3. **横握启动**：读取并缓存参数后继续连接相机 AP，完成 HTTP Probe，进入 `PREVIEW_RUNNING`。
+3. **横握启动**：读取并缓存参数后继续连接相机 AP，先启动 LiveView，首帧显示后再读取相机属性。
 4. **竖握转横握**：从已缓存参数继续后续流程，无需重新扫描 BLE。
 5. **横握转竖握**：关闭 LiveView、断开相机 Wi-Fi，回到 `WIFI_CREDENTIALS_READY`；BLE 与参数缓存继续保留。
 
@@ -101,7 +101,7 @@ pio device monitor -b 115200
 # 编译 Host Native 目标
 platformio run -e native
 
-# 运行 50 项 Native 测试
+# 运行 51 项 Native 测试
 platformio test -e native
 
 # 编译 StickS3 固件
@@ -118,6 +118,7 @@ platformio run -e m5stack-sticks3
 | :--- | :--- | :--- |
 | **Button A** | GR III 配对码输入 | 修改当前高亮数字 |
 | **Button B** | GR III 配对码输入，短按 | 确认当前数字并移到下一位 |
+| **Button B** | 非配对码输入界面，短按 | 切换 LiveView 镜像显示并保存设置 |
 | **Button A** | 相机可拍摄状态 | 按下时立即发送一次 AF+拍摄命令；持续按住只显示光圈收缩、亮绿色和提示音，不会重复发送或连拍 |
 | **Button A** | `CAMERA_SLEEP_GUARD` | 退出保护态、重建 BLE 栈并进入扫描场景，不触发拍摄 |
 | **Button B** | 任意状态，长按 3 秒 | 显示连续进度；达到阈值后只触发一次 BLE 配对与缓存重置，中途松开则取消 |
@@ -143,7 +144,7 @@ platformio run -e m5stack-sticks3
 - **[AppController](src/app/AppController.h)**：核心业务状态机，统一处理连接生命周期、姿态门控、保护态和恢复事件。
 - **[SystemSupervisor](src/supervisor/SystemSupervisor.h)**：由主循环周期调用的健康监视器，检测预览关闭、流停滞和有效帧超时。
 - **[BleCameraService](src/services/BleCameraService.h)**：负责 BLE 扫描、绑定、重连、相机状态与 Wi-Fi 参数读取，以及快门控制。
-- **[WifiPreviewService](src/services/WifiPreviewService.h)**：负责 Wi-Fi STA、HTTP Probe、MJPEG 流和 LiveView 生命周期。
+- **[WifiPreviewService](src/services/WifiPreviewService.h)**：负责 Wi-Fi STA、相机属性、MJPEG 流和 LiveView 生命周期。
 - **[UiCoordinator](src/ui/UiCoordinator.h)**：将应用状态、姿态和用户输入映射为 UI 场景与命令。
 - **[OrientationTracker](src/ui/OrientationTracker.h)**：根据 StickS3 实机坐标轴完成低通、滞回和稳定时间判断。
 
@@ -170,9 +171,9 @@ flowchart TD
     N -->|稳定转为横握| O
     O --> P{连接成功且仍为横握?}
     P -->|否| N
-    P -->|是| Q[HTTP_PROBING]
-    Q --> R[PREVIEW_STARTING]
+    P -->|是| R[PREVIEW_STARTING]
     R --> S[PREVIEW_RUNNING]
+    S --> Q[首帧后读取相机属性]
     S -->|稳定转为竖握| T[关闭预览并断开 Wi-Fi]
     T --> N
     J -->|按 Button A| U[退出保护态并重建 BLE]
@@ -243,7 +244,7 @@ StickS3 实机轴映射为：`abs(X)` 主导时判定竖握，`abs(Y)` 主导时
 - [src/services/PreviewFrameBuffer.cpp](src/services/PreviewFrameBuffer.cpp) — 256 KB 预览帧缓冲与统计
 - [src/image_fit.h](src/image_fit.h) — LiveView 等比例完整显示（contain）矩形计算
 - [src/camera_sleep_policy.h](src/camera_sleep_policy.h) — CameraSleep 30 秒自动关机判定
-- [test/test_native/](test/test_native/) — 50 项 Host Native 单元测试
+- [test/test_native/](test/test_native/) — 51 项 Host Native 单元测试
 
 ---
 
@@ -263,10 +264,10 @@ Flow: ACTIVATING_WIFI -> WIFI_CREDENTIALS_READY (portrait cached WiFi params; co
 
 ```text
 Flow: WIFI_CREDENTIALS_READY -> CONNECTING_WIFI (landscape resumes cached WiFi params)
-Flow: CONNECTING_WIFI -> HTTP_PROBING
-Flow: HTTP_PROBING -> PREVIEW_STARTING
+Flow: CONNECTING_WIFI -> PREVIEW_STARTING
 JPEG: viewport synced 240x135
 Flow: PREVIEW_STARTING -> PREVIEW_RUNNING
+LiveView: connected; props deferred until first frame + 1500ms
 ```
 
 ### 横握转竖握：关闭预览并断开 Wi-Fi

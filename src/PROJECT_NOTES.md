@@ -14,7 +14,7 @@
 | `gr_api.{cpp,h}` | 342 / 35 | HTTP | `/v1/props` + `/v1/liveview` MJPEG |
 | `camera_identity.{cpp,h}` | 49 / 5 | 相机身份 | 从 Wi-Fi SSID 推导候选 BLE 名称 |
 | `display.{cpp,h}` | 336 / 50 | 渲染 | 屏幕 UI：boot/status/error/overlay |
-| `jpeg_decoder.{cpp,h}` | 172 / 49 | 渲染 | JPEGDEC 解码到 RGB565 画布 |
+| `jpeg_decoder.{cpp,h}` | 250 / 56 | 渲染 | esp_new_jpeg 解码到 RGB565 画布 |
 | `mjpeg_stream.{cpp,h}` | 110 / 39 | 渲染 | MJPEG 字节流切分为单帧 |
 | `camera_profile_store.{cpp,h}` | 62 / 31 | 持久化 | NVS 相机身份存储 |
 | `buttons.{cpp,h}` | 16 / 15 | 输入 | 轮询 `M5.BtnA` |
@@ -145,11 +145,11 @@ BleScan → BleReady → WifiConnecting → HttpProbe → LiveViewRunning
 
 ### `jpeg_decoder.{cpp,h}` — `JpegDecoder`
 
-`JPEGDEC` 库解码单帧到 RGB565 画布。
+Espressif `esp_new_jpeg` 把单帧直接解码为 216 x 144 RGB565 输出。
 
-- `drawFrame(LovyanGFX* dst, data, length)`：`_jpeg.openRAM` → `setPixelType(RGB565_BIG_ENDIAN)` → 按 `JPEG_SCALE_POLICY`（config.h = `JPEG_SCALE_HALF`）选缩放 → 居中算 `_drawX/_drawY` → `decode()`。
-- `jpegDrawCallback`（静态）转发到实例 `drawBlock`，逐块写入目标画布。
-- 裁剪：`visibleX/Y/W/H` 处理解码图大于屏幕的可见区。
+- `drawFrame(LovyanGFX* dst, data, length, mirrorHorizontal)`：解析 JPEG header，解码到持久 RGB565 buffer，再居中显示 216 x 135 区域。
+- JPEG output buffer 优先放在 PSRAM；横屏 Canvas 优先放在内部 RAM。
+- 镜像只反转显示行，不改变原始 JPEG 数据。
 - `lastDecodeMs`/`lastWidth`/`lastHeight`/`lastError` 状态查询。
 
 ### `display.{cpp,h}` — `DisplayUi`
@@ -206,7 +206,7 @@ gr_wifi → WiFi.h (ESP32 Arduino)
 gr_api → WiFiClient, ArduinoJson, config.h
 camera_identity → 标准 C++ 头文件（纯逻辑，无硬件依赖）
 mjpeg_stream → 标准 C++ 头文件（纯逻辑，无硬件依赖）
-jpeg_decoder → JPEGDEC, M5Unified(LovyanGFX), config.h
+jpeg_decoder → esp_new_jpeg, M5Unified(LovyanGFX), config.h
 display → M5Unified, config.h
 camera_profile_store → Preferences
 buttons → M5Unified

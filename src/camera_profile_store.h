@@ -3,6 +3,8 @@
 #include <Arduino.h>
 #include <Preferences.h>
 
+#include "camera_protocol_profile.h"
+
 struct WifiCredential {
   String ssid;
   String passphrase;
@@ -19,8 +21,10 @@ struct CameraProfile {
   uint8_t bleAddressType = 0;
   bool bleAddressTypeKnown = false;
   bool bleBonded = false;
+  RicohProtocolGeneration protocolGeneration = RicohProtocolGeneration::Unknown;
+  bool protocolGenerationKnown = false;
   WifiCredential wifi;
-  uint32_t profileVersion = 3;
+  uint32_t profileVersion = 4;
 };
 
 class CameraProfileStore {
@@ -33,6 +37,8 @@ public:
   bool clearBlePairing();
   bool saveBleIdentity(const String& cameraName, const String& bleAddress);
   bool saveBleIdentity(const String& cameraName, const String& bleAddress, uint8_t bleAddressType, bool bleBonded);
+  bool loadDisplayMirror(bool& mirrored);
+  bool saveDisplayMirror(bool mirrored);
   bool clear();
 
 private:

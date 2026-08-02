@@ -10,12 +10,12 @@
 - Platform：`espressif32@6.12.0`。
 - Board：`esp32-s3-devkitc-1`。
 - Framework：Arduino。
-- 依赖：M5Unified、M5PM1、JPEGDEC、ArduinoJson、NimBLE-Arduino 2.5.0、WiFi、Preferences、Wire。
+- 依赖：M5Unified、M5PM1、Espressif esp_new_jpeg 1.0.2、ArduinoJson、NimBLE-Arduino 2.5.0、WiFi、Preferences、Wire。
 - 显示默认尺寸：`DISPLAY_WIDTH=240`、`DISPLAY_HEIGHT=135`。
 - LiveView frame buffer：`FRAME_BUFFER_SIZE=256 * 1024`。
 - Stream read buffer：`STREAM_READ_BUFFER_SIZE=8192`。
 - Camera HTTP 默认地址：`GR_HOST=192.168.0.1`，`GR_PORT=80`。
-- 主状态机枚举：`BleScan`、`CameraSleepGuard`、`BleReady`、`WifiConnecting`、`HttpProbe`、`LiveViewRunning`。
+- 主状态机主路径：`BleScan`、`CameraSleepGuard`、`BleReady`、`WifiConnecting`、`PreviewStarting`、`PreviewRunning`。
 - 主循环顺序：`handleButtons()`、`serviceCameraFlowIfNeeded()`、`ensureWiFi()`、`refreshPropsIfDue()`、`ensureLiveView()`、`refreshWifiCacheIfDue()`、`updateStatusUiIfDue()`、`delay(1)`。
 - 当前没有 `include/` 和 `lib/` 目录。
 - `docs/` 原有内容仅发现 `docs/images/hardware_setup.jpg` 和 `docs/images/liveview_action.jpg`。

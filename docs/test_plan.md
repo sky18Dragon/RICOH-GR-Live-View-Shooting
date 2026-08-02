@@ -80,20 +80,23 @@ COM 端口按实际设备替换。
 9. **Button B 重置进度**
    - 先在 3 秒前释放，再完整按满 3 秒。
    - 期望：第一次不重置，第二次只重置一次，横竖屏均显示进度。
-10. **休眠与反馈降级**
+10. **LiveView 镜像**
+    - LiveView 运行时短按 Button B，再重启 StickS3。
+    - 期望：画面水平翻转；重启后仍保持同一镜像设置。长按 Button B 的配对重置行为不变。
+11. **休眠与反馈降级**
     - 验证低亮过渡、A 唤醒提亮、声音；再模拟 IMU/扬声器不可用。
     - 期望：失败时静默降级，不影响连接、预览和拍摄。
 
-11. **竖屏启动的 Wi-Fi 门控**
+12. **竖屏启动的 Wi-Fi 门控**
     - 保持 StickS3 竖屏启动，等待 BLE 和相机 Wi-Fi 参数准备完成。
     - 期望：状态停在 `WIFI_CREDENTIALS_READY`，日志有 `WiFi cache: saved`，StickS3 不连接相机 AP，也不发起 HTTP/LiveView。
-12. **竖转横恢复流程**
+13. **竖转横恢复流程**
     - 从 `WIFI_CREDENTIALS_READY` 转为横屏。
-    - 期望：不重新 BLE 扫描，直接进入 `CONNECTING_WIFI -> HTTP_PROBING -> PREVIEW_RUNNING`。
-13. **横转竖断开流程**
+    - 期望：不重新 BLE 扫描，直接进入 `CONNECTING_WIFI -> PREVIEW_STARTING -> PREVIEW_RUNNING`，首帧后再读取相机属性。
+14. **横转竖断开流程**
     - LiveView 运行时转为竖屏。
     - 期望：关闭 LiveView、断开相机 Wi-Fi、回到 `WIFI_CREDENTIALS_READY`，BLE 保持连接；重新横屏可再次恢复。
-14. **GR III 协议回归**
+15. **GR III 协议回归**
     - 在 GR III HDF、标准 GR III 和 GR IIIx 上分别执行首次配对、重启重连、Wi-Fi 激活、`/v1/props`、LiveView 和 Button A 快门。
     - 期望：只使用 UUID WLAN 路径，不触发 GR IV 固定 handle 写入。记录机型、相机固件版本和每一步结果，不记录 SSID 或 passphrase。
 

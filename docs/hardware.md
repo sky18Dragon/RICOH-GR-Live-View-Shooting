@@ -19,7 +19,7 @@
 - BLE：NimBLE-Arduino 2.5.0。
 - Wi-Fi：ESP32 Arduino `WiFi.h`。
 - HTTP：裸 `WiFiClient`。
-- JPEG：`bitbank2/JPEGDEC`。
+- JPEG：Espressif `esp_new_jpeg` 1.0.2，使用 ESP32-S3 SIMD software decoder。
 - JSON：ArduinoJson 7.x 依赖已配置，但 `gr_api.cpp` 当前以手写解析提取 props 字段。
 - NVS：`Preferences`。
 

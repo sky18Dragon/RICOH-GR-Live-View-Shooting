@@ -1,27 +1,33 @@
 #include "jpeg_decoder.h"
 
+#include <algorithm>
+#include <climits>
+
+#include <esp_heap_caps.h>
+
 namespace {
 constexpr uint16_t COLOR_BLACK = 0x0000;
+constexpr size_t RGB565_BYTES_PER_PIXEL = 2;
 
-JpegDecoder* activeDecoder = nullptr;
-
-int scaleDivisorFromOption(int option) {
-#ifdef JPEG_SCALE_EIGHTH
-    if (option == JPEG_SCALE_EIGHTH) {
-        return 8;
+bool isSofMarker(uint8_t marker) {
+    switch (marker) {
+        case 0xC0:
+        case 0xC1:
+        case 0xC2:
+        case 0xC3:
+        case 0xC5:
+        case 0xC6:
+        case 0xC7:
+        case 0xC9:
+        case 0xCA:
+        case 0xCB:
+        case 0xCD:
+        case 0xCE:
+        case 0xCF:
+            return true;
+        default:
+            return false;
     }
-#endif
-#ifdef JPEG_SCALE_QUARTER
-    if (option == JPEG_SCALE_QUARTER) {
-        return 4;
-    }
-#endif
-#ifdef JPEG_SCALE_HALF
-    if (option == JPEG_SCALE_HALF) {
-        return 2;
-    }
-#endif
-    return 1;
 }
 }  // namespace
 
@@ -31,67 +37,193 @@ bool JpegDecoder::begin() {
     _lastDecodeMs = 0;
     _lastWidth = 0;
     _lastHeight = 0;
+    return ensureDecoder();
+}
+
+bool JpegDecoder::ensureDecoder() {
+    if (_jpeg == nullptr) {
+        jpeg_dec_config_t config = DEFAULT_JPEG_DEC_CONFIG();
+        config.output_type = JPEG_PIXEL_FORMAT_RGB565_BE;
+        config.scale.width = JPEG_DECODE_WIDTH;
+        config.scale.height = JPEG_DECODE_HEIGHT;
+
+        const jpeg_error_t rc = jpeg_dec_open(&config, &_jpeg);
+        if (rc != JPEG_ERR_OK || _jpeg == nullptr) {
+            Serial.printf("JPEG: esp_new_jpeg open failed rc=%d\n", static_cast<int>(rc));
+            _jpeg = nullptr;
+            return setError("JPEG decoder open failed");
+        }
+    }
+
+    if (_outputBuffer == nullptr) {
+        _outputCapacity = static_cast<size_t>(JPEG_DECODE_WIDTH) *
+                          static_cast<size_t>(JPEG_DECODE_HEIGHT) *
+                          RGB565_BYTES_PER_PIXEL;
+        const bool hasPsram = psramFound();
+        const char* storage = hasPsram ? "psram" : "internal";
+        if (hasPsram) {
+            _outputBuffer = static_cast<uint8_t*>(heap_caps_aligned_calloc(
+                16, 1, _outputCapacity, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        }
+        if (_outputBuffer == nullptr) {
+            _outputBuffer = static_cast<uint8_t*>(heap_caps_aligned_calloc(
+                16, 1, _outputCapacity, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+            storage = "internal";
+        }
+        if (_outputBuffer == nullptr) {
+            return setError("JPEG output allocation failed");
+        }
+        Serial.printf("JPEG: esp_new_jpeg %ux%u buffer=%u storage=%s free_int=%lu free_psram=%lu\n",
+                      static_cast<unsigned>(JPEG_DECODE_WIDTH),
+                      static_cast<unsigned>(JPEG_DECODE_HEIGHT),
+                      static_cast<unsigned>(_outputCapacity),
+                      storage,
+                      static_cast<unsigned long>(
+                          heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)),
+                      static_cast<unsigned long>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)));
+    }
+
     _lastError = "ok";
     return true;
 }
 
-bool JpegDecoder::drawFrame(LovyanGFX* dst, const uint8_t* data, size_t length) {
+bool JpegDecoder::drawFrame(LovyanGFX* dst,
+                            const uint8_t* data,
+                            size_t length,
+                            bool mirrorHorizontal) {
+    const uint32_t started = millis();
+    _lastDecodeMs = 0;
     if (data == nullptr || length < 4) {
         return setError("empty jpeg frame");
     }
-    if (length > static_cast<size_t>(INT32_MAX)) {
+    if (length > static_cast<size_t>(INT_MAX)) {
         return setError("jpeg frame too large");
+    }
+    if (!ensureDecoder()) {
+        return false;
     }
 
     _dst = dst != nullptr ? dst : &M5.Display;
-    const uint32_t started = millis();
-    activeDecoder = this;
+    _mirrorHorizontal = mirrorHorizontal;
+    readJpegDimensions(data, length, _lastWidth, _lastHeight);
 
-    if (!_jpeg.openRAM(const_cast<uint8_t*>(data), static_cast<int>(length), JpegDecoder::jpegDrawCallback)) {
-        activeDecoder = nullptr;
-        return setError("JPEG openRAM failed");
-    }
-    // M5GFX pushImage() expects byte-swapped RGB565 when Display.getSwapBytes() is false.
-    // JPEGDEC defaults to little-endian RGB565, which produces psychedelic/garbled colors
-    // on the StickS3 LCD. Output big-endian pixels directly for the SPI LCD path.
-    _jpeg.setPixelType(RGB565_BIG_ENDIAN);
+    jpeg_dec_io_t io = {};
+    jpeg_dec_header_info_t outputInfo = {};
+    io.inbuf = const_cast<uint8_t*>(data);
+    io.inbuf_len = static_cast<int>(length);
 
-    _lastWidth = _jpeg.getWidth();
-    _lastHeight = _jpeg.getHeight();
-
-    const int scale = JPEG_SCALE_POLICY;
-    const int divisor = scaleDivisorFromOption(scale);
-    _sourceW = (_lastWidth + divisor - 1) / divisor;
-    _sourceH = (_lastHeight + divisor - 1) / divisor;
-    const ImageFitRect fit = calculateContainRect(_sourceW, _sourceH, _displayW, _displayH);
-    _drawX = fit.x;
-    _drawY = fit.y;
-    _targetW = fit.width;
-    _targetH = fit.height;
-    if (_targetW <= 0 || _targetH <= 0 ||
-        _targetW > static_cast<int>(sizeof(_fitRow) / sizeof(_fitRow[0]))) {
-        _jpeg.close();
-        activeDecoder = nullptr;
-        return setError("invalid fitted JPEG dimensions");
+    jpeg_error_t rc = jpeg_dec_parse_header(_jpeg, &io, &outputInfo);
+    if (rc != JPEG_ERR_OK) {
+        _lastDecodeMs = millis() - started;
+        Serial.printf("JPEG: header parse failed rc=%d len=%u\n",
+                      static_cast<int>(rc),
+                      static_cast<unsigned>(length));
+        return setError("JPEG header parse failed");
     }
 
-    // The frame is rendered with contain semantics: preserve its aspect ratio,
-    // show the whole image, and leave black letterbox/pillarbox bars as needed.
-    _dst->fillRect(0, 0, _displayW, _displayH, COLOR_BLACK);
+    int outputLength = 0;
+    rc = jpeg_dec_get_outbuf_len(_jpeg, &outputLength);
+    if (rc != JPEG_ERR_OK || outputLength <= 0 ||
+        static_cast<size_t>(outputLength) > _outputCapacity) {
+        _lastDecodeMs = millis() - started;
+        Serial.printf("JPEG: invalid output rc=%d size=%d capacity=%u dimensions=%ux%u\n",
+                      static_cast<int>(rc),
+                      outputLength,
+                      static_cast<unsigned>(_outputCapacity),
+                      static_cast<unsigned>(outputInfo.width),
+                      static_cast<unsigned>(outputInfo.height));
+        return setError("JPEG output dimensions invalid");
+    }
 
-    _dst->startWrite();
-    const int rc = _jpeg.decode(0, 0, scale);
-    _dst->endWrite();
-    _jpeg.close();
-    activeDecoder = nullptr;
-
-    _lastDecodeMs = millis() - started;
-    if (rc == 0) {
+    io.outbuf = _outputBuffer;
+    rc = jpeg_dec_process(_jpeg, &io);
+    if (rc != JPEG_ERR_OK) {
+        _lastDecodeMs = millis() - started;
+        Serial.printf("JPEG: decode failed rc=%d\n", static_cast<int>(rc));
         return setError("JPEG decode failed");
+    }
+
+    const bool rendered = renderCenterCrop(outputInfo.width, outputInfo.height);
+    _lastDecodeMs = millis() - started;
+    if (!rendered) {
+        return false;
     }
 
     _lastError = "ok";
     return true;
+}
+
+bool JpegDecoder::renderCenterCrop(int decodedWidth, int decodedHeight) {
+    if (_dst == nullptr || decodedWidth <= 0 || decodedHeight <= 0 ||
+        decodedWidth > JPEG_DECODE_WIDTH || decodedHeight > JPEG_DECODE_HEIGHT) {
+        return setError("JPEG crop dimensions invalid");
+    }
+
+    const int visibleWidth = std::min(decodedWidth, _displayW);
+    const int visibleHeight = std::min(decodedHeight, _displayH);
+    const int cropX = (decodedWidth - visibleWidth) / 2;
+    const int cropY = (decodedHeight - visibleHeight) / 2;
+    const int drawX = (_displayW - visibleWidth) / 2;
+    const int drawY = (_displayH - visibleHeight) / 2;
+    const uint16_t* pixels = reinterpret_cast<const uint16_t*>(_outputBuffer);
+
+    _dst->startWrite();
+    _dst->fillRect(0, 0, _displayW, _displayH, COLOR_BLACK);
+
+    if (!_mirrorHorizontal && cropX == 0 && visibleWidth == decodedWidth) {
+        const uint16_t* firstVisibleRow = pixels + cropY * decodedWidth;
+        _dst->pushImage(drawX, drawY, visibleWidth, visibleHeight, firstVisibleRow);
+    } else {
+        for (int row = 0; row < visibleHeight; ++row) {
+            const uint16_t* source = pixels + (cropY + row) * decodedWidth + cropX;
+            if (_mirrorHorizontal) {
+                for (int column = 0; column < visibleWidth; ++column) {
+                    _mirrorRow[column] = source[visibleWidth - 1 - column];
+                }
+                _dst->pushImage(drawX, drawY + row, visibleWidth, 1, _mirrorRow);
+            } else {
+                _dst->pushImage(drawX, drawY + row, visibleWidth, 1, source);
+            }
+        }
+    }
+
+    _dst->endWrite();
+    return true;
+}
+
+bool JpegDecoder::readJpegDimensions(const uint8_t* data,
+                                     size_t length,
+                                     int& width,
+                                     int& height) {
+    width = 0;
+    height = 0;
+    if (data == nullptr || length < 4 || data[0] != 0xFF || data[1] != 0xD8) {
+        return false;
+    }
+
+    size_t cursor = 2;
+    while (cursor + 3 < length) {
+        while (cursor < length && data[cursor] != 0xFF) ++cursor;
+        while (cursor < length && data[cursor] == 0xFF) ++cursor;
+        if (cursor >= length) break;
+
+        const uint8_t marker = data[cursor++];
+        if (marker == 0xD8 || marker == 0xD9 || (marker >= 0xD0 && marker <= 0xD7)) {
+            continue;
+        }
+        if (cursor + 1 >= length) break;
+
+        const size_t segmentLength =
+            (static_cast<size_t>(data[cursor]) << 8) | data[cursor + 1];
+        if (segmentLength < 2 || segmentLength > length - cursor) break;
+        if (isSofMarker(marker) && segmentLength >= 7) {
+            height = (static_cast<int>(data[cursor + 3]) << 8) | data[cursor + 4];
+            width = (static_cast<int>(data[cursor + 5]) << 8) | data[cursor + 6];
+            return width > 0 && height > 0;
+        }
+        cursor += segmentLength;
+    }
+    return false;
 }
 
 uint32_t JpegDecoder::lastDecodeMs() const {
@@ -115,53 +247,4 @@ bool JpegDecoder::setError(const char* error) {
     Serial.print(F("JPEG decoder error: "));
     Serial.println(_lastError);
     return false;
-}
-
-int JpegDecoder::jpegDrawCallback(JPEGDRAW* draw) {
-    if (activeDecoder == nullptr || draw == nullptr) {
-        return 0;
-    }
-    return activeDecoder->drawBlock(draw);
-}
-
-int JpegDecoder::drawBlock(JPEGDRAW* draw) {
-    if (_sourceW <= 0 || _sourceH <= 0 || _targetW <= 0 || _targetH <= 0) {
-        return 0;
-    }
-
-    const int sourceX0 = draw->x;
-    const int sourceY0 = draw->y;
-    const int sourceX1 = min(_sourceW, sourceX0 + draw->iWidth);
-    const int sourceY1 = min(_sourceH, sourceY0 + draw->iHeight);
-    if (sourceX0 >= sourceX1 || sourceY0 >= sourceY1) {
-        return 1;
-    }
-
-    uint16_t* pixels = static_cast<uint16_t*>(draw->pPixels);
-    const int stride = draw->iWidth;
-
-    const int targetX0 = (sourceX0 * _targetW + _sourceW - 1) / _sourceW;
-    const int targetX1 = (sourceX1 * _targetW + _sourceW - 1) / _sourceW;
-    const int targetY0 = (sourceY0 * _targetH + _sourceH - 1) / _sourceH;
-    const int targetY1 = (sourceY1 * _targetH + _sourceH - 1) / _sourceH;
-    const int drawWidth = targetX1 - targetX0;
-    if (drawWidth <= 0) {
-        return 1;
-    }
-
-    for (int targetY = targetY0; targetY < targetY1; ++targetY) {
-        const int sourceY = (targetY * _sourceH) / _targetH;
-        const int localY = sourceY - sourceY0;
-        for (int targetX = targetX0; targetX < targetX1; ++targetX) {
-            const int sourceX = (targetX * _sourceW) / _targetW;
-            const int localX = sourceX - sourceX0;
-            _fitRow[targetX - targetX0] = pixels[localY * stride + localX];
-        }
-        _dst->pushImage(_drawX + targetX0,
-                        _drawY + targetY,
-                        drawWidth,
-                        1,
-                        _fitRow);
-    }
-    return 1;
 }

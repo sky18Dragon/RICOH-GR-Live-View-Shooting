@@ -71,7 +71,18 @@ bool DisplayUi::createCanvasFor(rvf::UiOrientation orientation) {
 
     const int16_t width = M5.Display.width();
     const int16_t height = M5.Display.height();
+    // Keep the always-on portrait UI in PSRAM, but use DMA-capable internal RAM
+    // for the short-lived landscape preview canvas. A full 240x135 RGB565 frame
+    // is 64.8 KiB and fits after Wi-Fi/BLE bring-up on StickS3.
+    _canvasUsePsram = orientation != rvf::UiOrientation::Landscape && psramFound();
+    _canvas.setPsram(_canvasUsePsram);
     void* sprite = _canvas.createSprite(width, height);
+    if (sprite == nullptr && !_canvasUsePsram && psramFound()) {
+        Serial.println("UI Canvas: internal allocation failed; retrying in PSRAM");
+        _canvasUsePsram = true;
+        _canvas.setPsram(true);
+        sprite = _canvas.createSprite(width, height);
+    }
     if (sprite == nullptr) return false;
 
     _width = width;
@@ -127,9 +138,10 @@ bool DisplayUi::setOrientation(rvf::UiOrientation orientation) {
     _orientationFailurePending = false;
     clear(rvf::UiTheme::kBlack);
     pushCanvas();
-    Serial.printf("UI Canvas: ready %dx%d heap=%lu psram=%lu\n",
+    Serial.printf("UI Canvas: ready %dx%d storage=%s heap=%lu psram=%lu\n",
                   _width,
                   _height,
+                  _canvasUsePsram ? "psram" : "internal",
                   static_cast<unsigned long>(ESP.getFreeHeap()),
                   static_cast<unsigned long>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)));
     return true;
@@ -137,6 +149,15 @@ bool DisplayUi::setOrientation(rvf::UiOrientation orientation) {
 
 void DisplayUi::pushCanvas() {
     if (_canvasReady) _canvas.pushSprite(&M5.Display, 0, 0);
+}
+
+void DisplayUi::setMirrored(bool mirrored) {
+    _mirrored = mirrored;
+}
+
+bool DisplayUi::toggleMirror() {
+    _mirrored = !_mirrored;
+    return _mirrored;
 }
 
 void DisplayUi::clear(uint16_t color) {

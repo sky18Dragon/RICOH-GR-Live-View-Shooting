@@ -18,7 +18,7 @@
 | `src/gr_wifi.*` | ESP32 Wi-Fi STA 连接、BSSID/channel 优化、状态文本 | 已确认 |
 | `src/gr_api.*` | HTTP `/v1/props`、`/v1/liveview`、LiveView socket 读取 | 已确认 |
 | `src/mjpeg_stream.*` | MJPEG 边界解析、帧回调、丢帧统计 | 已确认 |
-| `src/jpeg_decoder.*` | JPEGDEC 解码并绘制到 LovyanGFX/M5Canvas | 已确认 |
+| `src/jpeg_decoder.*` | esp_new_jpeg 解码并绘制到 LovyanGFX/M5Canvas | 已确认 |
 | `src/display.*` | 启动画面、状态画面、LiveView overlay、UI 绘制 | 已确认 |
 | `src/buttons.*` | M5Unified 按钮事件包装 | 已确认 |
 | `src/camera_profile_store.*` | Preferences 持久化 BLE identity 与 Wi-Fi 缓存 | 已确认 |

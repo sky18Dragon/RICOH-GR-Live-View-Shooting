@@ -98,7 +98,6 @@ struct FlowHarness {
   static uint32_t applyCredentialsCalls;
   static uint32_t connectCalls;
   static uint32_t disconnectCalls;
-  static uint32_t fetchPropsCalls;
   static uint32_t openPreviewCalls;
 
   static void reset() {
@@ -113,7 +112,6 @@ struct FlowHarness {
     applyCredentialsCalls = 0;
     connectCalls = 0;
     disconnectCalls = 0;
-    fetchPropsCalls = 0;
     openPreviewCalls = 0;
   }
 
@@ -145,10 +143,6 @@ struct FlowHarness {
     wifiConnected = false;
     previewRunning = false;
   }
-  static bool fetchProps() {
-    ++fetchPropsCalls;
-    return wifiConnected;
-  }
   static bool openPreview() {
     ++openPreviewCalls;
     previewRunning = wifiConnected;
@@ -173,7 +167,6 @@ struct FlowHarness {
     result.readFreshWifiCredentials = readCredentials;
     result.applyFreshWifiCredentials = applyCredentials;
     result.connectFreshWifiFromProfile = connectWifi;
-    result.fetchCameraProps = fetchProps;
     result.openLiveView = openPreview;
     result.previewStreamRunning = isPreviewRunning;
     result.cameraRecoveryInProgress = recoveryInactive;
@@ -198,7 +191,6 @@ uint32_t FlowHarness::readCredentialsCalls = 0;
 uint32_t FlowHarness::applyCredentialsCalls = 0;
 uint32_t FlowHarness::connectCalls = 0;
 uint32_t FlowHarness::disconnectCalls = 0;
-uint32_t FlowHarness::fetchPropsCalls = 0;
 uint32_t FlowHarness::openPreviewCalls = 0;
 
 void testPortraitStartupCachesWifiWithoutConnecting() {
@@ -215,11 +207,10 @@ void testPortraitStartupCachesWifiWithoutConnecting() {
   TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::applyCredentialsCalls);
   TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::connectCalls);
   TEST_ASSERT_FALSE(FlowHarness::wifiConnected);
-  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::fetchPropsCalls);
   TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::openPreviewCalls);
 }
 
-void testLandscapeStartupRunsOriginalFullFlow() {
+void testLandscapeStartupOpensLiveViewWithoutPropsProbe() {
   FlowHarness::reset();
   rvf::AppController controller(rvf::AppState::BleScan);
   controller.begin(rvf::AppState::BleScan);
@@ -233,6 +224,7 @@ void testLandscapeStartupRunsOriginalFullFlow() {
   TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::connectCalls);
   TEST_ASSERT_TRUE(FlowHarness::wifiConnected);
   TEST_ASSERT_TRUE(FlowHarness::previewRunning);
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::openPreviewCalls);
 }
 
 void testPortraitToLandscapeResumesAfterCredentialCache() {
@@ -248,7 +240,6 @@ void testPortraitToLandscapeResumesAfterCredentialCache() {
   TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::AppState::PreviewRunning),
                         static_cast<int>(controller.state()));
   TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::connectCalls);
-  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::fetchPropsCalls);
   TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::openPreviewCalls);
 }
 
@@ -404,6 +395,15 @@ void testRequiresBleAddressAndAddressTypeForDirectReconnect() {
   TEST_ASSERT_FALSE(hasDirectBleReconnectIdentity("aa:bb:cc:dd:ee:ff", false));
   TEST_ASSERT_FALSE(hasDirectBleReconnectIdentity("", true));
   TEST_ASSERT_FALSE(hasDirectBleReconnectIdentity(nullptr, true));
+}
+
+void testDirectReconnectRequiresKnownBondedBootProfile() {
+  constexpr const char* address = "aa:bb:cc:dd:ee:ff";
+  TEST_ASSERT_TRUE(shouldAttemptDirectBleReconnect(true, true, true, address, true));
+  TEST_ASSERT_FALSE(shouldAttemptDirectBleReconnect(false, true, true, address, true));
+  TEST_ASSERT_FALSE(shouldAttemptDirectBleReconnect(true, false, true, address, true));
+  TEST_ASSERT_FALSE(shouldAttemptDirectBleReconnect(true, true, false, address, true));
+  TEST_ASSERT_FALSE(shouldAttemptDirectBleReconnect(true, true, true, address, false));
 }
 
 void testBleCandidateDiscoveryIsOpenWithoutStoredIdentity() {
@@ -702,12 +702,15 @@ void testButtonBReportsContinuousProgress() {
   TEST_ASSERT_FALSE(halfway.resetPairing);
 }
 
-void testButtonBReleaseBeforeThresholdDoesNotReset() {
+void testButtonBShortReleaseTogglesMirrorWithoutReset() {
   rvf::ButtonInput input(3000);
   input.update(false, true, false, 100);
   const rvf::ButtonEvents released = input.update(false, false, false, 2500);
   TEST_ASSERT_FALSE(released.resetPairing);
   TEST_ASSERT_FALSE(released.resetHoldActive);
+  TEST_ASSERT_TRUE(released.toggleDisplayMirror);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UserCommand::ToggleDisplayMirror),
+                        static_cast<int>(rvf::ButtonInput::commandFromEvents(released)));
 }
 
 void testButtonBThresholdTriggersOnlyOnce() {
@@ -716,6 +719,8 @@ void testButtonBThresholdTriggersOnlyOnce() {
   TEST_ASSERT_TRUE(input.update(false, true, false, 3100).resetPairing);
   TEST_ASSERT_FALSE(input.update(false, true, false, 4100).resetPairing);
   TEST_ASSERT_FALSE(input.update(false, true, false, 5100).resetPairing);
+  const rvf::ButtonEvents released = input.update(false, false, false, 5200);
+  TEST_ASSERT_FALSE(released.toggleDisplayMirror);
 }
 
 void testButtonAOperationTriggersAtMostOneShoot() {
@@ -793,7 +798,7 @@ int main() {
   RUN_TEST(testCameraSleepAutoPowerOffRequiresActiveSleep);
   RUN_TEST(testCameraSleepAutoPowerOffHandlesMillisWrap);
   RUN_TEST(testPortraitStartupCachesWifiWithoutConnecting);
-  RUN_TEST(testLandscapeStartupRunsOriginalFullFlow);
+  RUN_TEST(testLandscapeStartupOpensLiveViewWithoutPropsProbe);
   RUN_TEST(testPortraitToLandscapeResumesAfterCredentialCache);
   RUN_TEST(testLandscapeToPortraitDisconnectsWifiAndKeepsBleReady);
   RUN_TEST(testCameraSleepGuardKeepsControllerOutOfScan);
@@ -806,6 +811,7 @@ int main() {
   RUN_TEST(testLeavesNonNumericRicohWifiSsidUnchanged);
   RUN_TEST(testRejectsNonRicohWifiSsidForBleName);
   RUN_TEST(testRequiresBleAddressAndAddressTypeForDirectReconnect);
+  RUN_TEST(testDirectReconnectRequiresKnownBondedBootProfile);
   RUN_TEST(testBleCandidateDiscoveryIsOpenWithoutStoredIdentity);
   RUN_TEST(testBleCandidateMustMatchStoredIdentity);
   RUN_TEST(testDetectsGr3OnlyFromCompleteUuidEvidence);
@@ -829,7 +835,7 @@ int main() {
   RUN_TEST(testAnimationProgressAndCompletion);
   RUN_TEST(testAnimationElapsedIsMillisWrapSafe);
   RUN_TEST(testButtonBReportsContinuousProgress);
-  RUN_TEST(testButtonBReleaseBeforeThresholdDoesNotReset);
+  RUN_TEST(testButtonBShortReleaseTogglesMirrorWithoutReset);
   RUN_TEST(testButtonBThresholdTriggersOnlyOnce);
   RUN_TEST(testButtonAOperationTriggersAtMostOneShoot);
   RUN_TEST(testShutterOverlaySuccessAndFailureLifecycles);

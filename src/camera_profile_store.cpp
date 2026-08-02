@@ -2,6 +2,7 @@
 
 namespace {
 constexpr const char* kNamespace = "ricoh2";
+constexpr const char* kDisplayMirrorKey = "disp_mirror";
 
 String getStringIfPresent(Preferences& prefs, const char* key) {
   return prefs.isKey(key) ? prefs.getString(key, "") : String();
@@ -36,12 +37,20 @@ bool CameraProfileStore::load(CameraProfile& profile) {
   }
 
   profile = CameraProfile{};
-  profile.profileVersion = _prefs.getUInt("proto_ver", 3);
+  profile.profileVersion = _prefs.getUInt("proto_ver", 4);
   profile.cameraName = getStringIfPresent(_prefs, "cam_name");
   profile.bleAddress = getStringIfPresent(_prefs, "ble_addr");
   profile.bleAddressTypeKnown = profile.bleAddress.length() > 0 && _prefs.isKey("ble_addr_type");
   profile.bleAddressType = profile.bleAddressTypeKnown ? static_cast<uint8_t>(_prefs.getUInt("ble_addr_type", 0)) : 0;
   profile.bleBonded = profile.bleAddress.length() > 0 && _prefs.getBool("ble_bonded", false);
+  if (_prefs.isKey("proto_gen")) {
+    const uint8_t storedGeneration = static_cast<uint8_t>(_prefs.getUInt("proto_gen", 0));
+    if (storedGeneration == static_cast<uint8_t>(RicohProtocolGeneration::Gr3Family) ||
+        storedGeneration == static_cast<uint8_t>(RicohProtocolGeneration::Gr4Family)) {
+      profile.protocolGeneration = static_cast<RicohProtocolGeneration>(storedGeneration);
+      profile.protocolGenerationKnown = true;
+    }
+  }
   profile.wifi.cameraIp = getStringIfPresent(_prefs, "cam_ip");
 
   const String wifiBleAddress = getStringIfPresent(_prefs, "wifi_ble_addr");
@@ -70,6 +79,12 @@ bool CameraProfileStore::save(const CameraProfile& profile) {
     _prefs.remove("ble_addr_type");
   }
   _prefs.putBool("ble_bonded", profile.bleAddress.length() > 0 && profile.bleBonded);
+  if (profile.protocolGenerationKnown &&
+      profile.protocolGeneration != RicohProtocolGeneration::Unknown) {
+    _prefs.putUInt("proto_gen", static_cast<uint8_t>(profile.protocolGeneration));
+  } else {
+    _prefs.remove("proto_gen");
+  }
   _prefs.putString("cam_ip", profile.wifi.cameraIp);
   return true;
 }
@@ -110,6 +125,7 @@ bool CameraProfileStore::clearBlePairing() {
   _prefs.remove("ble_addr");
   _prefs.remove("ble_addr_type");
   _prefs.remove("ble_bonded");
+  _prefs.remove("proto_gen");
   clearWifiCredentialKeys(_prefs);
   return true;
 }
@@ -153,6 +169,21 @@ bool CameraProfileStore::saveBleIdentity(const String& cameraName,
     }
   }
   return true;
+}
+
+bool CameraProfileStore::loadDisplayMirror(bool& mirrored) {
+  if (!begin()) {
+    return false;
+  }
+  mirrored = _prefs.getBool(kDisplayMirrorKey, false);
+  return true;
+}
+
+bool CameraProfileStore::saveDisplayMirror(bool mirrored) {
+  if (!begin()) {
+    return false;
+  }
+  return _prefs.putBool(kDisplayMirrorKey, mirrored) == sizeof(mirrored);
 }
 
 bool CameraProfileStore::clear() {

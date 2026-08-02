@@ -21,8 +21,8 @@ constexpr size_t STREAM_READ_BUFFER_SIZE = 8192;
 
 constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 15000;
 constexpr uint32_t WIFI_CHANNEL_HINT_CONNECT_TIMEOUT_MS = 6000;
-constexpr uint32_t WIFI_CACHED_CONNECT_TIMEOUT_MS = 1200;
-constexpr uint32_t WIFI_CACHED_CONNECT_GRACE_MS = 700;
+constexpr uint32_t WIFI_CACHED_CONNECT_TIMEOUT_MS = 1900;
+constexpr uint32_t WIFI_CACHED_CONNECT_GRACE_MS = 0;
 constexpr uint32_t WIFI_CACHE_REFRESH_DELAY_MS = 5000;
 constexpr uint32_t BLE_SCAN_RETRY_INTERVAL_MS = 1000;
 constexpr uint32_t PROPS_TIMEOUT_MS = 3500;
@@ -34,13 +34,16 @@ constexpr uint32_t POWER_BUTTON_RELEASE_WAIT_MS = 3000;
 constexpr uint8_t KEY2_FALLBACK_GPIO = 12;
 constexpr uint32_t KEY2_PAIRING_RESET_HOLD_MS = 3000;
 constexpr uint32_t PROPS_REFRESH_INTERVAL_MS = 60000;
+constexpr uint32_t INITIAL_PROPS_REFRESH_DELAY_MS = 1500;
 
-#ifndef JPEG_SCALE_POLICY
-#define JPEG_SCALE_POLICY JPEG_SCALE_HALF
-#endif
+// GR III-family LiveView is 720x480. Espressif's scaler requires dimensions
+// divisible by eight. 216x144 preserves 3:2 and fits the StickS3 preview.
+constexpr uint16_t JPEG_DECODE_WIDTH = 216;
+constexpr uint16_t JPEG_DECODE_HEIGHT = 144;
 
 constexpr uint32_t BLE_SCAN_SECONDS = 2;
-constexpr uint32_t BLE_FAST_CONNECT_TIMEOUT_MS = 3000;
+constexpr bool BLE_DIRECT_RECONNECT_ON_BOOT = true;
+constexpr uint32_t BLE_FAST_CONNECT_TIMEOUT_MS = 1500;
 constexpr uint32_t BLE_CONNECT_TIMEOUT_MS = 8000;
 constexpr uint8_t BLE_CONNECT_ATTEMPTS = 12;
 constexpr uint32_t BLE_CONNECT_RETRY_DELAY_MS = 1000;

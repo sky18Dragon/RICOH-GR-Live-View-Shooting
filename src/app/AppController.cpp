@@ -116,8 +116,7 @@ bool AppController::runCameraFlowOnce(const AppFlowActions& actions, uint32_t no
                              controllerMillis());
                 return true;
             }
-            if (httpProbeCamera(actions) &&
-                startLiveViewFromProbe(actions)) {
+            if (startLiveView(actions)) {
 #if !defined(RVF_NATIVE_BUILD)
                 Serial.printf("Flow: camera online total_ms=%lu\n",
                               static_cast<unsigned long>(controllerMillis() - flowStartMs));
@@ -126,11 +125,11 @@ bool AppController::runCameraFlowOnce(const AppFlowActions& actions, uint32_t no
             }
 
             if (actions.isBleConnected != nullptr && actions.isBleConnected()) {
-                return resumeFromBleReady(actions, "HTTP/LiveView unavailable");
+                return resumeFromBleReady(actions, "LiveView unavailable");
             }
 
             if (actions.disconnectAllTransportsToBleScan != nullptr) {
-                actions.disconnectAllTransportsToBleScan("HTTP/LiveView unavailable");
+                actions.disconnectAllTransportsToBleScan("LiveView unavailable");
             }
             return false;
         }
@@ -193,13 +192,12 @@ bool AppController::resumeFromBleReady(const AppFlowActions& actions, const char
                              controllerMillis());
                 return true;
             }
-            if (httpProbeCamera(actions) &&
-                startLiveViewFromProbe(actions)) {
+            if (startLiveView(actions)) {
                 return true;
             }
 
             if (actions.disconnectWifiLiveViewToBleReady != nullptr) {
-                actions.disconnectWifiLiveViewToBleReady("HTTP/LiveView retry from BLE_READY");
+                actions.disconnectWifiLiveViewToBleReady("LiveView retry from BLE_READY");
             }
         } else if (_state == AppState::WifiCredentialsReady) {
             return true;
@@ -247,7 +245,7 @@ bool AppController::resumeFromWifiCredentialsReady(const AppFlowActions& actions
     if (actions.onFreshWifiConnected != nullptr) {
         actions.onFreshWifiConnected();
     }
-    if (httpProbeCamera(actions) && startLiveViewFromProbe(actions)) {
+    if (startLiveView(actions)) {
         return true;
     }
 
@@ -256,7 +254,7 @@ bool AppController::resumeFromWifiCredentialsReady(const AppFlowActions& actions
     }
     if (actions.isBleConnected != nullptr && actions.isBleConnected()) {
         transitionTo(AppState::WifiCredentialsReady,
-                     "HTTP/LiveView failed after posture resume",
+                     "LiveView failed after posture resume",
                      controllerMillis());
     } else {
         transitionTo(AppState::BleScan,
@@ -407,27 +405,7 @@ bool AppController::connectWifiAfterBleReady(const AppFlowActions& actions) {
     return true;
 }
 
-bool AppController::httpProbeCamera(const AppFlowActions& actions) {
-    if (actions.isWifiConnected == nullptr || !actions.isWifiConnected()) {
-        transitionTo(AppState::BleScan, "HTTP probe without WiFi", controllerMillis());
-        return false;
-    }
-
-    transitionTo(AppState::HttpProbing, "WiFi connected", controllerMillis());
-    if (actions.fetchCameraProps == nullptr || !actions.fetchCameraProps()) {
-        if (actions.onHttpProbeFailed != nullptr) {
-            actions.onHttpProbeFailed();
-        }
-        return false;
-    }
-
-    if (actions.onHttpProbeSucceeded != nullptr) {
-        actions.onHttpProbeSucceeded();
-    }
-    return true;
-}
-
-bool AppController::startLiveViewFromProbe(const AppFlowActions& actions) {
+bool AppController::startLiveView(const AppFlowActions& actions) {
     if (!actions.liveviewEnabled) {
         return true;
     }
@@ -438,7 +416,7 @@ bool AppController::startLiveViewFromProbe(const AppFlowActions& actions) {
     if (actions.showStartingLiveView != nullptr) {
         actions.showStartingLiveView();
     }
-    transitionTo(AppState::PreviewStarting, "HTTP probe ready", controllerMillis());
+    transitionTo(AppState::PreviewStarting, "WiFi connected", controllerMillis());
     if (actions.openLiveView == nullptr || !actions.openLiveView()) {
         if (actions.onLiveViewOpenFailed != nullptr) {
             actions.onLiveViewOpenFailed();

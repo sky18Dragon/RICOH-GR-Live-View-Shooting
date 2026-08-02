@@ -89,7 +89,7 @@ Error > ResetPairing > CameraSleep > Pairing/Connecting
   -> 读取并持久化 Wi-Fi 参数 -> WifiCredentialsReady（停驻）
 
 WifiCredentialsReady + 转为横屏
-  -> 连接缓存的相机 Wi-Fi -> HTTP Probe -> PreviewRunning
+  -> 连接缓存的相机 Wi-Fi -> PreviewStarting -> PreviewRunning -> 首帧后读取属性
 
 PreviewRunning + 转为竖屏
   -> 关闭 LiveView -> 断开相机 Wi-Fi -> WifiCredentialsReady
@@ -128,15 +128,15 @@ PreviewRunning + 转为竖屏
 5. 创建失败则恢复前一方向和尺寸；
 6. 成功后清黑并打印切换后的 heap/PSRAM。
 
-Canvas 在检测到 PSRAM 时显式使用 PSRAM，避免 LiveView、BLE/Wi-Fi 运行后内部 DMA heap 碎片化导致约 64.8 KB 的 16-bit Canvas 无法重建。若分配仍失败，保留并恢复旧方向 Canvas，同一目标方向最多每 2 秒重试一次，避免主循环逐帧重复分配和刷串口。
+横屏 Canvas 优先使用内部 RAM，以保留更快的屏幕传输路径；竖屏 Canvas 使用 PSRAM。内部 RAM 分配失败时会回退到 PSRAM。若方向切换仍无法分配，固件恢复旧 Canvas，并限制重试频率。
 
 固件只有主循环线程会调用方向切换和 MJPEG 帧处理，`beginLiveFrame()/finishLiveFrame()` 仍显式标记 JPEG 写入窗口，防止以后引入异步调用时销毁正在写入的 Canvas。
 
 ## LiveView 显示门控
 
-横屏且 `PreviewRunning` 时，MJPEG 回调沿用原 `JpegDecoder::drawFrame()`，完成后只绘制微型电量图标和快门 overlay。
+横屏且 `PreviewRunning` 时，MJPEG 回调使用 Espressif `esp_new_jpeg` 把画面直接解码为 216 x 144 RGB565，居中显示 216 x 135 区域，完成后再绘制微型电量图标和快门 overlay。
 
-`JpegDecoder` 会缓存 `begin()` 时的显示尺寸。横竖 Canvas 发生变化后，`main.cpp` 在第一帧解码前同步当前 Canvas 尺寸并重新初始化该显示视口，避免用竖屏 `135×240` 裁剪横屏 `240×135` Canvas 所造成的画面偏移；JPEG 解码实现本身保持不变。
+`JpegDecoder` 会缓存 `begin()` 时的显示尺寸。横竖 Canvas 发生变化后，`main.cpp` 在第一帧解码前同步当前 Canvas 尺寸。短按 Button B 可切换水平镜像，设置保存到 NVS，只影响 LiveView 画面。
 
 竖屏时：
 
