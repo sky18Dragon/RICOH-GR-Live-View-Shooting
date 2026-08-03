@@ -165,12 +165,31 @@ void WifiPreviewService::resetStats(uint32_t nowMs) {
     _lastRenderMs = 0;
     _framesInWindow = 0;
     _bytesInWindow = 0;
+    _decodeMsTotal = 0;
+    _renderMsTotal = 0;
+    _maxDecodeMs = 0;
+    _maxRenderMs = 0;
+    _jpegWidth = 0;
+    _jpegHeight = 0;
 }
 
-void WifiPreviewService::recordRenderedFrame(uint32_t decodeMs, uint32_t renderMs) {
+void WifiPreviewService::recordRenderedFrame(uint32_t decodeMs,
+                                             uint32_t renderMs,
+                                             int jpegWidth,
+                                             int jpegHeight) {
     _lastDecodeMs = decodeMs;
     _lastRenderMs = renderMs;
     _framesInWindow++;
+    _decodeMsTotal += decodeMs;
+    _renderMsTotal += renderMs;
+    if (decodeMs > _maxDecodeMs) {
+        _maxDecodeMs = decodeMs;
+    }
+    if (renderMs > _maxRenderMs) {
+        _maxRenderMs = renderMs;
+    }
+    _jpegWidth = jpegWidth;
+    _jpegHeight = jpegHeight;
 }
 
 void WifiPreviewService::logStatsIfDue(uint32_t nowMs, uint32_t intervalMs) {
@@ -184,13 +203,26 @@ void WifiPreviewService::logStatsIfDue(uint32_t nowMs, uint32_t intervalMs) {
 
     const uint32_t elapsed = nowMs - _statsWindowStartMs;
     const float fps = elapsed > 0 ? (_framesInWindow * 1000.0f) / static_cast<float>(elapsed) : 0.0f;
-    LOGI("PREVIEW", "stats fps=%.1f bytes=%lu read=%lums mjpeg_cb=%lums decode=%lums render=%lums",
+    const float kibPerSecond = elapsed > 0
+                                 ? (_bytesInWindow * 1000.0f) / (1024.0f * static_cast<float>(elapsed))
+                                 : 0.0f;
+    const float avgDecodeMs = _framesInWindow > 0
+                                ? static_cast<float>(_decodeMsTotal) / _framesInWindow
+                                : 0.0f;
+    const float avgRenderMs = _framesInWindow > 0
+                                ? static_cast<float>(_renderMsTotal) / _framesInWindow
+                                : 0.0f;
+    LOGI("PREVIEW", "stats fps=%.1f rate=%.1fKiB/s jpeg=%dx%d decode=%.1f/%lums render=%.1f/%lums read=%lums mjpeg_cb=%lums",
          static_cast<double>(fps),
-         static_cast<unsigned long>(_bytesInWindow),
+         static_cast<double>(kibPerSecond),
+         _jpegWidth,
+         _jpegHeight,
+         static_cast<double>(avgDecodeMs),
+         static_cast<unsigned long>(_maxDecodeMs),
+         static_cast<double>(avgRenderMs),
+         static_cast<unsigned long>(_maxRenderMs),
          static_cast<unsigned long>(_lastReadMs),
-         static_cast<unsigned long>(_lastProcessMs),
-         static_cast<unsigned long>(_lastDecodeMs),
-         static_cast<unsigned long>(_lastRenderMs));
+         static_cast<unsigned long>(_lastProcessMs));
     resetStats(nowMs);
 }
 

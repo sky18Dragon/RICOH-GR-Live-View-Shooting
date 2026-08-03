@@ -7,6 +7,17 @@ bool hasDirectBleReconnectIdentity(const char* bleAddress, bool bleAddressTypeKn
   return bleAddressTypeKnown && bleAddress != nullptr && std::strlen(bleAddress) > 0;
 }
 
+bool shouldAttemptDirectBleReconnect(bool initialBootFlow,
+                                     bool bonded,
+                                     bool protocolKnown,
+                                     const char* bleAddress,
+                                     bool bleAddressTypeKnown) {
+  return initialBootFlow &&
+         bonded &&
+         protocolKnown &&
+         hasDirectBleReconnectIdentity(bleAddress, bleAddressTypeKnown);
+}
+
 bool bleCandidateMatchesStoredIdentity(const char* storedBleAddress,
                                        const char* candidateBleAddress) {
   if (storedBleAddress == nullptr || storedBleAddress[0] == '\0') {

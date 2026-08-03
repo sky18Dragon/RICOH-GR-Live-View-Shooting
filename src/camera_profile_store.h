@@ -50,6 +50,8 @@ public:
   bool clearBlePairing();
   bool saveBleIdentity(const String& cameraName, const String& bleAddress);
   bool saveBleIdentity(const String& cameraName, const String& bleAddress, uint8_t bleAddressType, bool bleBonded);
+  bool loadDisplayMirror(bool& mirrored);
+  bool saveDisplayMirror(bool mirrored);
   bool clear();
 
 private:

@@ -18,6 +18,7 @@ struct ButtonEvents {
     float resetHoldProgress = 0.0f;
     uint32_t resetHoldMs = 0;
     bool resetPairing = false;
+    bool toggleDisplayMirror = false;
 
     bool powerOff = false;
     bool any = false;

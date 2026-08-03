@@ -5,6 +5,7 @@
 namespace {
 constexpr const char* kNamespace = "ricoh2";
 constexpr const char* kAtomicProfileKey = "profile_v4";
+constexpr const char* kDisplayMirrorKey = "disp_mirror";
 
 String getStringIfPresent(Preferences& prefs, const char* key) {
   return prefs.isKey(key) ? prefs.getString(key, "") : String();
@@ -375,6 +376,21 @@ bool CameraProfileStore::saveBleIdentity(const String& cameraName,
     }
   }
   return true;
+}
+
+bool CameraProfileStore::loadDisplayMirror(bool& mirrored) {
+  if (!begin()) {
+    return false;
+  }
+  mirrored = _prefs.getBool(kDisplayMirrorKey, false);
+  return true;
+}
+
+bool CameraProfileStore::saveDisplayMirror(bool mirrored) {
+  if (!begin()) {
+    return false;
+  }
+  return _prefs.putBool(kDisplayMirrorKey, mirrored) == sizeof(mirrored);
 }
 
 bool CameraProfileStore::clear() {

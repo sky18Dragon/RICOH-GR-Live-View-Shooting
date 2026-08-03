@@ -35,6 +35,9 @@ public:
 
     int16_t width() const { return _width; }
     int16_t height() const { return _height; }
+    void setMirrored(bool mirrored);
+    bool toggleMirror();
+    bool mirrored() const { return _mirrored; }
     LovyanGFX* getCanvas() { return _canvasReady ? &_canvas : nullptr; }
     void pushCanvas();
 
@@ -68,4 +71,5 @@ private:
     bool _frameWriteActive = false;
     bool _sceneDrawn = false;
     bool _orientationFailurePending = false;
+    bool _mirrored = false;
 };

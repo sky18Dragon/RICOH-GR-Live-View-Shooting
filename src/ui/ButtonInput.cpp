@@ -49,12 +49,16 @@ ButtonEvents ButtonInput::update(bool buttonADown,
             events.resetPairing = true;
         }
     } else if (_buttonBWasDown) {
+        const uint32_t heldMs = uiElapsedMs(nowMs, _buttonBPressedAtMs);
+        if (!_resetReported && heldMs < _resetHoldThresholdMs) {
+            events.toggleDisplayMirror = true;
+        }
         _resetReported = false;
     }
 
     events.powerOff = powerOffTriggered;
     events.any = events.buttonADown || events.buttonAReleased || events.resetHoldActive ||
-                 events.resetPairing || events.powerOff;
+                 events.resetPairing || events.toggleDisplayMirror || events.powerOff;
     _buttonAWasDown = buttonADown;
     _buttonBWasDown = buttonBDown;
     return events;
@@ -63,6 +67,7 @@ ButtonEvents ButtonInput::update(bool buttonADown,
 UserCommand ButtonInput::commandFromEvents(const ButtonEvents& events) {
     if (events.powerOff) return UserCommand::PowerOff;
     if (events.resetPairing) return UserCommand::ResetPairing;
+    if (events.toggleDisplayMirror) return UserCommand::ToggleDisplayMirror;
     if (events.buttonADown) return UserCommand::Shoot;
     return UserCommand::None;
 }
