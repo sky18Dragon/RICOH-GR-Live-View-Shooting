@@ -438,9 +438,10 @@ void DisplayUi::showPasskeyEntry(const uint8_t digits[6], uint8_t activeIndex) {
     drawCenteredText("PAIRING PASSKEY", 26, rvf::UiTheme::kGreen);
     drawCenteredText("Match camera code", 44, rvf::UiTheme::kGray);
 
-    const int16_t cellW = 24;
-    const int16_t cellH = 34;
-    const int16_t gap = 5;
+    // Keep all six cells inside the StickS3's 135-pixel portrait width.
+    const int16_t cellW = 16;
+    const int16_t cellH = 30;
+    const int16_t gap = 3;
     const int16_t totalW = 6 * cellW + 5 * gap;
     const int16_t startX = (_width - totalW) / 2;
     const int16_t y = _height / 2 - cellH / 2;
@@ -455,14 +456,17 @@ void DisplayUi::showPasskeyEntry(const uint8_t digits[6], uint8_t activeIndex) {
                               (confirmed ? rvf::UiTheme::kWhite : rvf::UiTheme::kGray);
         _canvas.drawRoundRect(x, y, cellW, cellH, 4, frame);
         _canvas.setTextColor(text, rvf::UiTheme::kBlack);
-        _canvas.setCursor(x + 7, y + 9);
+        _canvas.setCursor(x + 2, y + 7);
         _canvas.print(static_cast<char>('0' + (digits[i] % 10)));
     }
 
     _canvas.setTextSize(1);
-    drawCenteredText(activeIndex >= 6 ? "Submitting..." : "A:+1 B:next Hold A:submit",
-                     _height - 28,
-                     activeIndex >= 6 ? rvf::UiTheme::kGreen : rvf::UiTheme::kWhite);
+    if (activeIndex >= 6) {
+        drawCenteredText("Submitting...", _height - 28, rvf::UiTheme::kGreen);
+    } else {
+        drawCenteredText("A:+1  B:next", _height - 38, rvf::UiTheme::kWhite);
+        drawCenteredText("Hold A:submit", _height - 24, rvf::UiTheme::kWhite);
+    }
     pushCanvas();
 }
 
