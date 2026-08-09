@@ -1,6 +1,9 @@
 #include "ricoh_ble_client.h"
 
+#include "ble_discovery_policy.h"
 #include "ble_pairing_policy.h"
+#include "ble_reconnect_policy.h"
+#include "ble_scan_lifecycle_policy.h"
 #include "ricoh/BleSecurityProfile.h"
 
 #include <algorithm>
@@ -27,10 +30,14 @@ extern "C" {
 #include "nimble/nimble/host/include/host/ble_gap.h"
 #include "nimble/nimble/host/include/host/ble_gatt.h"
 #include "nimble/nimble/host/include/host/ble_hs.h"
+#include "nimble/nimble/include/nimble/nimble_npl.h"
+#include "nimble/porting/nimble/include/nimble/nimble_port.h"
 #else
 #include "host/ble_gap.h"
 #include "host/ble_gatt.h"
 #include "host/ble_hs.h"
+#include "nimble/nimble_npl.h"
+#include "nimble/nimble_port.h"
 #endif
 }
 
@@ -40,7 +47,7 @@ namespace {
 constexpr uint32_t HANDLE_WRITE_TIMEOUT_MS = 3000;
 constexpr uint32_t HANDLE_READ_TIMEOUT_MS = 800;
 constexpr uint32_t BLE_SCAN_POLL_MS = 5;
-constexpr uint32_t BLE_SCAN_STOP_SETTLE_MS = 100;
+constexpr uint32_t BLE_SCAN_STOP_SETTLE_MS = 500;
 std::atomic<int> g_lastDisconnectReason{0};
 std::atomic<int> g_powerOffDisconnectReason{0};
 std::atomic<int> g_powerStateNotifyValue{-1};
@@ -52,6 +59,48 @@ std::atomic<uint8_t> g_bindingState{static_cast<uint8_t>(CameraBindingState::Unp
 RicohBleClient::ServiceCallback g_serviceCallback = nullptr;
 RicohBleClient::PasskeyPoller g_passkeyPoller = nullptr;
 PairingRecoveryPolicy g_pairingRecovery;
+
+struct BleScanHostFence {
+  // The event must outlive every possible delayed host callback. A process-
+  // lifetime object also remains valid if a failed fence forces stack reset.
+  ble_npl_event event{};
+  std::atomic<bool> reached{false};
+};
+
+BleScanHostFence g_scanHostFence;
+
+void onBleScanHostFence(ble_npl_event* event) {
+  auto* fence = static_cast<BleScanHostFence*>(ble_npl_event_get_arg(event));
+  if (fence != nullptr) {
+    fence->reached.store(true, std::memory_order_release);
+  }
+}
+
+bool postBleScanHostFence() {
+  // A queued event belongs to the current host queue and must not be
+  // reinitialized. If a prior host reset abandoned it, resetStack() rebuilds
+  // the queue before the next scan and this process-lifetime event is safely
+  // initialized again here once it is no longer queued.
+  if (ble_npl_event_is_queued(&g_scanHostFence.event)) {
+    return false;
+  }
+  g_scanHostFence.reached.store(false, std::memory_order_release);
+  ble_npl_event_init(&g_scanHostFence.event, onBleScanHostFence, &g_scanHostFence);
+  ble_npl_eventq_put(nimble_port_get_dflt_eventq(), &g_scanHostFence.event);
+  return true;
+}
+
+bool bleScanHostFenceReached() {
+  return g_scanHostFence.reached.load(std::memory_order_acquire);
+}
+
+void resetBleScanHostFenceAfterHostStop() {
+  // Only call after deinit(false) confirms the host task has stopped. This
+  // also clears a stale queued bit if the old queue was destroyed before the
+  // sentinel could run.
+  ble_npl_event_init(&g_scanHostFence.event, onBleScanHostFence, &g_scanHostFence);
+  g_scanHostFence.reached.store(false, std::memory_order_release);
+}
 
 constexpr uint8_t RICOH_SHOOTING_FLAVOR_IMMEDIATE = 0x00;
 constexpr uint8_t RICOH_OPERATION_START = 0x01;
@@ -234,29 +283,39 @@ bool isRicohCandidate(const NimBLEAdvertisedDevice* device,
 
 class RicohScanCallbacks : public NimBLEScanCallbacks {
 public:
-  RicohScanCallbacks(const String& preferredAddress, const String& preferredName)
-      : _preferredAddress(preferredAddress),
-        _preferredName(preferredName),
-        _acceptFirstRicoh(preferredAddress.length() == 0 && preferredName.length() == 0) {}
-
-  void prepareForScan() {
+  void prepareForScan(const String& preferredAddress, const String& preferredName) {
+    _preferredAddress = preferredAddress;
+    _preferredName = preferredName;
+    _acceptFirstRicoh = preferredAddress.length() == 0 && preferredName.length() == 0;
+    _best = RicohBleDeviceInfo{};
+    _bestScore = -100000;
+    _foundPreferred.store(false);
     _scanEnded.store(false);
+    _acceptCallbacks.store(true);
   }
 
   void onDiscovered(const NimBLEAdvertisedDevice* device) override {
+    CallbackGuard guard(*this);
+    if (!guard.entered()) {
+      return;
+    }
     RicohBleDeviceInfo info = infoFromAdvertisedDevice(device);
     if (addressMatches(info.address, _preferredAddress) && info.connectable) {
-      updateBest(info, device);
+      updateBest(info);
     }
   }
 
   void onResult(const NimBLEAdvertisedDevice* device) override {
+    CallbackGuard guard(*this);
+    if (!guard.entered()) {
+      return;
+    }
     RicohBleDeviceInfo info = infoFromAdvertisedDevice(device);
     if (!isRicohCandidate(device, info, _preferredAddress, _preferredName)) {
       return;
     }
 
-    updateBest(info, device);
+    updateBest(info);
     if (info.connectable &&
         hasRicohIdentitySignal(info) &&
         (_acceptFirstRicoh ||
@@ -274,9 +333,45 @@ public:
   bool hasBest() const { return _best.found; }
   bool foundPreferred() const { return _foundPreferred.load(); }
   bool scanEnded() const { return _scanEnded.load(); }
+  bool callbacksQuiescent() const { return _activeCallbacks.load() == 0; }
+  void stopAcceptingCallbacks() { _acceptCallbacks.store(false); }
 
 private:
-  void updateBest(const RicohBleDeviceInfo& info, const NimBLEAdvertisedDevice* device) {
+  class CallbackGuard {
+  public:
+    explicit CallbackGuard(RicohScanCallbacks& owner)
+        : _owner(owner), _entered(owner.enterCallback()) {}
+
+    ~CallbackGuard() {
+      if (_entered) {
+        _owner.leaveCallback();
+      }
+    }
+
+    bool entered() const { return _entered; }
+
+  private:
+    RicohScanCallbacks& _owner;
+    bool _entered = false;
+  };
+
+  bool enterCallback() {
+    if (!_acceptCallbacks.load()) {
+      return false;
+    }
+    _activeCallbacks.fetch_add(1);
+    if (!_acceptCallbacks.load()) {
+      _activeCallbacks.fetch_sub(1);
+      return false;
+    }
+    return true;
+  }
+
+  void leaveCallback() {
+    _activeCallbacks.fetch_sub(1);
+  }
+
+  void updateBest(const RicohBleDeviceInfo& info) {
     const int score = candidateScore(info, _preferredAddress, _preferredName);
     if (!_best.found || score > _bestScore) {
       _best = info;
@@ -291,7 +386,14 @@ private:
   int _bestScore = -100000;
   std::atomic<bool> _foundPreferred{false};
   std::atomic<bool> _scanEnded{false};
+  std::atomic<bool> _acceptCallbacks{false};
+  std::atomic<uint32_t> _activeCallbacks{0};
 };
+
+// NimBLE invokes callbacks from its host task. Keep the session alive for the
+// process lifetime so no delayed host event can target a destroyed stack
+// object while the application task stops or rebuilds the BLE stack.
+RicohScanCallbacks g_scanCallbacks;
 
 String printableText(const std::vector<uint8_t>& data) {
   String text;
@@ -929,7 +1031,17 @@ ProtocolDetectionEvidence collectProtocolEvidence(NimBLEClient* client) {
 
   NimBLERemoteService* gr3Wlan = client->getService(NimBLEUUID(RICOH_BLE_GR3_WLAN_SERVICE_UUID));
   evidence.hasGr3WlanService = gr3Wlan != nullptr;
-  if (gr3Wlan != nullptr) {
+  if (gr3Wlan != nullptr &&
+      shouldRefreshProtocolDiscoveryCharacteristics(
+          BleProtocolDiscoveryService::SharedWlan)) {
+    // GR III and GR IV share this service, and GR IV detection needs the six
+    // verified fixed handles in it. Discover this service once rather than
+    // issuing four UUID queries and later refreshing every service on the
+    // camera.
+    (void)gr3Wlan->getCharacteristics(true);
+    if (!client->isConnected()) {
+      return evidence;
+    }
     evidence.hasGr3NetworkTypeCharacteristic =
         gr3Wlan->getCharacteristic(NimBLEUUID(RICOH_BLE_GR3_WLAN_NETWORK_TYPE_UUID)) != nullptr;
     evidence.hasGr3SsidCharacteristic =
@@ -946,6 +1058,14 @@ ProtocolDetectionEvidence collectProtocolEvidence(NimBLEClient* client) {
   NimBLERemoteService* camera =
       client->getService(NimBLEUUID(RICOH_BLE_CAMERA_SERVICE_UUID));
   evidence.hasCameraService = camera != nullptr;
+  if (camera != nullptr &&
+      shouldRefreshProtocolDiscoveryCharacteristics(
+          BleProtocolDiscoveryService::Camera)) {
+    (void)camera->getCharacteristics(true);
+  }
+  if (!client->isConnected()) {
+    return evidence;
+  }
   evidence.hasOperationModeCharacteristic =
       camera != nullptr &&
       camera->getCharacteristic(NimBLEUUID(RICOH_BLE_OPERATION_MODE_UUID)) != nullptr;
@@ -956,6 +1076,14 @@ ProtocolDetectionEvidence collectProtocolEvidence(NimBLEClient* client) {
   NimBLERemoteService* shooting =
       client->getService(NimBLEUUID(RICOH_BLE_SHOOTING_SERVICE_UUID));
   evidence.hasShootingService = shooting != nullptr;
+  if (shooting != nullptr &&
+      shouldRefreshProtocolDiscoveryCharacteristics(
+          BleProtocolDiscoveryService::Shooting)) {
+    (void)shooting->getCharacteristics(true);
+  }
+  if (!client->isConnected()) {
+    return evidence;
+  }
   evidence.hasShootingFlavorCharacteristic =
       shooting != nullptr &&
       shooting->getCharacteristic(NimBLEUUID(RICOH_BLE_SHOOTING_FLAVOR_UUID)) != nullptr;
@@ -979,17 +1107,6 @@ ProtocolDetectionEvidence collectProtocolEvidence(NimBLEClient* client) {
       RICOH_BLE_GR4_WLAN_FREQUENCY_HANDLE,
       RICOH_BLE_GR4_WLAN_BSSID_HANDLE,
   };
-  const std::vector<NimBLERemoteService*>& services = client->getServices(false);
-  for (NimBLERemoteService* service : services) {
-    if (service == nullptr) {
-      continue;
-    }
-    (void)service->getCharacteristics(true);
-    if (!client->isConnected()) {
-      return evidence;
-    }
-  }
-
   evidence.hasGr4PowerCharacteristicAtExpectedHandle =
       characteristicUuidAtHandle(camera,
                                  RICOH_BLE_CAMERA_POWER_UUID,
@@ -1163,12 +1280,20 @@ bool waitForEncryptedConnection(NimBLEClient* client,
 }
 }  // namespace
 
-void RicohBleClient::begin() {
+bool RicohBleClient::begin() {
+  if (!canUseBleStack(_stackRestartBlocked)) {
+    _lastError = "BLE stack restart is blocked until reset succeeds";
+    return false;
+  }
   if (_begun) {
-    return;
+    return true;
   }
 
-  NimBLEDevice::init("RICOH-StickS3");
+  if (!NimBLEDevice::init("RICOH-StickS3")) {
+    _stackRestartBlocked = true;
+    _lastError = "NimBLE initialization failed; stack restart blocked";
+    return false;
+  }
   NimBLEDevice::setPowerLevel(ESP_PWR_LVL_P9);
   configureRicohSecurity(_securityProfile);
   NimBLEDevice::setCustomGapHandler(ricohGapEventHandler);
@@ -1178,30 +1303,50 @@ void RicohBleClient::begin() {
                 NimBLEDevice::getVersion(),
                 ricohSecurityProfileName(_securityProfile),
                 static_cast<unsigned>(_bindingState));
+  return true;
 }
 
-void RicohBleClient::setSecurityProfile(RicohSecurityProfileId profile) {
+bool RicohBleClient::setSecurityProfile(RicohSecurityProfileId profile) {
+  if (!canUseBleStack(_stackRestartBlocked)) {
+    _lastError = "BLE security profile change blocked until stack reset succeeds";
+    return false;
+  }
   if (_begun && profile != _securityProfile) {
-    (void)switchSecurityProfile(profile);
-    return;
+    return switchSecurityProfile(profile);
   }
   _securityProfile = profile;
+  return true;
 }
 
 bool RicohBleClient::switchSecurityProfile(RicohSecurityProfileId profile) {
+  if (!canUseBleStack(_stackRestartBlocked)) {
+    _lastError = "BLE security profile switch blocked until stack reset succeeds";
+    return false;
+  }
   if (_begun && profile == _securityProfile) {
     return true;
   }
   disconnect();
-  if (_begun && !NimBLEDevice::deinit(true)) {
-    _lastError = "NimBLE deinit failed while switching security profile";
-    return false;
+  if (_begun) {
+    const bool hostStopped = NimBLEDevice::deinit(false);
+    if (!canClearBleStackObjects(hostStopped)) {
+      _stackRestartBlocked = true;
+      _lastError = "NimBLE host stop failed while switching security profile";
+      return false;
+    }
+    resetBleScanHostFenceAfterHostStop();
+    const bool objectsCleared = NimBLEDevice::deinit(true);
+    if (!canRestartBleStack(hostStopped, true, objectsCleared)) {
+      _begun = false;
+      _stackRestartBlocked = true;
+      _lastError = "NimBLE object clear failed while switching security profile";
+      return false;
+    }
   }
   _begun = false;
   _securityProfile = profile;
   delay(BLE_STACK_RESET_DELAY_MS);
-  begin();
-  return _begun;
+  return begin();
 }
 
 void RicohBleClient::setBindingState(CameraBindingState state) {
@@ -1227,22 +1372,36 @@ void RicohBleClient::setPasskeyPoller(PasskeyPoller poller) {
 RicohBleDeviceInfo RicohBleClient::scanForCamera(const String& preferredAddress,
                                                  const String& preferredName,
                                                  uint32_t scanSeconds) {
-  begin();
+  if (!begin()) {
+    return RicohBleDeviceInfo{};
+  }
 
   NimBLEScan* scan = NimBLEDevice::getScan();
-  RicohScanCallbacks callbacks(preferredAddress, preferredName);
+  RicohScanCallbacks& callbacks = g_scanCallbacks;
+  if (!callbacks.callbacksQuiescent()) {
+    _lastError = "BLE scan callback session is still active";
+    Serial.println("BLE: refusing scan while previous callbacks are active; rebuilding stack");
+    callbacks.stopAcceptingCallbacks();
+    if (resetStack(true)) {
+      _lastError = "BLE scan callback session was active; stack rebuilt";
+    }
+    return RicohBleDeviceInfo{};
+  }
+  callbacks.prepareForScan(preferredAddress, preferredName);
   scan->setScanCallbacks(&callbacks, false);
   scan->setActiveScan(true);
   scan->setInterval(80);
   scan->setWindow(79);
   scan->setScanResponseTimeout(150);
-  scan->setMaxResults(0);
+  // Retain result ownership until cancellation/natural completion is confirmed
+  // and all callbacks have exited. With maxResults=0, NimBLE stop() deletes
+  // advertised devices immediately and can race an in-flight host onResult().
+  scan->setMaxResults(0xFF);
 
   const uint32_t durationMs = scanSeconds * 1000;
   Serial.printf("BLE: scanning for GR camera (%lus max)\n", static_cast<unsigned long>(scanSeconds));
   const uint32_t startMs = millis();
   bool aborted = false;
-  callbacks.prepareForScan();
   const bool scanStarted = scan->start(durationMs, false, true);
 
   // NimBLE invokes result callbacks on its host task. The application task
@@ -1257,16 +1416,51 @@ RicohBleDeviceInfo RicohBleClient::scanForCamera(const String& preferredAddress,
     delay(BLE_SCAN_POLL_MS);
   }
 
-  if (scan->isScanning()) {
-    (void)scan->stop();
+  callbacks.stopAcceptingCallbacks();
+  bool stopRequested = false;
+  bool stopSucceeded = true;
+  if (scanStarted && scan->isScanning()) {
+    stopRequested = true;
+    stopSucceeded = scan->stop();
   }
+  const bool hostFencePosted =
+      !stopRequested || (stopSucceeded && postBleScanHostFence());
   const uint32_t settleStartMs = millis();
-  while (!callbacks.scanEnded() &&
+  while (scanStarted &&
+         (scan->isScanning() ||
+          (!stopRequested && !callbacks.scanEnded()) ||
+          !callbacks.callbacksQuiescent() ||
+          (stopRequested && hostFencePosted && !bleScanHostFenceReached())) &&
          static_cast<uint32_t>(millis() - settleStartMs) < BLE_SCAN_STOP_SETTLE_MS) {
     delay(1);
+    yield();
   }
 
-  RicohBleDeviceInfo best = callbacks.best();
+  const bool cleanupSafe = canCleanupBleScanSession(
+      scanStarted,
+      stopRequested,
+      stopSucceeded,
+      callbacks.scanEnded(),
+      !scan->isScanning(),
+      callbacks.callbacksQuiescent(),
+      !stopRequested || (hostFencePosted && bleScanHostFenceReached()));
+  if (!cleanupSafe) {
+    Serial.printf("BLE: scan stop synchronization failed started=%d stop_requested=%d stop_ok=%d ended=%d inactive=%d callbacks_idle=%d fence_posted=%d fence_reached=%d; rebuilding stack\n",
+                  scanStarted ? 1 : 0,
+                  stopRequested ? 1 : 0,
+                  stopSucceeded ? 1 : 0,
+                  callbacks.scanEnded() ? 1 : 0,
+                  scan->isScanning() ? 0 : 1,
+                  callbacks.callbacksQuiescent() ? 1 : 0,
+                  hostFencePosted ? 1 : 0,
+                  bleScanHostFenceReached() ? 1 : 0);
+    if (resetStack(true)) {
+      _lastError = "BLE scan stop synchronization failed; stack rebuilt";
+    }
+    return RicohBleDeviceInfo{};
+  }
+
+  const RicohBleDeviceInfo best = callbacks.best();
   scan->setScanCallbacks(nullptr, false);
   scan->clearResults();
 
@@ -1312,7 +1506,9 @@ bool RicohBleClient::connect(const RicohBleDeviceInfo& info, const RicohBleConne
       return false;
     }
   } else {
-    begin();
+    if (!begin()) {
+      return false;
+    }
   }
   _lastFailureResourceExhausted = false;
   const uint32_t connectStartMs = millis();
@@ -1476,6 +1672,41 @@ bool RicohBleClient::connect(const RicohBleDeviceInfo& info, const RicohBleConne
     return false;
   }
 
+  // GR IV's legacy profile allows encryption to become usable before NimBLE
+  // persists the new bond. Do not report a new peer as successfully connected
+  // until the bond is observable; otherwise the caller could persist a
+  // bleBonded=false profile and disable direct reconnect on the next boot.
+  const uint32_t bondSettleStartMs = millis();
+  BleBondPersistenceDecision bondDecision = BleBondPersistenceDecision::Wait;
+  do {
+    const bool bondConnectionAlive = client->isConnected();
+    const bool bondedNow = bondConnectionAlive && client->getConnInfo().isBonded();
+    bondDecision = decideBleBondPersistence(
+        peerBonded,
+        bondConnectionAlive,
+        bondedNow,
+        static_cast<uint32_t>(millis() - bondSettleStartMs),
+        RICOH_BLE_BOND_PERSIST_SETTLE_MS);
+    if (bondDecision == BleBondPersistenceDecision::Wait) {
+      delay(10);
+      yield();
+    }
+  } while (bondDecision == BleBondPersistenceDecision::Wait);
+
+  if (bondDecision != BleBondPersistenceDecision::Ready) {
+    _lastFailureResourceExhausted = false;
+    _lastError = bondDecision == BleBondPersistenceDecision::Disconnected
+                   ? "BLE lost before bond persistence"
+                   : "BLE bond persistence timeout";
+    Serial.printf("BLE: bond persistence failed elapsed_ms=%lu reason=%s\n",
+                  static_cast<unsigned long>(millis() - bondSettleStartMs),
+                  _lastError.c_str());
+    disconnect();
+    return false;
+  }
+  Serial.printf("BLE: bond persistence ready elapsed_ms=%lu bonded=1\n",
+                static_cast<unsigned long>(millis() - bondSettleStartMs));
+
   if (protocol->rediscoverServicesAfterSecurity()) {
     (void)client->getServices(true);
   }
@@ -1517,7 +1748,9 @@ bool RicohBleClient::connect(const RicohBleDeviceInfo& info, const RicohBleConne
 }
 
 bool RicohBleClient::isBonded(const RicohBleDeviceInfo& info) {
-  begin();
+  if (!begin()) {
+    return false;
+  }
   if (info.address.length() == 0) {
     return false;
   }
@@ -2002,7 +2235,9 @@ void RicohBleClient::clearDisconnectReason() {
 }
 
 bool RicohBleClient::deleteAllBonds() {
-  begin();
+  if (!begin()) {
+    return false;
+  }
   disconnect();
   const int before = NimBLEDevice::getNumBonds();
   const bool ok = NimBLEDevice::deleteAllBonds();
@@ -2017,15 +2252,46 @@ bool RicohBleClient::deleteAllBonds() {
   return true;
 }
 
-void RicohBleClient::resetStack(bool clearObjects) {
+bool RicohBleClient::resetStack(bool clearObjects) {
   Serial.printf("BLE: resetting stack%s\n", clearObjects ? " (clear objects)" : "");
-  disconnect();
-  NimBLEDevice::deinit(clearObjects);
+  // Once blocked, do not touch possibly stale client/scan objects before the
+  // host has demonstrably stopped.  resetStack() is the sole recovery path.
+  if (!_stackRestartBlocked) {
+    disconnect();
+  }
+
+  // NimBLE 2.5.0 may delete scan/client objects in deinit(true) even when its
+  // host task fails to stop. Stop the host without deleting anything first;
+  // only a confirmed stop permits the second object-clear phase.
+  const bool hostStopped = NimBLEDevice::deinit(false);
+  if (!canClearBleStackObjects(hostStopped)) {
+    _stackRestartBlocked = true;
+    _lastFailureResourceExhausted = false;
+    _lastError = "BLE host stop failed; stack objects retained";
+    Serial.println("BLE: host stop failed; refusing object clear and restart");
+    return false;
+  }
+  resetBleScanHostFenceAfterHostStop();
+
+  bool objectsCleared = true;
+  if (clearObjects) {
+    objectsCleared = NimBLEDevice::deinit(true);
+  }
+  if (!canRestartBleStack(hostStopped, clearObjects, objectsCleared)) {
+    _begun = false;
+    _stackRestartBlocked = true;
+    _lastFailureResourceExhausted = false;
+    _lastError = "BLE stack object clear failed; restart blocked";
+    Serial.println("BLE: object clear failed; refusing stack restart");
+    return false;
+  }
+
   _begun = false;
+  _stackRestartBlocked = false;
   _lastFailureResourceExhausted = false;
   _lastError = "BLE stack reset";
   delay(BLE_STACK_RESET_DELAY_MS);
-  begin();
+  return begin();
 }
 
 bool RicohBleClient::lastFailureWasResourceExhausted() const {

@@ -38,3 +38,20 @@ bool bleCandidateMatchesStoredIdentity(const char* storedBleAddress,
   }
   return storedBleAddress[index] == '\0' && candidateBleAddress[index] == '\0';
 }
+
+BleBondPersistenceDecision decideBleBondPersistence(bool peerWasBonded,
+                                                     bool connected,
+                                                     bool bondedNow,
+                                                     unsigned long elapsedMs,
+                                                     unsigned long timeoutMs) {
+  if (!connected) {
+    return BleBondPersistenceDecision::Disconnected;
+  }
+  if (peerWasBonded || bondedNow) {
+    return BleBondPersistenceDecision::Ready;
+  }
+  if (elapsedMs >= timeoutMs) {
+    return BleBondPersistenceDecision::TimedOut;
+  }
+  return BleBondPersistenceDecision::Wait;
+}

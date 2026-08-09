@@ -65,8 +65,8 @@ public:
   // the local entry UI canceled/timed out. Start and Cancel reset UI state.
   using PasskeyPoller = int32_t (*)(RicohPasskeyPollAction action);
 
-  void begin();
-  void setSecurityProfile(RicohSecurityProfileId profile);
+  bool begin();
+  bool setSecurityProfile(RicohSecurityProfileId profile);
   bool switchSecurityProfile(RicohSecurityProfileId profile);
   RicohSecurityProfileId securityProfileId() const { return _securityProfile; }
   void setBindingState(CameraBindingState state);
@@ -91,7 +91,7 @@ public:
   int consumeDisconnectReason();
   void clearDisconnectReason();
   bool deleteAllBonds();
-  void resetStack(bool clearObjects = false);
+  bool resetStack(bool clearObjects = false);
   bool lastFailureWasResourceExhausted() const;
   const CameraProtocolProfile& protocolProfile() const;
   RicohBleSecurityState securityState() const;
@@ -104,6 +104,9 @@ public:
 
 private:
   bool _begun = false;
+  // A failed host stop/object-clear leaves NimBLE ownership uncertain.  Only a
+  // later successful resetStack() may clear this latch and permit operations.
+  bool _stackRestartBlocked = false;
   bool _connected = false;
   bool _lastFailureResourceExhausted = false;
   RicohSecurityProfileId _securityProfile = RicohSecurityProfileId::Unknown;

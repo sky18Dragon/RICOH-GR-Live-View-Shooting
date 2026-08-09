@@ -44,7 +44,11 @@ constexpr uint16_t JPEG_DECODE_HEIGHT = 144;
 
 constexpr uint32_t BLE_SCAN_SECONDS = 2;
 constexpr bool BLE_DIRECT_RECONNECT_ON_BOOT = true;
-constexpr uint32_t BLE_FAST_CONNECT_TIMEOUT_MS = 1500;
+// A StickS3 hard reset leaves the camera holding the previous link until the
+// negotiated 5.12 s supervision timeout expires. Keep the direct-connect
+// attempt alive across that window so it can complete as soon as advertising
+// resumes instead of paying for a failed connect, scan and stack reset.
+constexpr uint32_t BLE_FAST_CONNECT_TIMEOUT_MS = 6000;
 constexpr uint32_t BLE_CONNECT_TIMEOUT_MS = 8000;
 constexpr uint8_t BLE_CONNECT_ATTEMPTS = 12;
 constexpr uint32_t BLE_CONNECT_RETRY_DELAY_MS = 1000;
@@ -56,6 +60,10 @@ constexpr uint32_t BLE_RECOVERY_STACK_RESET_GRACE_MS = 700;
 constexpr uint32_t BLE_DISCONNECT_WAIT_MS = 1200;
 constexpr uint32_t RICOH_BLE_BONDED_SECURITY_WAIT_MS = 1500;
 constexpr uint32_t RICOH_BLE_SECURITY_WAIT_MS = 7000;
+// GR IV reports encrypted/authenticated slightly before NimBLE persists the
+// new bond. A new peer must finish bond persistence inside this window before
+// the connection is accepted and its profile can be saved.
+constexpr uint32_t RICOH_BLE_BOND_PERSIST_SETTLE_MS = 1000;
 constexpr uint32_t RICOH_BLE_PASSKEY_ENTRY_WAIT_MS = 45000;
 constexpr uint32_t PASSKEY_DIGIT_CONFIRM_HOLD_MS = 600;
 constexpr uint8_t FIRST_BOOT_BLE_PAIRING_ATTEMPTS = 12;
@@ -66,7 +74,9 @@ constexpr uint32_t SERIAL_BOOT_WAIT_MS = RVF_SERIAL_BOOT_WAIT_MS;
 constexpr uint32_t CAMERA_POWER_OFF_COOLDOWN_MS = 15000;
 constexpr uint32_t CAMERA_POWER_OFF_PROBE_BACKOFF_MS = 8000;
 constexpr uint32_t CAMERA_SLEEP_AUTO_POWER_OFF_MS = 30000;
-constexpr uint32_t BLE_MANUAL_WAKE_REINIT_SETTLE_MS = 3000;
+// resetStack() already waits BLE_STACK_RESET_DELAY_MS and synchronously
+// reinitializes NimBLE. Only a short scheduler/controller settle is needed.
+constexpr uint32_t BLE_MANUAL_WAKE_REINIT_SETTLE_MS = 200;
 constexpr int RICOH_BLE_DISCONNECT_REMOTE_USER = 0x213;
 constexpr int RICOH_BLE_DISCONNECT_REMOTE_POWER_OFF = 0x215;
 constexpr uint8_t RICOH_BLE_POWER_READ_RETRIES = 2;

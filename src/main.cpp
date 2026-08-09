@@ -589,7 +589,10 @@ void applyDefaultProfile() {
         securityProfile != RicohSecurityProfileId::Unknown;
     (void)profileStore.save(cameraProfile);
   }
-  bleCamera.setSecurityProfile(securityProfile);
+  const rvf::Result profileResult = bleCamera.setSecurityProfile(securityProfile);
+  if (profileResult.failed()) {
+    Serial.printf("Profile: BLE security profile apply failed: %s\n", bleCamera.lastError().c_str());
+  }
   bleCamera.setBindingState(cameraProfile.bleAddress.length() > 0
                               ? CameraBindingState::Locked
                               : CameraBindingState::Unpaired);
@@ -1254,13 +1257,19 @@ bool runBleDiscoveryAtBoot() {
         Serial.println("BLE: protocol discovery incomplete; retrying without stack reset");
       } else if (bleCamera.lastFailureWasResourceExhausted()) {
         Serial.println("BLE: host resources exhausted during connect; rebuild stack objects before retry");
-        bleCamera.resetStack(true);
+        if (bleCamera.resetStack(true).failed()) {
+          Serial.printf("BLE: stack rebuild failed: %s\n", bleCamera.lastError().c_str());
+          return false;
+        }
         consecutiveConnectFailures = 0;
         skipRetryDelay = true;
       } else {
         consecutiveConnectFailures++;
         if (BLE_STACK_RESET_AFTER_FAILURES > 0 && consecutiveConnectFailures >= BLE_STACK_RESET_AFTER_FAILURES) {
-          bleCamera.resetStack();
+          if (bleCamera.resetStack().failed()) {
+            Serial.printf("BLE: stack reset failed: %s\n", bleCamera.lastError().c_str());
+            return false;
+          }
           consecutiveConnectFailures = 0;
           skipRetryDelay = true;
         }
@@ -1280,7 +1289,9 @@ bool runBleDiscoveryAtBoot() {
 
   showStatusIfChanged("BLE unavailable", "Return BLE scan", preferredBleName(), "", true);
   setCameraFlowState(CameraFlowState::BleScan, "BLE attempts exhausted");
-  bleCamera.resetStack();
+  if (bleCamera.resetStack().failed()) {
+    Serial.printf("BLE: final stack reset failed: %s\n", bleCamera.lastError().c_str());
+  }
   return false;
 }
 
@@ -1572,12 +1583,16 @@ void disconnectAllTransportsToBleScan(const char* reason) {
   setCameraFlowState(CameraFlowState::BleScan, reason);
 }
 
-void resetBleStackBeforeScanAfterLinkLoss(const char* reason) {
+bool resetBleStackBeforeScanAfterLinkLoss(const char* reason) {
   Serial.printf("BLE recovery: reset stack (%s)\n", reason != nullptr ? reason : "link lost");
   showStatusIfChanged("BLE stack reset", "Camera link lost", preferredBleName(), "Scanning soon", true);
-  bleCamera.resetStack();
+  if (bleCamera.resetStack().failed()) {
+    Serial.printf("BLE recovery: stack reset failed: %s\n", bleCamera.lastError().c_str());
+    return false;
+  }
   delay(BLE_RECOVERY_STACK_RESET_GRACE_MS);
   yield();
+  return true;
 }
 
 void delayAndYield(uint32_t delayMs) {
@@ -1901,14 +1916,32 @@ void resetBlePairingFromKey2() {
   deferredPropsRefreshAfter = 0;
   liveviewEnabled = true;
   bleCamera.setBindingState(CameraBindingState::Unpaired);
-  bleCamera.setSecurityProfile(RicohSecurityProfileId::Unknown);
+  const rvf::Result securityProfileResult =
+      bleCamera.setSecurityProfile(RicohSecurityProfileId::Unknown);
+  if (securityProfileResult.failed()) {
+    Serial.printf("BLE pairing reset: security profile reset failed: %s\n", bleCamera.lastError().c_str());
+    showStatusIfChanged("Reset pairing failed", bleCamera.lastError(), "Restart StickS3", "", true);
+    cameraRecoveryInProgress = false;
+    uiResettingPairing = false;
+    resettingPairing = false;
+    updateUi();
+    return;
+  }
 
   const rvf::Result deleteBondsResult = bleCamera.deleteAllBonds();
   if (deleteBondsResult.failed()) {
     Serial.printf("BLE pairing reset: NimBLE bond delete failed: %s\n", bleCamera.lastError().c_str());
   }
   bleCamera.clearDisconnectReason();
-  bleCamera.resetStack(true);
+  if (bleCamera.resetStack(true).failed()) {
+    Serial.printf("BLE pairing reset: stack rebuild failed: %s\n", bleCamera.lastError().c_str());
+    showStatusIfChanged("Reset pairing failed", bleCamera.lastError(), "Restart StickS3", "", true);
+    cameraRecoveryInProgress = false;
+    uiResettingPairing = false;
+    resettingPairing = false;
+    updateUi();
+    return;
+  }
 
   showStatusIfChanged("Scanning GR BLE", "Pairing mode", "", "", true);
   setCameraFlowState(CameraFlowState::BleScan, "Reset pairing");
@@ -1934,7 +1967,11 @@ void requestManualCameraWake(const char* source) {
   showStatusIfChanged("Manual retry", "Resetting BLE...", preferredBleName(), "", true);
 
   Serial.printf("BLE guard: manual retry BLE stack rebuild (%s)\n", wakeSource);
-  bleCamera.resetStack(true);
+  if (bleCamera.resetStack(true).failed()) {
+    Serial.printf("BLE guard: manual retry stack rebuild failed: %s\n", bleCamera.lastError().c_str());
+    showStatusIfChanged("Manual retry failed", bleCamera.lastError(), "Restart StickS3", "", true);
+    return;
+  }
   delay(BLE_MANUAL_WAKE_REINIT_SETTLE_MS);
   yield();
 

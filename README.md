@@ -181,12 +181,14 @@ flowchart TD
 | :--- | :---: | :--- |
 | `BLE_SCAN_SECONDS` | `2` | 单轮 BLE 扫描时长（秒） |
 | `BLE_DIRECT_RECONNECT_ON_BOOT` | `true` | 已保存且已绑定的 Profile 在启动时先尝试 BLE 地址直连 |
-| `BLE_FAST_CONNECT_TIMEOUT_MS` | `1500` | 已保存 BLE 地址直连超时；失败后立即回退扫描 |
+| `BLE_FAST_CONNECT_TIMEOUT_MS` | `6000` | 已保存 BLE 地址直连窗口；覆盖相机旧链路 5.12 秒监督超时，广播恢复后立即完成连接 |
 | `BLE_CONNECT_TIMEOUT_MS` | `8000` | 扫描后 BLE 建连超时 |
 | `BLE_CONNECT_ATTEMPTS` | `12` | 快速直连失败后，运行期扫描重连的最大尝试轮数 |
 | `RICOH_BLE_BONDED_SECURITY_WAIT_MS` | `1500` | 已绑定设备建立连接后，等待安全加密完成的等待延时 |
 | `RICOH_BLE_SECURITY_WAIT_MS` | `7000` | 首次配对时，等待安全加密完成的最大超时 |
+| `RICOH_BLE_BOND_PERSIST_SETTLE_MS` | `1000` | 新设备加密后等待 Bond 落盘；超时则不保存未绑定 Profile |
 | `RICOH_BLE_PASSKEY_ENTRY_WAIT_MS` | `45000` | GR III 六位 Passkey 的设备端输入窗口 |
+| `BLE_MANUAL_WAKE_REINIT_SETTLE_MS` | `200` | BLE 栈同步重建完成后的手动唤醒短暂稳定窗口 |
 | `RICOH_BLE_GATT_DIAGNOSTICS` | `0` | 编译期 GATT 表诊断开关；默认关闭且不读取/输出特征值 |
 | `RICOH_BLE_POWER_NOTIFY_SETTLE_MS` | `30` | 开启 Power Notify 后的短暂等待窗口，用于在 Wi-Fi ON 前捕获立即到来的关机通知 |
 | `WIFI_CACHED_CONNECT_GRACE_MS` | `0` | 请求 Wi-Fi ON 后立即开始缓存连接，不再固定等待 |
@@ -254,7 +256,7 @@ Flow: ACTIVATING_WIFI -> WIFI_CREDENTIALS_READY (portrait cached WiFi params; co
 ### 正常开机直连并启动 LiveView（GR IV 结构示例）
 
 ```text
-BLE fast path: direct connect addr=34:90:EA:CC:87:35 type=0 timeout=1500ms
+BLE fast path: direct connect addr=34:90:EA:CC:87:35 type=0 timeout=6000ms
 BLE: connected secure connect_ms=<measured> security_ms=<measured> total_ms=<measured>
 BLE fast path: ready in <measured>ms
 BLE profile detected=GR4_FAMILY source=gr4_read_probe

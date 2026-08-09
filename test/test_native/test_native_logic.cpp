@@ -9,7 +9,9 @@ void setUp(void) {}
 void tearDown(void) {}
 
 #include "ble_pairing_policy.h"
+#include "ble_discovery_policy.h"
 #include "ble_reconnect_policy.h"
+#include "ble_scan_lifecycle_policy.h"
 
 #include "app/AppController.h"
 #include "camera_identity.h"
@@ -95,6 +97,7 @@ struct FlowHarness {
   static bool previewRunning;
   static bool cachedCredentials;
   static bool guardActive;
+  static bool resetStackSucceeds;
   static uint32_t lastRecoveryAt;
   static uint32_t activateCalls;
   static uint32_t readCredentialsCalls;
@@ -102,6 +105,8 @@ struct FlowHarness {
   static uint32_t connectCalls;
   static uint32_t disconnectCalls;
   static uint32_t openPreviewCalls;
+  static uint32_t runBleDiscoveryCalls;
+  static uint32_t resetStackCalls;
 
   static void reset() {
     bleConnected = true;
@@ -109,6 +114,7 @@ struct FlowHarness {
     previewRunning = false;
     cachedCredentials = false;
     guardActive = false;
+    resetStackSucceeds = true;
     lastRecoveryAt = 0;
     activateCalls = 0;
     readCredentialsCalls = 0;
@@ -116,13 +122,22 @@ struct FlowHarness {
     connectCalls = 0;
     disconnectCalls = 0;
     openPreviewCalls = 0;
+    runBleDiscoveryCalls = 0;
+    resetStackCalls = 0;
   }
 
   static bool guardBlocks(const char*) { return guardActive; }
   static bool isGuardActive() { return guardActive; }
   static bool isBleConnected() { return bleConnected; }
   static bool isWifiConnected() { return wifiConnected; }
-  static bool runBleDiscovery() { return bleConnected; }
+  static bool runBleDiscovery() {
+    ++runBleDiscoveryCalls;
+    return bleConnected;
+  }
+  static bool resetBleStack(const char*) {
+    ++resetStackCalls;
+    return resetStackSucceeds;
+  }
   static bool activateWifi() {
     ++activateCalls;
     return true;
@@ -173,6 +188,7 @@ struct FlowHarness {
     result.openLiveView = openPreview;
     result.previewStreamRunning = isPreviewRunning;
     result.cameraRecoveryInProgress = recoveryInactive;
+    result.resetBleStackBeforeScanAfterLinkLoss = resetBleStack;
     result.lastCameraRecoveryAt = getLastRecoveryAt;
     result.setLastCameraRecoveryAt = setLastRecoveryAt;
     result.liveviewEnabled = true;
@@ -188,6 +204,7 @@ bool FlowHarness::wifiConnected = false;
 bool FlowHarness::previewRunning = false;
 bool FlowHarness::cachedCredentials = false;
 bool FlowHarness::guardActive = false;
+bool FlowHarness::resetStackSucceeds = true;
 uint32_t FlowHarness::lastRecoveryAt = 0;
 uint32_t FlowHarness::activateCalls = 0;
 uint32_t FlowHarness::readCredentialsCalls = 0;
@@ -195,6 +212,22 @@ uint32_t FlowHarness::applyCredentialsCalls = 0;
 uint32_t FlowHarness::connectCalls = 0;
 uint32_t FlowHarness::disconnectCalls = 0;
 uint32_t FlowHarness::openPreviewCalls = 0;
+uint32_t FlowHarness::runBleDiscoveryCalls = 0;
+uint32_t FlowHarness::resetStackCalls = 0;
+
+void testRecoveryStopsWhenBleStackResetFails() {
+  FlowHarness::reset();
+  FlowHarness::bleConnected = false;
+  FlowHarness::resetStackSucceeds = false;
+  rvf::AppController controller(rvf::AppState::BleScan);
+  controller.begin(rvf::AppState::BleScan);
+  const rvf::AppFlowActions actions = FlowHarness::actions();
+
+  controller.recoverCameraConnection(actions, "BLE disconnected");
+
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::resetStackCalls);
+  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::runBleDiscoveryCalls);
+}
 
 void testPortraitStartupCachesWifiWithoutConnecting() {
   FlowHarness::reset();
@@ -407,6 +440,77 @@ void testDirectReconnectIsOnlyUsedForKnownBondedBootProfile() {
   TEST_ASSERT_FALSE(shouldAttemptDirectBleReconnect(true, false, true, address, true));
   TEST_ASSERT_FALSE(shouldAttemptDirectBleReconnect(true, true, false, address, true));
   TEST_ASSERT_FALSE(shouldAttemptDirectBleReconnect(true, true, true, address, false));
+}
+
+void testProtocolDiscoveryRefreshesOnlyRequiredCharacteristicServices() {
+  TEST_ASSERT_TRUE(shouldRefreshProtocolDiscoveryCharacteristics(
+      BleProtocolDiscoveryService::SharedWlan));
+  TEST_ASSERT_TRUE(shouldRefreshProtocolDiscoveryCharacteristics(
+      BleProtocolDiscoveryService::Camera));
+  TEST_ASSERT_TRUE(shouldRefreshProtocolDiscoveryCharacteristics(
+      BleProtocolDiscoveryService::Shooting));
+  TEST_ASSERT_FALSE(shouldRefreshProtocolDiscoveryCharacteristics(
+      BleProtocolDiscoveryService::Control));
+}
+
+void testNewPeerMustPersistBondBeforeConnectionSucceeds() {
+  constexpr unsigned long timeoutMs = 1000;
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(BleBondPersistenceDecision::Wait),
+      static_cast<int>(decideBleBondPersistence(false, true, false, 100, timeoutMs)));
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(BleBondPersistenceDecision::Wait),
+      static_cast<int>(decideBleBondPersistence(false, true, false, 300, timeoutMs)));
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(BleBondPersistenceDecision::Wait),
+      static_cast<int>(decideBleBondPersistence(false, true, false, 500, timeoutMs)));
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(BleBondPersistenceDecision::Ready),
+      static_cast<int>(decideBleBondPersistence(false, true, true, 500, timeoutMs)));
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(BleBondPersistenceDecision::Ready),
+      static_cast<int>(decideBleBondPersistence(true, true, false, timeoutMs, timeoutMs)));
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(BleBondPersistenceDecision::Disconnected),
+      static_cast<int>(decideBleBondPersistence(true, false, false, 0, timeoutMs)));
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(BleBondPersistenceDecision::Disconnected),
+      static_cast<int>(decideBleBondPersistence(false, false, false, 500, timeoutMs)));
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(BleBondPersistenceDecision::TimedOut),
+      static_cast<int>(decideBleBondPersistence(false, true, false, timeoutMs, timeoutMs)));
+}
+
+void testBleScanCleanupRequiresHostAndCallbackQuiescence() {
+  TEST_ASSERT_TRUE(canCleanupBleScanSession(false, false, false, false, false, true, false));
+  TEST_ASSERT_FALSE(canCleanupBleScanSession(false, false, false, false, false, false, true));
+
+  // Natural completion requires the host's onScanEnd signal.
+  TEST_ASSERT_TRUE(canCleanupBleScanSession(true, false, true, true, true, true, false));
+  TEST_ASSERT_FALSE(canCleanupBleScanSession(true, false, true, false, true, true, true));
+
+  // NimBLE stop() does not emit onScanEnd; successful cancellation, an
+  // inactive controller, callback quiescence and a host-queue fence are the
+  // safe terminal state.
+  TEST_ASSERT_TRUE(canCleanupBleScanSession(true, true, true, false, true, true, true));
+  TEST_ASSERT_FALSE(canCleanupBleScanSession(true, true, true, false, true, true, false));
+  TEST_ASSERT_FALSE(canCleanupBleScanSession(true, true, false, false, true, true, true));
+  TEST_ASSERT_FALSE(canCleanupBleScanSession(true, true, true, false, false, true, true));
+  TEST_ASSERT_FALSE(canCleanupBleScanSession(true, true, true, false, true, false, true));
+}
+
+void testBleStackObjectsClearOnlyAfterHostStops() {
+  TEST_ASSERT_TRUE(canUseBleStack(false));
+  TEST_ASSERT_FALSE(canUseBleStack(true));
+
+  TEST_ASSERT_FALSE(canClearBleStackObjects(false));
+  TEST_ASSERT_TRUE(canClearBleStackObjects(true));
+
+  TEST_ASSERT_FALSE(canRestartBleStack(false, false, true));
+  TEST_ASSERT_FALSE(canRestartBleStack(false, true, true));
+  TEST_ASSERT_TRUE(canRestartBleStack(true, false, false));
+  TEST_ASSERT_TRUE(canRestartBleStack(true, true, true));
+  TEST_ASSERT_FALSE(canRestartBleStack(true, true, false));
 }
 
 void testBleCandidateDiscoveryIsOpenWithoutStoredIdentity() {
@@ -1104,6 +1208,7 @@ int main() {
   RUN_TEST(testLockedBindingRejectsNewPairingAndOtherCameras);
   RUN_TEST(testPairingBindingAcceptsFirstValidCandidateWithoutStoredIdentity);
   RUN_TEST(testCameraSleepGuardKeepsControllerOutOfScan);
+  RUN_TEST(testRecoveryStopsWhenBleStackResetFails);
   RUN_TEST(testBeginRejectsInvalidInputs);
   RUN_TEST(testDeliversFrameSplitAcrossChunks);
   RUN_TEST(testDropsShortFrame);
@@ -1114,6 +1219,10 @@ int main() {
   RUN_TEST(testRejectsNonRicohWifiSsidForBleName);
   RUN_TEST(testRequiresBleAddressAndAddressTypeForDirectReconnect);
   RUN_TEST(testDirectReconnectIsOnlyUsedForKnownBondedBootProfile);
+  RUN_TEST(testProtocolDiscoveryRefreshesOnlyRequiredCharacteristicServices);
+  RUN_TEST(testNewPeerMustPersistBondBeforeConnectionSucceeds);
+  RUN_TEST(testBleScanCleanupRequiresHostAndCallbackQuiescence);
+  RUN_TEST(testBleStackObjectsClearOnlyAfterHostStops);
   RUN_TEST(testBleCandidateDiscoveryIsOpenWithoutStoredIdentity);
   RUN_TEST(testBleCandidateMustMatchStoredIdentity);
   RUN_TEST(testSupervisorWaitsForIntervalAndIgnoresHealthyPreview);

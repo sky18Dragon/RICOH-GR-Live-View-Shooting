@@ -18,7 +18,7 @@ public:
 
     Result begin();
     Result begin(RicohBleClient& client);
-    void setSecurityProfile(RicohSecurityProfileId profile);
+    Result setSecurityProfile(RicohSecurityProfileId profile);
     void setBindingState(CameraBindingState state);
     CameraBindingState bindingState() const;
     bool consumeBondInvalidRequest();
@@ -49,7 +49,7 @@ public:
     int consumeDisconnectReason();
     void clearDisconnectReason();
     Result deleteAllBonds();
-    void resetStack(bool clearObjects = false);
+    Result resetStack(bool clearObjects = false);
     bool lastFailureWasResourceExhausted() const;
     const CameraProtocolProfile& protocolProfile() const;
     RicohBleSecurityState securityState() const;

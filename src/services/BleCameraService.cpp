@@ -18,7 +18,10 @@ Result BleCameraService::begin() {
         publish(AppEventType::ErrorRaised, static_cast<int>(ready.code), "begin");
         return ready;
     }
-    _client->begin();
+    if (!_client->begin()) {
+        publish(AppEventType::ErrorRaised, static_cast<int>(ErrorCode::Unknown), "begin");
+        return Result::failure(ErrorCode::Unknown, _client->lastError());
+    }
     LOGLINE_I("BLE", "BLE service initialized");
     return Result::success();
 }
@@ -28,10 +31,17 @@ Result BleCameraService::begin(RicohBleClient& client) {
     return begin();
 }
 
-void BleCameraService::setSecurityProfile(RicohSecurityProfileId profile) {
-    if (_client != nullptr) {
-        _client->setSecurityProfile(profile);
+Result BleCameraService::setSecurityProfile(RicohSecurityProfileId profile) {
+    Result ready = requireClient("setSecurityProfile");
+    if (ready.failed()) {
+        publish(AppEventType::ErrorRaised, static_cast<int>(ready.code), "setSecurityProfile");
+        return ready;
     }
+    if (!_client->setSecurityProfile(profile)) {
+        publish(AppEventType::ErrorRaised, static_cast<int>(ErrorCode::Unknown), "setSecurityProfile");
+        return Result::failure(ErrorCode::Unknown, _client->lastError());
+    }
+    return Result::success();
 }
 
 void BleCameraService::setBindingState(CameraBindingState state) {
@@ -275,10 +285,17 @@ Result BleCameraService::deleteAllBonds() {
     return Result::success();
 }
 
-void BleCameraService::resetStack(bool clearObjects) {
-    if (_client != nullptr) {
-        _client->resetStack(clearObjects);
+Result BleCameraService::resetStack(bool clearObjects) {
+    Result ready = requireClient("resetStack");
+    if (ready.failed()) {
+        publish(AppEventType::ErrorRaised, static_cast<int>(ready.code), "resetStack");
+        return ready;
     }
+    if (!_client->resetStack(clearObjects)) {
+        publish(AppEventType::ErrorRaised, static_cast<int>(ErrorCode::Unknown), "resetStack");
+        return Result::failure(ErrorCode::Unknown, _client->lastError());
+    }
+    return Result::success();
 }
 
 bool BleCameraService::lastFailureWasResourceExhausted() const {

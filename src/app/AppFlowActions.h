@@ -42,7 +42,7 @@ struct AppFlowActions {
     bool (*reasonRequiresBleRescan)(const char* reason) = nullptr;
     void (*showRecoveryBleReadyRetry)(const char* reason) = nullptr;
     void (*showRecoveryBleScan)(const char* reason) = nullptr;
-    void (*resetBleStackBeforeScanAfterLinkLoss)(const char* reason) = nullptr;
+    bool (*resetBleStackBeforeScanAfterLinkLoss)(const char* reason) = nullptr;
     void (*shortRecoveryDelay)() = nullptr;
     void (*onRecoveryGuardBlocked)() = nullptr;
     void (*onRecoveryFinished)(bool recovered) = nullptr;

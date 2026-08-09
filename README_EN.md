@@ -179,12 +179,15 @@ Connection and guard settings live in [src/config.h](src/config.h); UI and orien
 | Parameter | Default | Description |
 | :--- | :---: | :--- |
 | `BLE_SCAN_SECONDS` | `2` | Duration of one BLE scan cycle in seconds |
-| `BLE_FAST_CONNECT_TIMEOUT_MS` | `3000` | Direct reconnect timeout for a saved BLE address |
+| `BLE_DIRECT_RECONNECT_ON_BOOT` | `true` | Try the saved bonded BLE address before scanning during boot |
+| `BLE_FAST_CONNECT_TIMEOUT_MS` | `6000` | Boot direct-reconnect window covering the camera's 5.12-second stale-link supervision timeout |
 | `BLE_CONNECT_TIMEOUT_MS` | `8000` | BLE connection timeout after discovery |
 | `BLE_CONNECT_ATTEMPTS` | `12` | Maximum connection cycles when a cached identity exists |
 | `RICOH_BLE_BONDED_SECURITY_WAIT_MS` | `1500` | Post-connect wait time for BLE security/encryption to settle (ms) |
 | `RICOH_BLE_SECURITY_WAIT_MS` | `7000` | Max timeout for first-time security bonding to complete (ms) |
+| `RICOH_BLE_BOND_PERSIST_SETTLE_MS` | `1000` | Wait for a new bond to persist; an unbonded profile is not saved on timeout |
 | `RICOH_BLE_PASSKEY_ENTRY_WAIT_MS` | `45000` | Device-side input window for a GR III six-digit passkey (ms) |
+| `BLE_MANUAL_WAKE_REINIT_SETTLE_MS` | `200` | Short settle after the synchronous BLE stack rebuild for a manual wake |
 | `RICOH_BLE_GATT_DIAGNOSTICS` | `0` | Compile-time GATT table diagnostic; disabled by default and never reads/logs characteristic values |
 | `RICOH_BLE_POWER_NOTIFY_SETTLE_MS` | `30` | Short settle window after enabling power notifications, used to catch immediate power-off notifications before Wi-Fi ON |
 | `WIFI_CACHED_CONNECT_GRACE_MS` | `700` | Delay after requesting Wi-Fi ON before cached connection |

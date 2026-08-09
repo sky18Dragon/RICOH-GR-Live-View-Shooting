@@ -491,8 +491,14 @@ void AppController::recoverCameraConnection(const AppFlowActions& actions, const
             actions.disconnectAllTransportsToBleScan(recoveryReason);
         }
         if (bleLinkAlreadyLost) {
-            if (actions.resetBleStackBeforeScanAfterLinkLoss != nullptr) {
-                actions.resetBleStackBeforeScanAfterLinkLoss(recoveryReason);
+            if (actions.resetBleStackBeforeScanAfterLinkLoss == nullptr ||
+                !actions.resetBleStackBeforeScanAfterLinkLoss(recoveryReason)) {
+                if (actions.onRecoveryFinished != nullptr) {
+                    actions.onRecoveryFinished(false);
+                } else if (actions.setCameraRecoveryInProgress != nullptr) {
+                    actions.setCameraRecoveryInProgress(false);
+                }
+                return;
             }
         } else if (actions.shortRecoveryDelay != nullptr) {
             actions.shortRecoveryDelay();
