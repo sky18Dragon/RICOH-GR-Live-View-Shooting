@@ -27,7 +27,7 @@ struct UiViewModel {
     bool shouldRenderLivePreview = false;
     bool hasFrame = false;
     int8_t deviceBatteryPercent = -1;
-    const char* cameraBattery = nullptr;
+    bool deviceCharging = false;
     const char* errorTitle = nullptr;
     const char* errorDetail = nullptr;
 };
@@ -52,6 +52,8 @@ public:
     static UiScene selectScene(const UiSnapshot& snapshot,
                                UiOrientation orientation,
                                bool resetVisualActive = false);
+    static UiOrientation resolvePreviewOrientation(UiOrientation sensedOrientation,
+                                                   bool liveViewLocked);
     static float connectionPhaseFloor(AppState state);
 
 private:

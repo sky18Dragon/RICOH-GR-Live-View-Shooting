@@ -97,8 +97,17 @@ int16_t jpegViewportWidth = 0;
 int16_t jpegViewportHeight = 0;
 PasskeyButtonEntry passkeyEntry;
 bool passkeyEntryActive = false;
+bool liveViewLocked = false;
+int8_t deviceBatteryPercent = -1;
+bool deviceCharging = false;
+bool devicePowerSampleFrameBoundary = false;
+bool devicePowerSampleChargingNext = true;
+bool devicePowerSamplePending = true;
+uint32_t lastDevicePowerSampleAt = 0;
 
 constexpr uint32_t STATUS_MIN_REDRAW_MS = 1500;
+constexpr uint32_t DEVICE_POWER_NORMAL_SAMPLE_MS = 2000;
+constexpr uint32_t DEVICE_POWER_LIVE_SAMPLE_MS = 1500;
 
 void requestManualCameraWake(const char* source);
 void resetBlePairingFromKey2();
@@ -107,6 +116,51 @@ void updateUi(const ButtonEvents& input);
 rvf::AppFlowActions makeAppFlowActions();
 int32_t pollPasskeyButtonEntry(RicohPasskeyPollAction action);
 void toggleDisplayMirror();
+void toggleLiveViewLock();
+
+void sampleDeviceBatteryLevel() {
+  const int32_t battery = M5.Power.getBatteryLevel();
+  if (battery >= 0) {
+    deviceBatteryPercent = static_cast<int8_t>(battery > 100 ? 100 : battery);
+  }
+}
+
+void sampleDeviceCharging() {
+  const m5::Power_Class::is_charging_t state = M5.Power.isCharging();
+  const bool charging = state == m5::Power_Class::is_charging;
+  if (charging != deviceCharging) {
+    Serial.printf("Power indicator: charging=%d\n", charging ? 1 : 0);
+  }
+  deviceCharging = charging;
+}
+
+void serviceDevicePowerIndicator(uint32_t nowMs) {
+  const bool previewRunning = wifiPreview.isPreviewRunning();
+  const uint32_t intervalMs = previewRunning
+                                  ? DEVICE_POWER_LIVE_SAMPLE_MS
+                                  : DEVICE_POWER_NORMAL_SAMPLE_MS;
+  if ((!devicePowerSamplePending && (nowMs - lastDevicePowerSampleAt) < intervalMs) ||
+      (previewRunning && !devicePowerSampleFrameBoundary)) {
+    return;
+  }
+
+  devicePowerSamplePending = false;
+  devicePowerSampleFrameBoundary = false;
+  lastDevicePowerSampleAt = nowMs;
+  if (!previewRunning) {
+    sampleDeviceCharging();
+    sampleDeviceBatteryLevel();
+    return;
+  }
+
+  // LiveView performs at most one PMIC operation per completed-frame opportunity.
+  if (devicePowerSampleChargingNext) {
+    sampleDeviceCharging();
+  } else {
+    sampleDeviceBatteryLevel();
+  }
+  devicePowerSampleChargingNext = !devicePowerSampleChargingNext;
+}
 
 bool beginStickPower() {
   const int8_t sda = M5.getPin(m5::pin_name_t::in_i2c_sda);
@@ -621,6 +675,19 @@ void toggleDisplayMirror() {
   Serial.printf("Display: mirrored=%d persisted=%d\n",
                 mirrored ? 1 : 0,
                 persisted ? 1 : 0);
+}
+
+void toggleLiveViewLock() {
+  // The UI may already have rendered the portrait remote scene one loop before
+  // serviceCameraFlowIfNeeded() acts on the orientation change. Keep that
+  // one-loop handoff available for a Button B double-click while the underlying
+  // LiveView session is still active.
+  if (!liveViewLocked && !appController.isPreviewActive()) {
+    Serial.println("LiveView lock: ignored outside LiveView");
+    return;
+  }
+  liveViewLocked = !liveViewLocked;
+  Serial.printf("LiveView lock: enabled=%d\n", liveViewLocked ? 1 : 0);
 }
 
 bool ensureCameraPowerReadyForWifi(const char* source) {
@@ -1769,10 +1836,9 @@ rvf::UiSnapshot makeUiSnapshot() {
   snapshot.rssi = grWifi.rssi();
   snapshot.decodedFrames = decodedFrames;
   snapshot.droppedFrames = mjpeg.droppedFrames();
-  const int32_t battery = M5.Power.getBatteryLevel();
-  snapshot.deviceBatteryPercent = static_cast<int8_t>(battery > 100 ? 100 : battery);
+  snapshot.deviceBatteryPercent = deviceBatteryPercent;
+  snapshot.deviceCharging = deviceCharging;
   snapshot.cameraModel = cameraProps.model.c_str();
-  snapshot.cameraBattery = cameraProps.battery.c_str();
   snapshot.errorTitle = lastStatusLine1.c_str();
   snapshot.errorDetail = lastStatusLine2.c_str();
   return snapshot;
@@ -1801,7 +1867,9 @@ void updateUi(const ButtonEvents& input) {
   currentUiInput = input;
   const uint32_t nowMs = millis();
   const rvf::UiSnapshot snapshot = makeUiSnapshot();
-  const rvf::UiOrientation orientation = sampleUiOrientation(snapshot, nowMs);
+  const rvf::UiOrientation sensedOrientation = sampleUiOrientation(snapshot, nowMs);
+  const rvf::UiOrientation orientation = rvf::UiCoordinator::resolvePreviewOrientation(
+      sensedOrientation, liveViewLocked);
   appController.setPreviewRequested(orientation == rvf::UiOrientation::Landscape);
   uiCoordinator.update(snapshot, input, orientation, nowMs);
   ui.render(uiCoordinator.viewModel());
@@ -1812,6 +1880,7 @@ void updateUi(const ButtonEvents& input) {
   currentUiInput.buttonAReleased = false;
   currentUiInput.resetPairing = false;
   currentUiInput.toggleDisplayMirror = false;
+  currentUiInput.toggleLiveViewLock = false;
   currentUiInput.powerOff = false;
 }
 
@@ -1846,6 +1915,8 @@ void onJpegFrame(const uint8_t* data, size_t len, void*) {
   decodedFrames++;
   updateFps();
   previewFrameBuffer.recordFrame(len);
+  // Only mark a safe opportunity here; PMIC I/O runs later in the main loop.
+  devicePowerSampleFrameBoundary = true;
 
   if (!uiCoordinator.shouldRenderLivePreview()) {
     // The stream remains active and all watchdog/frame timestamps continue to
@@ -2030,12 +2101,17 @@ void handleButtons() {
   }
 
   if (command == rvf::UserCommand::ResetPairing) {
+    liveViewLocked = false;
     resetBlePairingFromKey2();
     return;
   }
 
   if (command == rvf::UserCommand::ToggleDisplayMirror) {
     toggleDisplayMirror();
+  }
+
+  if (command == rvf::UserCommand::ToggleLiveViewLock) {
+    toggleLiveViewLock();
   }
 
   if (command == rvf::UserCommand::Shoot) {
@@ -2214,6 +2290,7 @@ void runAppTick() {
   if (tickPlan.updateStatusUi) {
     updateStatusUiIfDue();
   }
+  serviceDevicePowerIndicator(millis());
   updateUi();
   delay(1);
 }
@@ -2240,6 +2317,7 @@ void setup() {
   waitForSerialConsole();
 
   beginStickPower();
+  serviceDevicePowerIndicator(millis());
   buttons.begin();
   ricohBle.setServiceCallback(serviceButtonsDuringBleOperation);
   ricohBle.setPasskeyPoller(pollPasskeyButtonEntry);

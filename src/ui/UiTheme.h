@@ -59,6 +59,7 @@ constexpr uint16_t kResetProgressBottom = 20;
 constexpr uint32_t kResetHoldMs = 3000;
 constexpr uint32_t kResetSplitMs = 300;
 constexpr int16_t kResetSplitDistance = 30;
+constexpr uint32_t kButtonBDoubleClickMs = 350;
 
 constexpr uint32_t kOrientationSampleMs = 40;
 constexpr uint32_t kOrientationStableMs = 500;

@@ -14,20 +14,6 @@ const char* safeText(const char* value, const char* fallback = "") {
     return value != nullptr && value[0] != '\0' ? value : fallback;
 }
 
-int parsePercent(const char* text) {
-    if (text == nullptr) return -1;
-    int value = -1;
-    for (size_t i = 0; text[i] != '\0'; ++i) {
-        if (text[i] >= '0' && text[i] <= '9') {
-            if (value < 0) value = 0;
-            value = value * 10 + (text[i] - '0');
-        } else if (value >= 0) {
-            break;
-        }
-    }
-    return value > 100 ? 100 : value;
-}
-
 uint16_t gray565(float intensity) {
     const uint8_t five = static_cast<uint8_t>(rvf::uiClamp01(intensity) * 31.0f + 0.5f);
     const uint8_t six = static_cast<uint8_t>(rvf::uiClamp01(intensity) * 63.0f + 0.5f);
@@ -357,10 +343,16 @@ void DisplayUi::drawError(const rvf::UiViewModel& view) {
 }
 
 void DisplayUi::drawBatteryIndicator(const rvf::UiViewModel& view) {
-    int percent = parsePercent(view.cameraBattery);
-    if (percent < 0) percent = view.deviceBatteryPercent;
+    const int percent = view.deviceBatteryPercent;
     const int16_t x = _width - 22;
     const int16_t y = 7;
+    if (view.deviceCharging) {
+        // Primitive lightning glyph avoids depending on Unicode font support.
+        const int16_t boltX = x - 8;
+        _canvas.drawLine(boltX + 5, y, boltX + 1, y + 4, rvf::UiTheme::kGreen);
+        _canvas.drawLine(boltX + 1, y + 4, boltX + 4, y + 4, rvf::UiTheme::kGreen);
+        _canvas.drawLine(boltX + 4, y + 4, boltX, y + 8, rvf::UiTheme::kGreen);
+    }
     _canvas.drawRect(x, y, 14, 8, rvf::UiTheme::kWhite);
     _canvas.fillRect(x + 14, y + 2, 2, 4, rvf::UiTheme::kWhite);
     if (percent >= 0) {
@@ -468,28 +460,4 @@ void DisplayUi::showPasskeyEntry(const uint8_t digits[6], uint8_t activeIndex) {
         drawCenteredText("Hold A:submit", _height - 24, rvf::UiTheme::kWhite);
     }
     pushCanvas();
-}
-
-void DisplayUi::drawOverlay(const String&,
-                            const String&,
-                            const String&,
-                            const String& battery,
-                            float fps,
-                            int32_t,
-                            uint32_t frames,
-                            uint32_t droppedFrames) {
-    rvf::UiViewModel view;
-    view.cameraBattery = battery.c_str();
-    view.deviceBatteryPercent = static_cast<int8_t>(M5.Power.getBatteryLevel());
-    drawBatteryIndicator(view);
-    if (rvf::UiTheme::kDebugHud) {
-        char text[32];
-        snprintf(text, sizeof(text), "%.1f %lu/%lu", static_cast<double>(fps),
-                 static_cast<unsigned long>(frames),
-                 static_cast<unsigned long>(droppedFrames));
-        _canvas.setTextSize(1);
-        _canvas.setTextColor(rvf::UiTheme::kWhite);
-        _canvas.setCursor(5, 5);
-        _canvas.print(text);
-    }
 }

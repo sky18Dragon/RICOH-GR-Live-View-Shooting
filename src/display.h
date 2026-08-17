@@ -24,15 +24,6 @@ public:
     void showError(const char* message, const char* detail = nullptr);
     void showError(const String& message, const String& detail = String());
     void showPasskeyEntry(const uint8_t digits[6], uint8_t activeIndex);
-    void drawOverlay(const String& wifiStatus,
-                     const String& liveviewStatus,
-                     const String& model,
-                     const String& battery,
-                     float fps,
-                     int32_t rssi,
-                     uint32_t frames,
-                     uint32_t droppedFrames);
-
     int16_t width() const { return _width; }
     int16_t height() const { return _height; }
     void setMirrored(bool mirrored);

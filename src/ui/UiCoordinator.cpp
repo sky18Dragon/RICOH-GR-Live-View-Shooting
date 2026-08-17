@@ -66,6 +66,11 @@ UiScene UiCoordinator::selectScene(const UiSnapshot& snapshot,
     return UiScene::Disconnected;
 }
 
+UiOrientation UiCoordinator::resolvePreviewOrientation(UiOrientation sensedOrientation,
+                                                       bool liveViewLocked) {
+    return liveViewLocked ? UiOrientation::Landscape : sensedOrientation;
+}
+
 float UiCoordinator::connectionPhaseFloor(AppState state) {
     switch (state) {
         case AppState::BleScan: return 0.0f;
@@ -177,7 +182,7 @@ void UiCoordinator::update(const UiSnapshot& snapshot,
     _view.overlayProgress = _shutterOverlay.progress(nowMs);
     _view.hasFrame = snapshot.hasFrame;
     _view.deviceBatteryPercent = snapshot.deviceBatteryPercent;
-    _view.cameraBattery = snapshot.cameraBattery;
+    _view.deviceCharging = snapshot.deviceCharging;
     _view.errorTitle = snapshot.errorTitle;
     _view.errorDetail = snapshot.errorDetail;
     _view.shouldRenderLivePreview = scene == UiScene::LivePreview && snapshot.previewRunning;

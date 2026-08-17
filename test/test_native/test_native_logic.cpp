@@ -624,6 +624,25 @@ void testUiMapsAppStatesToScenes() {
                             snapshot, rvf::UiOrientation::Landscape)));
 }
 
+void testUiPropagatesDeviceChargingIndicator() {
+  rvf::UiCoordinator coordinator;
+  rvf::UiSnapshot snapshot;
+  rvf::ButtonEvents input;
+  snapshot.appState = rvf::AppState::BleReady;
+  snapshot.deviceBatteryPercent = 68;
+  snapshot.deviceCharging = true;
+
+  coordinator.begin(0);
+  coordinator.update(snapshot, input, rvf::UiOrientation::Portrait, 1);
+
+  TEST_ASSERT_EQUAL_INT8(68, coordinator.viewModel().deviceBatteryPercent);
+  TEST_ASSERT_TRUE(coordinator.viewModel().deviceCharging);
+
+  snapshot.deviceCharging = false;
+  coordinator.update(snapshot, input, rvf::UiOrientation::Portrait, 2);
+  TEST_ASSERT_FALSE(coordinator.viewModel().deviceCharging);
+}
+
 void testConnectingDotsOnlyMergeAfterBleConnects() {
   rvf::UiCoordinator coordinator;
   rvf::UiSnapshot snapshot;
@@ -693,6 +712,34 @@ void testOrientationHysteresisPreventsBoundaryChatter() {
                         static_cast<int>(tracker.orientation()));
 }
 
+void testLiveViewLockForcesLandscapeAndUnlockRestoresPosture() {
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(rvf::UiOrientation::Landscape),
+      static_cast<int>(rvf::UiCoordinator::resolvePreviewOrientation(
+          rvf::UiOrientation::Portrait, true)));
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(rvf::UiOrientation::Portrait),
+      static_cast<int>(rvf::UiCoordinator::resolvePreviewOrientation(
+          rvf::UiOrientation::Portrait, false)));
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(rvf::UiOrientation::Landscape),
+      static_cast<int>(rvf::UiCoordinator::resolvePreviewOrientation(
+          rvf::UiOrientation::Landscape, false)));
+}
+
+void testActivePreviewOutlivesPortraitUiForLockHandoff() {
+  rvf::AppController controller(rvf::AppState::PreviewRunning);
+  rvf::UiSnapshot snapshot;
+  snapshot.appState = rvf::AppState::PreviewRunning;
+  snapshot.previewRunning = true;
+
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(rvf::UiScene::RemoteReady),
+      static_cast<int>(rvf::UiCoordinator::selectScene(
+          snapshot, rvf::UiOrientation::Portrait)));
+  TEST_ASSERT_TRUE(controller.isPreviewActive());
+}
+
 void testAnimationProgressAndCompletion() {
   rvf::AnimationState animation;
   animation.start(1000, 1000);
@@ -722,15 +769,36 @@ void testButtonBReportsContinuousProgress() {
   TEST_ASSERT_FALSE(halfway.resetPairing);
 }
 
-void testButtonBShortReleaseTogglesMirrorWithoutReset() {
-  rvf::ButtonInput input(3000);
+void testButtonBSingleClickTogglesMirrorAfterDoubleClickWindow() {
+  rvf::ButtonInput input(3000, 350);
   input.update(false, true, false, 100);
-  const rvf::ButtonEvents released = input.update(false, false, false, 2500);
+  const rvf::ButtonEvents released = input.update(false, false, false, 200);
   TEST_ASSERT_FALSE(released.resetPairing);
   TEST_ASSERT_FALSE(released.resetHoldActive);
-  TEST_ASSERT_TRUE(released.toggleDisplayMirror);
+  TEST_ASSERT_FALSE(released.toggleDisplayMirror);
+  const rvf::ButtonEvents confirmed = input.update(false, false, false, 551);
+  TEST_ASSERT_TRUE(confirmed.toggleDisplayMirror);
   TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UserCommand::ToggleDisplayMirror),
-                        static_cast<int>(rvf::ButtonInput::commandFromEvents(released)));
+                        static_cast<int>(rvf::ButtonInput::commandFromEvents(confirmed)));
+}
+
+void testButtonBDoubleClickTogglesLiveViewLockWithoutMirror() {
+  rvf::ButtonInput input(3000, 350);
+  input.update(false, true, false, 100);
+  const rvf::ButtonEvents firstRelease = input.update(false, false, false, 160);
+  TEST_ASSERT_FALSE(firstRelease.toggleDisplayMirror);
+  TEST_ASSERT_FALSE(firstRelease.toggleLiveViewLock);
+
+  input.update(false, true, false, 260);
+  const rvf::ButtonEvents secondRelease = input.update(false, false, false, 320);
+  TEST_ASSERT_TRUE(secondRelease.toggleLiveViewLock);
+  TEST_ASSERT_FALSE(secondRelease.toggleDisplayMirror);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UserCommand::ToggleLiveViewLock),
+                        static_cast<int>(rvf::ButtonInput::commandFromEvents(secondRelease)));
+
+  const rvf::ButtonEvents afterWindow = input.update(false, false, false, 1000);
+  TEST_ASSERT_FALSE(afterWindow.toggleDisplayMirror);
+  TEST_ASSERT_FALSE(afterWindow.toggleLiveViewLock);
 }
 
 void testButtonBThresholdTriggersOnlyOnce() {
@@ -741,6 +809,7 @@ void testButtonBThresholdTriggersOnlyOnce() {
   TEST_ASSERT_FALSE(input.update(false, true, false, 5100).resetPairing);
   const rvf::ButtonEvents released = input.update(false, false, false, 5200);
   TEST_ASSERT_FALSE(released.toggleDisplayMirror);
+  TEST_ASSERT_FALSE(released.toggleLiveViewLock);
 }
 
 void testButtonAOperationTriggersAtMostOneShoot() {
@@ -1231,15 +1300,19 @@ int main() {
   RUN_TEST(testSupervisorReportsPreviewIdleTimeout);
   RUN_TEST(testSupervisorReportsFrameStallDespiteIncomingBytes);
   RUN_TEST(testUiMapsAppStatesToScenes);
+  RUN_TEST(testUiPropagatesDeviceChargingIndicator);
   RUN_TEST(testConnectingDotsOnlyMergeAfterBleConnects);
   RUN_TEST(testUiScenePriority);
   RUN_TEST(testOrientationRequiresStableCandidate);
   RUN_TEST(testOrientationMapsStickS3PhysicalAxes);
   RUN_TEST(testOrientationHysteresisPreventsBoundaryChatter);
+  RUN_TEST(testLiveViewLockForcesLandscapeAndUnlockRestoresPosture);
+  RUN_TEST(testActivePreviewOutlivesPortraitUiForLockHandoff);
   RUN_TEST(testAnimationProgressAndCompletion);
   RUN_TEST(testAnimationElapsedIsMillisWrapSafe);
   RUN_TEST(testButtonBReportsContinuousProgress);
-  RUN_TEST(testButtonBShortReleaseTogglesMirrorWithoutReset);
+  RUN_TEST(testButtonBSingleClickTogglesMirrorAfterDoubleClickWindow);
+  RUN_TEST(testButtonBDoubleClickTogglesLiveViewLockWithoutMirror);
   RUN_TEST(testButtonBThresholdTriggersOnlyOnce);
   RUN_TEST(testButtonAOperationTriggersAtMostOneShoot);
   RUN_TEST(testShutterOverlaySuccessAndFailureLifecycles);

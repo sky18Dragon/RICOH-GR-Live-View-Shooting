@@ -19,6 +19,7 @@ struct ButtonEvents {
     uint32_t resetHoldMs = 0;
     bool resetPairing = false;
     bool toggleDisplayMirror = false;
+    bool toggleLiveViewLock = false;
 
     bool powerOff = false;
     bool any = false;
@@ -26,8 +27,10 @@ struct ButtonEvents {
 
 class ButtonInput {
 public:
-    explicit ButtonInput(uint32_t resetHoldThresholdMs = UiTheme::kResetHoldMs)
-        : _resetHoldThresholdMs(resetHoldThresholdMs) {}
+    explicit ButtonInput(uint32_t resetHoldThresholdMs = UiTheme::kResetHoldMs,
+                         uint32_t doubleClickWindowMs = UiTheme::kButtonBDoubleClickMs)
+        : _resetHoldThresholdMs(resetHoldThresholdMs),
+          _doubleClickWindowMs(doubleClickWindowMs) {}
 
     void reset();
     ButtonEvents update(bool buttonADown,
@@ -39,11 +42,15 @@ public:
 
 private:
     uint32_t _resetHoldThresholdMs = UiTheme::kResetHoldMs;
+    uint32_t _doubleClickWindowMs = UiTheme::kButtonBDoubleClickMs;
     bool _buttonAWasDown = false;
     bool _buttonBWasDown = false;
     bool _resetReported = false;
+    bool _buttonBClickPending = false;
+    bool _buttonBSecondClick = false;
     uint32_t _buttonAPressedAtMs = 0;
     uint32_t _buttonBPressedAtMs = 0;
+    uint32_t _buttonBReleasedAtMs = 0;
 };
 
 }  // namespace rvf
