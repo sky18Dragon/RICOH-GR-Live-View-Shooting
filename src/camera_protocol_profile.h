@@ -9,12 +9,6 @@ enum class RicohProtocolGeneration : uint8_t {
   Gr4Family = 4,
 };
 
-enum class CameraFamilySelection : uint8_t {
-  Unset = 0,
-  Gr3Family = 1,
-  Gr4Family = 2,
-};
-
 enum class RicohSecurityProfileId : uint8_t {
   Unknown = 0,
   Gr3Passkey = 1,
@@ -124,9 +118,6 @@ struct ProtocolDetectionEvidence {
 const CameraProtocolProfile& cameraProtocolProfile(RicohProtocolGeneration generation);
 RicohProtocolGeneration detectRicohProtocol(const ProtocolDetectionEvidence& evidence);
 const char* ricohProtocolGenerationName(RicohProtocolGeneration generation);
-RicohProtocolGeneration protocolGenerationForFamily(CameraFamilySelection family);
-CameraFamilySelection familyForProtocolGeneration(RicohProtocolGeneration generation);
-const char* cameraFamilySelectionName(CameraFamilySelection family);
 RicohSecurityProfileId securityProfileForGeneration(RicohProtocolGeneration generation);
 bool canPromoteDiscoveryConnectionInPlace(RicohSecurityProfileId activeProfile,
                                           RicohProtocolGeneration detectedGeneration);

@@ -10,9 +10,3 @@ inline bool cameraSleepAutoPowerOffDue(bool sleepActive,
            timeoutMs > 0 &&
            static_cast<uint32_t>(nowMs - enteredAtMs) >= timeoutMs;
 }
-
-inline bool isExplicitCameraSleepDisconnectReason(int reason,
-                                                  int remoteUserReason,
-                                                  int remotePowerOffReason) {
-    return reason == remoteUserReason || reason == remotePowerOffReason;
-}

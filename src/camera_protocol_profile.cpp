@@ -161,43 +161,6 @@ const char* ricohProtocolGenerationName(RicohProtocolGeneration generation) {
   return "UNKNOWN";
 }
 
-RicohProtocolGeneration protocolGenerationForFamily(CameraFamilySelection family) {
-  switch (family) {
-    case CameraFamilySelection::Gr3Family:
-      return RicohProtocolGeneration::Gr3Family;
-    case CameraFamilySelection::Gr4Family:
-      return RicohProtocolGeneration::Gr4Family;
-    case CameraFamilySelection::Unset:
-      return RicohProtocolGeneration::Unknown;
-  }
-  return RicohProtocolGeneration::Unknown;
-}
-
-CameraFamilySelection familyForProtocolGeneration(RicohProtocolGeneration generation) {
-  switch (generation) {
-    case RicohProtocolGeneration::Gr3Family:
-      return CameraFamilySelection::Gr3Family;
-    case RicohProtocolGeneration::Gr4Family:
-      return CameraFamilySelection::Gr4Family;
-    case RicohProtocolGeneration::Gr2Family:
-    case RicohProtocolGeneration::Unknown:
-      return CameraFamilySelection::Unset;
-  }
-  return CameraFamilySelection::Unset;
-}
-
-const char* cameraFamilySelectionName(CameraFamilySelection family) {
-  switch (family) {
-    case CameraFamilySelection::Gr3Family:
-      return "GR III";
-    case CameraFamilySelection::Gr4Family:
-      return "GR IV";
-    case CameraFamilySelection::Unset:
-      return "UNSET";
-  }
-  return "UNSET";
-}
-
 RicohSecurityProfileId securityProfileForGeneration(RicohProtocolGeneration generation) {
   switch (generation) {
     case RicohProtocolGeneration::Gr3Family:

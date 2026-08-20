@@ -4,7 +4,6 @@ namespace rvf {
 
 enum class AppState {
     Booting,
-    InitialCameraSelection,
     Idle,
     BleScan,
     CameraSleepGuard,

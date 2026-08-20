@@ -26,8 +26,6 @@ const char* appStateName(AppState state) {
     switch (state) {
         case AppState::Booting:
             return "BOOTING";
-        case AppState::InitialCameraSelection:
-            return "INITIAL_CAMERA_SELECTION";
         case AppState::Idle:
             return "IDLE";
         case AppState::BleScan:
@@ -84,12 +82,6 @@ AppTickPlan AppController::planTick(uint32_t nowMs) const {
     (void)nowMs;
 
     AppTickPlan plan;
-    if (_state == AppState::InitialCameraSelection) {
-        plan.serviceCameraFlow = false;
-        plan.refreshWifiCache = false;
-        plan.updateStatusUi = false;
-        return plan;
-    }
     const bool previewActive = isPreviewActive();
     plan.monitorWifi = previewActive;
     plan.refreshProps = previewActive;
@@ -107,29 +99,6 @@ bool AppController::runCameraFlowOnce(const AppFlowActions& actions, uint32_t no
     transitionTo(AppState::BleScan, "enter BLE scan mode", flowStartMs);
     if (actions.runBleDiscovery == nullptr || !actions.runBleDiscovery()) {
         return false;
-    }
-
-    // Cached credentials survive a camera power cycle, but the camera WLAN
-    // does not. Reactivate it immediately after a portrait BLE reconnect so
-    // a later landscape request can associate without waiting for WLAN ON.
-    const bool cachedPortraitReady =
-        !_previewRequested &&
-        actions.hasUsableCachedWifiCredentials != nullptr &&
-        actions.hasUsableCachedWifiCredentials();
-    if (cachedPortraitReady) {
-        connectWifiAfterBleReady(actions);
-        return _state == AppState::WifiCredentialsReady;
-    }
-
-    // First pairing in portrait has no WLAN cache yet, but secure BLE is
-    // already enough for the shutter. Return control to the main loop now so
-    // Button A is responsive; the first landscape request performs the
-    // deferred power/WLAN/credential setup before starting LiveView.
-    if (!_previewRequested) {
-        transitionTo(AppState::BleReady,
-                     "portrait BLE shutter ready; WiFi setup deferred",
-                     controllerMillis());
-        return true;
     }
 
     for (uint8_t attempt = 0; attempt < actions.wifiOpenAttempts; ++attempt) {
@@ -578,13 +547,6 @@ void AppController::serviceCameraFlowIfNeeded(const AppFlowActions& actions, uin
         return;
     }
 
-    // Portrait only needs the secure BLE shutter. If WLAN setup was deferred
-    // (for example while a newly paired GR III reports BLE_STARTUP), leave the
-    // usable BLE_READY state quiet until posture actually requests LiveView.
-    if (!_previewRequested && _state == AppState::BleReady && bleConnected) {
-        return;
-    }
-
     if (_state == AppState::WifiCredentialsReady && bleConnected) {
         if (!_previewRequested) {
             return;
@@ -615,8 +577,7 @@ void AppController::serviceCameraFlowIfNeeded(const AppFlowActions& actions, uin
     if (actions.lastCameraRecoveryAt == nullptr || actions.setLastCameraRecoveryAt == nullptr) {
         return;
     }
-    if (!previewRequestChanged &&
-        (now - actions.lastCameraRecoveryAt()) < actions.bleScanRetryIntervalMs) {
+    if ((now - actions.lastCameraRecoveryAt()) < actions.bleScanRetryIntervalMs) {
         return;
     }
 
@@ -625,9 +586,7 @@ void AppController::serviceCameraFlowIfNeeded(const AppFlowActions& actions, uin
                           ? resumeFromBleReady(actions, "BLE_READY scheduled retry")
                           : runCameraFlowOnce(actions, now);
     if (!online) {
-        // Preserve retry pacing after a refused/transient operation. Clearing
-        // this timestamp makes the next main-loop tick retry immediately.
-        actions.setLastCameraRecoveryAt(now);
+        actions.setLastCameraRecoveryAt(0);
     }
 }
 

@@ -91,15 +91,6 @@ void testCameraSleepAutoPowerOffHandlesMillisWrap() {
   TEST_ASSERT_TRUE(cameraSleepAutoPowerOffDue(true, enteredAt, 0x00000300U, 1000));
 }
 
-void testCameraSleepDisconnectReasonRejectsParkingFailure() {
-  constexpr int remoteUser = 0x213;
-  constexpr int remotePowerOff = 0x215;
-  TEST_ASSERT_TRUE(isExplicitCameraSleepDisconnectReason(0x213, remoteUser, remotePowerOff));
-  TEST_ASSERT_TRUE(isExplicitCameraSleepDisconnectReason(0x215, remoteUser, remotePowerOff));
-  TEST_ASSERT_FALSE(isExplicitCameraSleepDisconnectReason(0x216, remoteUser, remotePowerOff));
-  TEST_ASSERT_FALSE(isExplicitCameraSleepDisconnectReason(0, remoteUser, remotePowerOff));
-}
-
 struct FlowHarness {
   static bool bleConnected;
   static bool wifiConnected;
@@ -107,7 +98,6 @@ struct FlowHarness {
   static bool cachedCredentials;
   static bool guardActive;
   static bool resetStackSucceeds;
-  static bool activateSucceeds;
   static uint32_t lastRecoveryAt;
   static uint32_t activateCalls;
   static uint32_t readCredentialsCalls;
@@ -125,7 +115,6 @@ struct FlowHarness {
     cachedCredentials = false;
     guardActive = false;
     resetStackSucceeds = true;
-    activateSucceeds = true;
     lastRecoveryAt = 0;
     activateCalls = 0;
     readCredentialsCalls = 0;
@@ -151,7 +140,7 @@ struct FlowHarness {
   }
   static bool activateWifi() {
     ++activateCalls;
-    return activateSucceeds;
+    return true;
   }
   static bool hasCredentials() { return cachedCredentials; }
   static bool readCredentials() {
@@ -216,7 +205,6 @@ bool FlowHarness::previewRunning = false;
 bool FlowHarness::cachedCredentials = false;
 bool FlowHarness::guardActive = false;
 bool FlowHarness::resetStackSucceeds = true;
-bool FlowHarness::activateSucceeds = true;
 uint32_t FlowHarness::lastRecoveryAt = 0;
 uint32_t FlowHarness::activateCalls = 0;
 uint32_t FlowHarness::readCredentialsCalls = 0;
@@ -241,26 +229,8 @@ void testRecoveryStopsWhenBleStackResetFails() {
   TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::runBleDiscoveryCalls);
 }
 
-void testPortraitStartupReturnsAsSoonAsBleShutterIsReady() {
+void testPortraitStartupCachesWifiWithoutConnecting() {
   FlowHarness::reset();
-  rvf::AppController controller(rvf::AppState::BleScan);
-  controller.begin(rvf::AppState::BleScan);
-  const rvf::AppFlowActions actions = FlowHarness::actions();
-
-  TEST_ASSERT_TRUE(controller.runCameraFlowOnce(actions, 100));
-  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::AppState::BleReady),
-                        static_cast<int>(controller.state()));
-  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::activateCalls);
-  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::readCredentialsCalls);
-  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::applyCredentialsCalls);
-  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::connectCalls);
-  TEST_ASSERT_FALSE(FlowHarness::wifiConnected);
-  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::openPreviewCalls);
-}
-
-void testPortraitBleReconnectReactivatesCameraWlan() {
-  FlowHarness::reset();
-  FlowHarness::cachedCredentials = true;
   rvf::AppController controller(rvf::AppState::BleScan);
   controller.begin(rvf::AppState::BleScan);
   const rvf::AppFlowActions actions = FlowHarness::actions();
@@ -268,36 +238,12 @@ void testPortraitBleReconnectReactivatesCameraWlan() {
   TEST_ASSERT_TRUE(controller.runCameraFlowOnce(actions, 100));
   TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::AppState::WifiCredentialsReady),
                         static_cast<int>(controller.state()));
-  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::runBleDiscoveryCalls);
   TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::activateCalls);
   TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::readCredentialsCalls);
   TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::applyCredentialsCalls);
   TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::connectCalls);
-}
-
-void testPortraitReconnectKeepsWlanReadyForLandscapeConnect() {
-  FlowHarness::reset();
-  FlowHarness::cachedCredentials = true;
-  rvf::AppController controller(rvf::AppState::BleScan);
-  controller.begin(rvf::AppState::BleScan);
-  const rvf::AppFlowActions actions = FlowHarness::actions();
-
-  TEST_ASSERT_TRUE(controller.runCameraFlowOnce(actions, 100));
-
-  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::activateCalls);
-  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::connectCalls);
   TEST_ASSERT_FALSE(FlowHarness::wifiConnected);
-  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::AppState::WifiCredentialsReady),
-                        static_cast<int>(controller.state()));
-
-  // Landscape only associates with the AP that was already reactivated.
-  controller.setPreviewRequested(true);
-  controller.serviceCameraFlowIfNeeded(actions, 200);
-
-  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::activateCalls);
-  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::connectCalls);
-  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::AppState::PreviewRunning),
-                        static_cast<int>(controller.state()));
+  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::openPreviewCalls);
 }
 
 void testLandscapeStartupOpensLiveViewWithoutPropsProbe() {
@@ -349,35 +295,6 @@ void testLandscapeToPortraitDisconnectsWifiAndKeepsBleReady() {
   TEST_ASSERT_FALSE(FlowHarness::wifiConnected);
   TEST_ASSERT_FALSE(FlowHarness::previewRunning);
   TEST_ASSERT_TRUE(FlowHarness::bleConnected);
-}
-
-void testBleReadyFailureKeepsScheduledRetryPaced() {
-  FlowHarness::reset();
-  FlowHarness::activateSucceeds = false;
-  rvf::AppController controller(rvf::AppState::BleReady);
-  controller.begin(rvf::AppState::BleReady);
-  controller.setPreviewRequested(true);
-  const rvf::AppFlowActions actions = FlowHarness::actions();
-
-  controller.serviceCameraFlowIfNeeded(actions, 2000);
-  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::activateCalls);
-  TEST_ASSERT_EQUAL_UINT32(2000, FlowHarness::lastRecoveryAt);
-
-  controller.serviceCameraFlowIfNeeded(actions, 2001);
-  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::activateCalls);
-}
-
-void testPortraitBleReadyDoesNotRetryOptionalWifiSetup() {
-  FlowHarness::reset();
-  rvf::AppController controller(rvf::AppState::BleReady);
-  controller.begin(rvf::AppState::BleReady);
-  const rvf::AppFlowActions actions = FlowHarness::actions();
-
-  controller.serviceCameraFlowIfNeeded(actions, 2000);
-
-  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::AppState::BleReady),
-                        static_cast<int>(controller.state()));
-  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::activateCalls);
 }
 
 void testCameraSleepGuardKeepsControllerOutOfScan() {
@@ -707,25 +624,6 @@ void testUiMapsAppStatesToScenes() {
                             snapshot, rvf::UiOrientation::Landscape)));
 }
 
-void testPortraitBleReadyShowsRemoteInsteadOfMergedConnectionDot() {
-  rvf::UiSnapshot snapshot;
-  snapshot.appState = rvf::AppState::BleReady;
-  snapshot.bleConnected = true;
-  snapshot.shutterReady = true;
-
-  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiScene::RemoteReady),
-                        static_cast<int>(rvf::UiCoordinator::selectScene(
-                            snapshot, rvf::UiOrientation::Portrait)));
-  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiScene::Connecting),
-                        static_cast<int>(rvf::UiCoordinator::selectScene(
-                            snapshot, rvf::UiOrientation::Landscape)));
-
-  snapshot.appState = rvf::AppState::CheckingCameraPower;
-  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiScene::RemoteReady),
-                        static_cast<int>(rvf::UiCoordinator::selectScene(
-                            snapshot, rvf::UiOrientation::Portrait)));
-}
-
 void testUiPropagatesDeviceChargingIndicator() {
   rvf::UiCoordinator coordinator;
   rvf::UiSnapshot snapshot;
@@ -771,16 +669,6 @@ void testUiScenePriority() {
   TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiScene::ResetPairing),
                         static_cast<int>(rvf::UiCoordinator::selectScene(
                             snapshot, rvf::UiOrientation::Landscape)));
-}
-
-void testInitialCameraSelectionSuppressesResetVisual() {
-  rvf::UiSnapshot snapshot;
-  snapshot.appState = rvf::AppState::InitialCameraSelection;
-  snapshot.initialCameraSelectionActive = true;
-  snapshot.resettingPairing = true;
-  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiScene::InitialCameraSelection),
-                        static_cast<int>(rvf::UiCoordinator::selectScene(
-                            snapshot, rvf::UiOrientation::Portrait, true)));
 }
 
 void testOrientationRequiresStableCandidate() {
@@ -1365,15 +1253,10 @@ int main() {
   RUN_TEST(testCameraSleepAutoPowerOffWaitsForTimeout);
   RUN_TEST(testCameraSleepAutoPowerOffRequiresActiveSleep);
   RUN_TEST(testCameraSleepAutoPowerOffHandlesMillisWrap);
-  RUN_TEST(testCameraSleepDisconnectReasonRejectsParkingFailure);
-  RUN_TEST(testPortraitStartupReturnsAsSoonAsBleShutterIsReady);
-  RUN_TEST(testPortraitBleReconnectReactivatesCameraWlan);
-  RUN_TEST(testPortraitReconnectKeepsWlanReadyForLandscapeConnect);
+  RUN_TEST(testPortraitStartupCachesWifiWithoutConnecting);
   RUN_TEST(testLandscapeStartupOpensLiveViewWithoutPropsProbe);
   RUN_TEST(testPortraitToLandscapeResumesAfterCredentialCache);
   RUN_TEST(testLandscapeToPortraitDisconnectsWifiAndKeepsBleReady);
-  RUN_TEST(testBleReadyFailureKeepsScheduledRetryPaced);
-  RUN_TEST(testPortraitBleReadyDoesNotRetryOptionalWifiSetup);
   RUN_TEST(testDetectsProtocolOnlyFromSafeEvidence);
   RUN_TEST(testSecurityProfilesKeepGr4LegacyFrozen);
   RUN_TEST(testOnlyGr4DiscoveryCanReuseTheLegacyConnection);
@@ -1417,11 +1300,9 @@ int main() {
   RUN_TEST(testSupervisorReportsPreviewIdleTimeout);
   RUN_TEST(testSupervisorReportsFrameStallDespiteIncomingBytes);
   RUN_TEST(testUiMapsAppStatesToScenes);
-  RUN_TEST(testPortraitBleReadyShowsRemoteInsteadOfMergedConnectionDot);
   RUN_TEST(testUiPropagatesDeviceChargingIndicator);
   RUN_TEST(testConnectingDotsOnlyMergeAfterBleConnects);
   RUN_TEST(testUiScenePriority);
-  RUN_TEST(testInitialCameraSelectionSuppressesResetVisual);
   RUN_TEST(testOrientationRequiresStableCandidate);
   RUN_TEST(testOrientationMapsStickS3PhysicalAxes);
   RUN_TEST(testOrientationHysteresisPreventsBoundaryChatter);

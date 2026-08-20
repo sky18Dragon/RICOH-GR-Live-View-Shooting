@@ -26,7 +26,6 @@ struct CameraProfile {
   bool bleAddressTypeKnown = false;
   bool bleBonded = false;
   bool bleAuthenticated = false;
-  CameraFamilySelection pairedFamily = CameraFamilySelection::Unset;
   RicohProtocolGeneration protocolGeneration = RicohProtocolGeneration::Unknown;
   bool protocolGenerationKnown = false;
   RicohSecurityProfileId securityProfile = RicohSecurityProfileId::Unknown;

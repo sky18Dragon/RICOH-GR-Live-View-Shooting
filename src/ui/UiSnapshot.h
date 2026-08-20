@@ -1,7 +1,6 @@
 #pragma once
 
 #include "../app/AppState.h"
-#include "../camera_protocol_profile.h"
 
 namespace rvf {
 
@@ -13,8 +12,6 @@ struct UiSnapshot {
     bool shutterReady = false;
     bool cameraSleepLike = false;
     bool resettingPairing = false;
-    bool initialCameraSelectionActive = false;
-    CameraFamilySelection selectedInitialFamily = CameraFamilySelection::Gr4Family;
     bool hasFrame = false;
 
     float fps = 0.0f;

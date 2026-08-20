@@ -56,8 +56,6 @@ uint8_t* frameBuffer = nullptr;
 uint8_t streamReadBuffer[rvf::AppConfig::Buffer::kStreamReadBufferSize];
 CameraProps cameraProps;
 RicohBleWifiCredentials pendingFreshWifiCredentials;
-CameraFamilySelection pendingInitialFamily = CameraFamilySelection::Unset;
-CameraFamilySelection selectedInitialFamily = CameraFamilySelection::Gr4Family;
 
 bool liveviewEnabled = true;
 uint32_t lastFrameAt = 0;
@@ -76,7 +74,6 @@ bool cameraSleepBlockedFlowLogged = false;
 int cameraAutoWakeDisconnectReason = 0;
 uint32_t cameraPowerProbeBackoffUntil = 0;
 uint32_t cameraSleepEnteredAt = 0;
-uint32_t gr3NewPairingStartupGraceUntil = 0;
 RicohCameraPowerState cameraPowerState = RicohCameraPowerState::Unknown;
 RicohCameraOperationMode cameraOperationMode = RicohCameraOperationMode::Unknown;
 uint32_t lastPropsAt = 0;
@@ -114,9 +111,6 @@ constexpr uint32_t DEVICE_POWER_LIVE_SAMPLE_MS = 1500;
 
 void requestManualCameraWake(const char* source);
 void resetBlePairingFromKey2();
-void enterInitialCameraSelection(const char* reason);
-bool initialCameraSelectionRequired();
-bool hasStoredBleIdentity();
 void updateUi();
 void updateUi(const ButtonEvents& input);
 rvf::AppFlowActions makeAppFlowActions();
@@ -348,68 +342,8 @@ bool timeReached(uint32_t deadlineMs) {
   return static_cast<int32_t>(millis() - deadlineMs) >= 0;
 }
 
-bool hasValidPairedFamily() {
-  return cameraProfile.pairedFamily != CameraFamilySelection::Unset &&
-         protocolGenerationForFamily(cameraProfile.pairedFamily) ==
-             cameraProfile.protocolGeneration &&
-         cameraProfile.protocolGenerationKnown;
-}
-
-bool initialCameraSelectionRequired() {
-  if (pendingInitialFamily != CameraFamilySelection::Unset) {
-    return false;
-  }
-  return !hasStoredBleIdentity() || !hasValidPairedFamily();
-}
-
-void enterInitialCameraSelection(const char* reason) {
-  pendingInitialFamily = CameraFamilySelection::Unset;
-  gr3NewPairingStartupGraceUntil = 0;
-  if (selectedInitialFamily == CameraFamilySelection::Unset) {
-    selectedInitialFamily = CameraFamilySelection::Gr4Family;
-  }
-  bleCamera.setBindingState(CameraBindingState::Unpaired);
-  setCameraFlowState(CameraFlowState::InitialCameraSelection,
-                     reason != nullptr ? reason : "select camera family");
-  showStatusIfChanged("Select camera", cameraFamilySelectionName(selectedInitialFamily),
-                      "B change", "A confirm", true);
-}
-
-void toggleInitialCameraFamily() {
-  selectedInitialFamily =
-      selectedInitialFamily == CameraFamilySelection::Gr4Family
-        ? CameraFamilySelection::Gr3Family
-        : CameraFamilySelection::Gr4Family;
-  Serial.printf("Initial camera selection: selected=%s\n",
-                cameraFamilySelectionName(selectedInitialFamily));
-}
-
-void confirmInitialCameraFamily() {
-  pendingInitialFamily = selectedInitialFamily == CameraFamilySelection::Unset
-                           ? CameraFamilySelection::Gr4Family
-                           : selectedInitialFamily;
-  cameraProfile.pairedFamily = CameraFamilySelection::Unset;
-  cameraProfile.protocolGeneration = RicohProtocolGeneration::Unknown;
-  cameraProfile.protocolGenerationKnown = false;
-  cameraProfile.securityProfile = securityProfileForGeneration(
-      protocolGenerationForFamily(pendingInitialFamily));
-  cameraProfile.securityProfileKnown =
-      cameraProfile.securityProfile != RicohSecurityProfileId::Unknown;
-  Serial.printf("Initial camera selection: confirmed pending=%s protocol=%s\n",
-                cameraFamilySelectionName(pendingInitialFamily),
-                ricohProtocolGenerationName(protocolGenerationForFamily(pendingInitialFamily)));
-  setCameraFlowState(CameraFlowState::BleScan, "camera family confirmed");
-  setupCameraFlowActive = true;
-  const bool startupOnline = appController.runCameraFlowOnce(makeAppFlowActions(), millis());
-  setupCameraFlowActive = false;
-  lastCameraRecoveryAt = (startupOnline || bleCamera.isConnected()) ? millis() : 0;
-}
-
 bool isCameraSleepDisconnectReason(int reason) {
-  return isExplicitCameraSleepDisconnectReason(
-      reason,
-      RICOH_BLE_DISCONNECT_REMOTE_USER,
-      RICOH_BLE_DISCONNECT_REMOTE_POWER_OFF);
+  return reason != 0;
 }
 
 bool cameraSleepGuardActive() {
@@ -698,24 +632,6 @@ void applyDefaultProfile() {
   }
   wifiPreview.setEndpoint(cameraProfile.wifi.cameraIp.c_str(), GR_PORT);
 
-  if (cameraProfile.pairedFamily == CameraFamilySelection::Unset &&
-      cameraProfile.protocolGenerationKnown) {
-    cameraProfile.pairedFamily =
-        familyForProtocolGeneration(cameraProfile.protocolGeneration);
-  }
-  if (cameraProfile.pairedFamily != CameraFamilySelection::Unset &&
-      protocolGenerationForFamily(cameraProfile.pairedFamily) !=
-          cameraProfile.protocolGeneration) {
-    Serial.printf("Profile: camera family/protocol mismatch family=%s protocol=%s; requiring selection\n",
-                  cameraFamilySelectionName(cameraProfile.pairedFamily),
-                  ricohProtocolGenerationName(cameraProfile.protocolGeneration));
-    cameraProfile.pairedFamily = CameraFamilySelection::Unset;
-    cameraProfile.protocolGeneration = RicohProtocolGeneration::Unknown;
-    cameraProfile.protocolGenerationKnown = false;
-    cameraProfile.securityProfile = RicohSecurityProfileId::Unknown;
-    cameraProfile.securityProfileKnown = false;
-  }
-
   RicohSecurityProfileId securityProfile = cameraProfile.securityProfileKnown
                                              ? cameraProfile.securityProfile
                                              : securityProfileForGeneration(cameraProfile.protocolGeneration);
@@ -735,11 +651,10 @@ void applyDefaultProfile() {
                               ? CameraBindingState::Locked
                               : CameraBindingState::Unpaired);
 
-  Serial.printf("Profile: camera='%s' ble='%s' identity='%s' family=%s protocol=%s security=%s binding=%u ip='%s'\n",
+  Serial.printf("Profile: camera='%s' ble='%s' identity='%s' protocol=%s security=%s binding=%u ip='%s'\n",
                 cameraProfile.cameraName.c_str(),
                 cameraProfile.bleAddress.c_str(),
                 cameraProfile.peerIdentityAddress.c_str(),
-                cameraFamilySelectionName(cameraProfile.pairedFamily),
                 ricohProtocolGenerationName(cameraProfile.protocolGeneration),
                 ricohSecurityProfileName(securityProfile),
                 static_cast<unsigned>(bleCamera.bindingState()),
@@ -828,25 +743,6 @@ bool ensureCameraPowerReadyForWifi(const char* source) {
                     bleCamera.lastError().c_str());
       delay(80);
       yield();
-    }
-
-    const bool gr3NewPairingStarting =
-        bleCamera.protocolProfile().generation == RicohProtocolGeneration::Gr3Family &&
-        operationModeReadOk &&
-        cameraOperationMode == RicohCameraOperationMode::BleStartup &&
-        gr3NewPairingStartupGraceUntil != 0 &&
-        !timeReached(gr3NewPairingStartupGraceUntil);
-    if (gr3NewPairingStarting) {
-      Serial.printf("BLE: GR3 new-pairing startup is settling; WLAN remains blocked for up to %lums\n",
-                    static_cast<unsigned long>(gr3NewPairingStartupGraceUntil - millis()));
-      showStatusIfChanged("BLE ready", "Camera starting", cameraProfile.cameraName,
-                          "Keeping secure link", true);
-      setCameraFlowState(CameraFlowState::BleReady, "GR3 new pairing startup grace");
-      return false;
-    }
-
-    if (operationModeReadOk && !isCameraStandbyOperationMode(cameraOperationMode)) {
-      gr3NewPairingStartupGraceUntil = 0;
     }
 
     if (cameraPowerPolicy.blocksStandbyOperationMode(operationModeReadOk, toPolicyOperationStatus(cameraOperationMode), false)) {
@@ -1090,8 +986,6 @@ void saveConnectedBleIdentity(const String& connectedName,
   cameraProfile.protocolGeneration = bleCamera.protocolProfile().generation;
   cameraProfile.protocolGenerationKnown =
       cameraProfile.protocolGeneration != RicohProtocolGeneration::Unknown;
-  cameraProfile.pairedFamily =
-      familyForProtocolGeneration(cameraProfile.protocolGeneration);
   cameraProfile.capabilityVersion = bleCamera.protocolProfile().capabilityVersion;
   cameraProfile.securityProfile =
       securityProfileForGeneration(cameraProfile.protocolGeneration);
@@ -1112,7 +1006,6 @@ void saveConnectedBleIdentity(const String& connectedName,
                                cameraProfile.bleAddressType,
                                cameraProfile.bleBonded);
   profileStore.save(cameraProfile);
-  pendingInitialFamily = CameraFamilySelection::Unset;
   bleCamera.setBindingState(CameraBindingState::Locked);
 }
 
@@ -1120,9 +1013,6 @@ bool tryDirectStoredBleReconnect() {
   const String targetAddress = storedBleTargetAddress();
   uint8_t targetAddressType = 0;
   const bool targetTypeKnown = storedBleTargetAddressType(targetAddressType);
-  if (!hasValidPairedFamily()) {
-    return false;
-  }
   if (!shouldAttemptDirectBleReconnect(BLE_DIRECT_RECONNECT_ON_BOOT && setupCameraFlowActive,
                                        cameraProfile.bleBonded,
                                        cameraProfile.protocolGenerationKnown,
@@ -1264,10 +1154,6 @@ bool resetBlePairingIfRequested() {
 }
 
 bool runBleDiscoveryAtBoot() {
-  if (initialCameraSelectionRequired()) {
-    enterInitialCameraSelection("camera family required");
-    return false;
-  }
   if (cameraSleepGuardBlocksFlow("BLE discovery")) {
     return false;
   }
@@ -1275,17 +1161,7 @@ bool runBleDiscoveryAtBoot() {
     enterBondInvalid("locked profile requested new pairing");
     return false;
   }
-  const bool firstBootPairing =
-      pendingInitialFamily != CameraFamilySelection::Unset ||
-      !hasStoredBleIdentity();
-  const RicohProtocolGeneration lockedProtocol =
-      firstBootPairing
-        ? protocolGenerationForFamily(pendingInitialFamily)
-        : protocolGenerationForFamily(cameraProfile.pairedFamily);
-  if (lockedProtocol == RicohProtocolGeneration::Unknown) {
-    enterInitialCameraSelection("camera family invalid");
-    return false;
-  }
+  const bool firstBootPairing = !hasStoredBleIdentity();
   bleCamera.setBindingState(firstBootPairing
                               ? CameraBindingState::Pairing
                               : CameraBindingState::Locked);
@@ -1294,8 +1170,8 @@ bool runBleDiscoveryAtBoot() {
                                        : (setupCameraFlowActive ? 1 : BLE_CONNECT_ATTEMPTS);
   const uint8_t attempts = configuredAttempts == 0 ? 1 : configuredAttempts;
   uint8_t consecutiveConnectFailures = 0;
-  String retryPreferredAddress = firstBootPairing ? String() : storedBleTargetAddress();
-  String retryPreferredName = firstBootPairing ? String() : preferredBleName();
+  String retryPreferredAddress = storedBleTargetAddress();
+  String retryPreferredName = preferredBleName();
   bool bondedFastSecurityAttempted = false;
 
   if (!firstBootPairing && tryDirectStoredBleReconnect()) {
@@ -1396,7 +1272,9 @@ bool runBleDiscoveryAtBoot() {
                                  : RICOH_BLE_SECURITY_WAIT_MS;
       options.preConnectDelayMs = BLE_SCAN_TO_CONNECT_DELAY_MS;
       options.exchangeMtu = false;
-      options.protocolHint = lockedProtocol;
+      options.protocolHint = cameraProfile.protocolGenerationKnown
+                               ? cameraProfile.protocolGeneration
+                               : RicohProtocolGeneration::Unknown;
 
       Serial.printf("BLE: connect policy bonded=%d fast_security=%d security_wait=%lums\n",
                     bonded ? 1 : 0,
@@ -1415,13 +1293,6 @@ bool runBleDiscoveryAtBoot() {
                 bleCamera.connectedIdentityAddress())) {
           enterBondInvalid("connected identity does not match saved identity");
           return false;
-        }
-        if (firstBootPairing &&
-            lockedProtocol == RicohProtocolGeneration::Gr3Family) {
-          gr3NewPairingStartupGraceUntil =
-              millis() + RICOH_BLE_GR3_NEW_PAIRING_STARTUP_GRACE_MS;
-        } else {
-          gr3NewPairingStartupGraceUntil = 0;
         }
         saveConnectedBleIdentity(connectedName, info);
         showStatusIfChanged("BLE link ready", cameraProfile.cameraName, info.address, "WiFi via BLE", true);
@@ -1524,16 +1395,7 @@ void unparkBleIfNeeded(const char* reason) {
   }
   bleParkedForPreview = false;
   previewStableSinceMs = 0;
-  // The NimBLE callback for our deliberate parking disconnect can arrive
-  // after disconnect() returns. Drop that stale reason at the point where the
-  // parked link becomes a real link requirement again.
-  bleCamera.clearDisconnectReason();
   Serial.printf("BLE: unparking (%s)\n", reason != nullptr ? reason : "unspecified");
-  if (!bleCamera.isConnected() &&
-      appController.state() == CameraFlowState::WifiCredentialsReady) {
-    setCameraFlowState(CameraFlowState::BleScan, "portrait restoring parked BLE");
-    lastCameraRecoveryAt = 0;
-  }
 }
 
 bool cameraWifiConnectGuard() {
@@ -1969,9 +1831,6 @@ rvf::UiSnapshot makeUiSnapshot() {
                              snapshot.appState == rvf::AppState::CameraSleepGuard ||
                              snapshot.appState == rvf::AppState::CameraPowerOff;
   snapshot.resettingPairing = uiResettingPairing;
-  snapshot.initialCameraSelectionActive =
-      snapshot.appState == rvf::AppState::InitialCameraSelection;
-  snapshot.selectedInitialFamily = selectedInitialFamily;
   snapshot.hasFrame = decodedFrames > 0;
   snapshot.fps = currentFps;
   snapshot.rssi = grWifi.rssi();
@@ -2120,9 +1979,6 @@ void resetBlePairingFromKey2() {
   const String cameraIp = cameraProfile.wifi.cameraIp.length() > 0 ? cameraProfile.wifi.cameraIp : String(GR_HOST);
   cameraProfile = CameraProfile{};
   cameraProfile.wifi.cameraIp = cameraIp;
-  pendingInitialFamily = CameraFamilySelection::Unset;
-  selectedInitialFamily = CameraFamilySelection::Gr4Family;
-  gr3NewPairingStartupGraceUntil = 0;
   wifiPreview.setEndpoint(cameraProfile.wifi.cameraIp.c_str(), GR_PORT);
   pendingFreshWifiCredentials = RicohBleWifiCredentials{};
   wifiCacheRefreshPending = false;
@@ -2158,7 +2014,8 @@ void resetBlePairingFromKey2() {
     return;
   }
 
-  enterInitialCameraSelection("Reset pairing");
+  showStatusIfChanged("Scanning GR BLE", "Pairing mode", "", "", true);
+  setCameraFlowState(CameraFlowState::BleScan, "Reset pairing");
   lastFrameAt = millis();
   lastLiveViewActivityAt = lastFrameAt;
   lastCameraRecoveryAt = 0;
@@ -2240,25 +2097,6 @@ void handleButtons() {
 
   if (command == rvf::UserCommand::PowerOff || pollStickPowerHold()) {
     shutdownStickS3();
-    return;
-  }
-
-  if (appController.state() == CameraFlowState::InitialCameraSelection) {
-    // Button B belongs exclusively to model selection in this state. Strip
-    // reset-hold input before it reaches the UI so neither the reset action nor
-    // its progress scene can leak into first-run selection.
-    ButtonEvents selectionEvents = events;
-    selectionEvents.resetHoldActive = false;
-    selectionEvents.resetHoldProgress = 0.0f;
-    selectionEvents.resetHoldMs = 0;
-    selectionEvents.resetPairing = false;
-    if (events.toggleDisplayMirror || events.toggleLiveViewLock) {
-      toggleInitialCameraFamily();
-    }
-    if (events.buttonADown) {
-      confirmInitialCameraFamily();
-    }
-    updateUi(selectionEvents);
     return;
   }
 
@@ -2461,7 +2299,7 @@ void runAppTick() {
 
 void setup() {
   Serial.begin(rvf::AppConfig::SerialPort::kBaud);
-  appController.begin(CameraFlowState::Booting);
+  appController.begin(CameraFlowState::BleScan);
   systemSupervisor.begin(millis());
 
   if (!ui.begin()) {
@@ -2519,16 +2357,10 @@ void setup() {
   }
   mjpeg.begin(previewFrameBuffer.data(), previewFrameBuffer.capacity(), onJpegFrame, nullptr);
 
-  bool startupOnline = false;
-  if (initialCameraSelectionRequired()) {
-    enterInitialCameraSelection("startup");
-  } else {
-    appController.begin(CameraFlowState::BleScan);
-    setupCameraFlowActive = true;
-    startupOnline = appController.runCameraFlowOnce(makeAppFlowActions(), millis());
-    setupCameraFlowActive = false;
-  }
-  lastCameraRecoveryAt = (startupOnline || bleCamera.isConnected()) ? millis() : 0;
+  setupCameraFlowActive = true;
+  const bool startupOnline = appController.runCameraFlowOnce(makeAppFlowActions(), millis());
+  setupCameraFlowActive = false;
+  lastCameraRecoveryAt = startupOnline ? millis() : 0;
   lastFrameAt = millis();
   lastLiveViewActivityAt = lastFrameAt;
   lastStatusAt = 0;

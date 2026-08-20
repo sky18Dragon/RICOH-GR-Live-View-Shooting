@@ -45,8 +45,6 @@ bool decodeAtomicProfile(const String& encoded, CameraProfile& profile) {
   profile.bleAddressTypeKnown = doc["bleAddressTypeKnown"] | false;
   profile.bleBonded = doc["bleBonded"] | false;
   profile.bleAuthenticated = doc["bleAuthenticated"] | false;
-  profile.pairedFamily =
-      static_cast<CameraFamilySelection>(doc["cameraFamily"] | 0);
   profile.protocolGeneration =
       static_cast<RicohProtocolGeneration>(doc["generation"] | 0);
   profile.protocolGenerationKnown = doc["generationKnown"] | false;
@@ -72,10 +70,6 @@ bool decodeAtomicProfile(const String& encoded, CameraProfile& profile) {
       static_cast<WifiCredentialSource>(wifi["source"] | 0);
   profile.wifi.cached = profile.wifi.credentialsValid &&
                         profile.wifi.ssid.length() > 0;
-  if (profile.pairedFamily == CameraFamilySelection::Unset &&
-      profile.protocolGenerationKnown) {
-    profile.pairedFamily = familyForProtocolGeneration(profile.protocolGeneration);
-  }
   return true;
 }
 
@@ -88,7 +82,6 @@ String encodeAtomicProfile(const CameraProfile& profile) {
   doc["bleAddressTypeKnown"] = profile.bleAddressTypeKnown;
   doc["bleBonded"] = profile.bleBonded;
   doc["bleAuthenticated"] = profile.bleAuthenticated;
-  doc["cameraFamily"] = static_cast<uint8_t>(profile.pairedFamily);
   doc["generation"] = static_cast<uint8_t>(profile.protocolGeneration);
   doc["generationKnown"] = profile.protocolGenerationKnown;
   doc["securityProfile"] = static_cast<uint8_t>(profile.securityProfile);
@@ -157,9 +150,6 @@ bool CameraProfileStore::load(CameraProfile& profile) {
   profile.profileVersion = metadata.schemaVersion;
   profile.protocolGeneration = static_cast<RicohProtocolGeneration>(metadata.protocolGeneration);
   profile.protocolGenerationKnown = metadata.protocolGenerationKnown;
-  profile.pairedFamily = _prefs.isKey("camera_family")
-                           ? static_cast<CameraFamilySelection>(_prefs.getUInt("camera_family", 0))
-                           : familyForProtocolGeneration(profile.protocolGeneration);
   profile.securityProfile = static_cast<RicohSecurityProfileId>(metadata.securityProfile);
   profile.securityProfileKnown = metadata.securityProfileKnown;
   profile.bleAuthenticated = metadata.bleAuthenticated;
@@ -246,11 +236,6 @@ bool CameraProfileStore::save(const CameraProfile& profile) {
     _prefs.remove("sec_profile");
   }
   _prefs.putBool("ble_auth", storedMetadata.bleAuthenticatedValue);
-  if (profile.pairedFamily != CameraFamilySelection::Unset) {
-    _prefs.putUInt("camera_family", static_cast<uint8_t>(profile.pairedFamily));
-  } else {
-    _prefs.remove("camera_family");
-  }
   _prefs.putUInt("cap_ver", storedMetadata.capabilityVersionValue);
   if (storedMetadata.wifiSourcePresent) {
     _prefs.putUInt("wifi_src", storedMetadata.wifiSourceValue);
@@ -341,7 +326,6 @@ bool CameraProfileStore::clearBlePairing() {
   _prefs.remove("cam_gen");
   _prefs.remove("proto_gen");
   _prefs.remove("sec_profile");
-  _prefs.remove("camera_family");
   _prefs.remove("peer_id_addr");
   _prefs.remove("peer_id_type");
   _prefs.remove("peer_id_known");

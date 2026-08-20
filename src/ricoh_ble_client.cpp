@@ -1573,32 +1573,6 @@ bool RicohBleClient::connect(const RicohBleDeviceInfo& info, const RicohBleConne
   _connected = true;
   NimBLEDevice::setPowerLevel(ESP_PWR_LVL_P9);
 
-  if (selectedGeneration != RicohProtocolGeneration::Unknown) {
-    const uint32_t validationStartMs = millis();
-    (void)client->getServices(true);
-    const ProtocolDetectionEvidence validationEvidence =
-        collectProtocolEvidence(client);
-    const RicohProtocolGeneration validated =
-        detectRicohProtocol(validationEvidence);
-#if RICOH_BLE_GATT_DIAGNOSTICS
-    logGattTable(client);
-#endif
-    Serial.printf("BLE protocol validation: expected=%s detected=%s elapsed=%lums complete=%d connected=%d\n",
-                  ricohProtocolGenerationName(selectedGeneration),
-                  ricohProtocolGenerationName(validated),
-                  static_cast<unsigned long>(millis() - validationStartMs),
-                  validationEvidence.gattDiscoveryComplete ? 1 : 0,
-                  client->isConnected() ? 1 : 0);
-    if (validated != selectedGeneration) {
-      disconnect();
-      _lastError = String("PROTOCOL_MISMATCH expected ") +
-                   ricohProtocolGenerationName(selectedGeneration) +
-                   " detected " + ricohProtocolGenerationName(validated) +
-                   "; hold Button B to reset camera selection";
-      return false;
-    }
-  }
-
   if (selectedGeneration == RicohProtocolGeneration::Unknown) {
     // First binding starts with read-only discovery. No security request or
     // control write is issued until the generation is identified.
