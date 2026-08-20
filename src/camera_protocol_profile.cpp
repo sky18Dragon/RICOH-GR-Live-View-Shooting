@@ -26,6 +26,10 @@ CameraProtocolProfile makeGr3Profile() {
   profile.capabilities.exposesWifiChannel = true;
   profile.capabilities.supportsHttpLiveView = true;
   profile.capabilities.supportsHttpShutter = true;  // verified on a GR IIIx
+  // Keep BLE connected during LiveView, matching GR IV. This trades some
+  // preview throughput for deterministic BLE shutter availability and avoids
+  // a disconnect/reconnect transition when leaving the preview.
+  profile.capabilities.allowBlePreviewParking = false;
   profile.wifiActivationMethod = WifiActivationMethod::BleNetworkTypeUuid;
   profile.wifiCredentialMethod = WifiCredentialMethod::BleUuidCharacteristics;
   profile.requiresPasskeyEntry = true;

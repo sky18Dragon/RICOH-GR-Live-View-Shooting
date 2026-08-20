@@ -4,6 +4,7 @@
 #include <esp_heap_caps.h>
 
 #include "ble_pairing_policy.h"
+#include "ble_disconnect_policy.h"
 #include "ble_reconnect_policy.h"
 #include "buttons.h"
 #include "camera_identity.h"
@@ -343,7 +344,7 @@ bool timeReached(uint32_t deadlineMs) {
 }
 
 bool isCameraSleepDisconnectReason(int reason) {
-  return reason != 0;
+  return ricohBleDisconnectMayIndicateCameraSleep(reason);
 }
 
 bool cameraSleepGuardActive() {
@@ -1009,11 +1010,13 @@ void saveConnectedBleIdentity(const String& connectedName,
   bleCamera.setBindingState(CameraBindingState::Locked);
 }
 
-bool tryDirectStoredBleReconnect() {
+bool tryDirectStoredBleReconnect(bool force = false) {
   const String targetAddress = storedBleTargetAddress();
   uint8_t targetAddressType = 0;
   const bool targetTypeKnown = storedBleTargetAddressType(targetAddressType);
-  if (!shouldAttemptDirectBleReconnect(BLE_DIRECT_RECONNECT_ON_BOOT && setupCameraFlowActive,
+  const bool directReconnectRequested =
+      force || (BLE_DIRECT_RECONNECT_ON_BOOT && setupCameraFlowActive);
+  if (!shouldAttemptDirectBleReconnect(directReconnectRequested,
                                        cameraProfile.bleBonded,
                                        cameraProfile.protocolGenerationKnown,
                                        targetAddress.c_str(),
@@ -1396,6 +1399,38 @@ void unparkBleIfNeeded(const char* reason) {
   bleParkedForPreview = false;
   previewStableSinceMs = 0;
   Serial.printf("BLE: unparking (%s)\n", reason != nullptr ? reason : "unspecified");
+}
+
+bool restoreBleAfterPreviewPark(const char* reason) {
+  if (!bleParkedForPreview) {
+    return bleCamera.isConnected();
+  }
+  if (bleCamera.isConnected()) {
+    unparkBleIfNeeded("BLE link already restored");
+    return true;
+  }
+
+  Serial.printf("BLE: restoring parked link (%s)\n",
+                reason != nullptr ? reason : "preview stopped");
+  // Keep the logical parking lease until the physical link is restored. This
+  // prevents the controller from treating our intentional disconnect as an
+  // unrelated link loss while direct reconnect is in progress.
+  bleCamera.clearDisconnectReason();
+  if (tryDirectStoredBleReconnect(true)) {
+    bleCamera.clearDisconnectReason();
+    unparkBleIfNeeded("parked BLE restored");
+    if (!appController.previewRequested() && hasUsableCachedWifiCredentials()) {
+      setCameraFlowState(CameraFlowState::WifiCredentialsReady,
+                         "portrait BLE restored after preview park");
+    }
+    return true;
+  }
+
+  unparkBleIfNeeded("parked BLE direct reconnect failed");
+  if (bleCamera.bindingState() != CameraBindingState::BondInvalid) {
+    setCameraFlowState(CameraFlowState::BleScan, "restore BLE after preview park");
+  }
+  return false;
 }
 
 bool cameraWifiConnectGuard() {
@@ -2220,7 +2255,13 @@ void serviceBleParking(uint32_t nowMs) {
       appController.isPreviewActive() && grWifi.isConnected() && wifiPreview.isPreviewRunning();
 
   if (!previewStreaming) {
-    unparkBleIfNeeded("preview stopped");
+    if (bleParkedForPreview) {
+      restoreBleAfterPreviewPark(appController.previewRequested()
+                                     ? "preview transport stopped"
+                                     : "portrait handoff");
+    } else {
+      previewStableSinceMs = 0;
+    }
     return;
   }
 
@@ -2238,7 +2279,8 @@ void serviceBleParking(uint32_t nowMs) {
   if (!bleCamera.isConnected()) {
     return;  // Nothing to release.
   }
-  if (!bleCamera.protocolProfile().capabilities.supportsHttpShutter) {
+  const CameraCapabilities& capabilities = bleCamera.protocolProfile().capabilities;
+  if (!capabilities.supportsHttpShutter || !capabilities.allowBlePreviewParking) {
     // Releasing BLE moves the shutter onto POST /v1/camera/shoot. Only do it
     // where that endpoint has actually been confirmed on the camera - a
     // generation that turns out not to serve it would lose its shutter
@@ -2250,7 +2292,6 @@ void serviceBleParking(uint32_t nowMs) {
   bleParkedForPreview = true;
   bleParkedAtMs = nowMs;
   bleCamera.disconnect();
-  bleCamera.clearDisconnectReason();
 }
 
 void runAppTick() {

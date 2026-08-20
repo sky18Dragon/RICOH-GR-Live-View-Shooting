@@ -9,6 +9,7 @@ void setUp(void) {}
 void tearDown(void) {}
 
 #include "ble_pairing_policy.h"
+#include "ble_disconnect_policy.h"
 #include "ble_discovery_policy.h"
 #include "ble_reconnect_policy.h"
 #include "ble_scan_lifecycle_policy.h"
@@ -89,6 +90,30 @@ void testCameraSleepAutoPowerOffHandlesMillisWrap() {
   constexpr uint32_t enteredAt = 0xFFFFFF00U;
   TEST_ASSERT_FALSE(cameraSleepAutoPowerOffDue(true, enteredAt, 0x000000F0U, 1000));
   TEST_ASSERT_TRUE(cameraSleepAutoPowerOffDue(true, enteredAt, 0x00000300U, 1000));
+}
+
+void testBleDisconnectPolicyDistinguishesLocalParkFromCameraSleep() {
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohBleDisconnectKind::LocalHost),
+                        static_cast<int>(classifyRicohBleDisconnect(0x216)));
+  TEST_ASSERT_FALSE(ricohBleDisconnectMayIndicateCameraSleep(0x216));
+  TEST_ASSERT_EQUAL_STRING("LOCAL_HOST_TERMINATED", ricohBleDisconnectReasonName(0x216));
+}
+
+void testBleDisconnectPolicyUsesCorrectEstablishmentFailureCode() {
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(RicohBleDisconnectKind::ConnectionEstablishmentFailed),
+      static_cast<int>(classifyRicohBleDisconnect(0x23E)));
+  TEST_ASSERT_FALSE(ricohBleDisconnectMayIndicateCameraSleep(0x23E));
+  TEST_ASSERT_EQUAL_STRING("CONNECTION_ESTABLISHMENT_FAILED",
+                           ricohBleDisconnectReasonName(0x23E));
+}
+
+void testBleDisconnectPolicyKeepsOnlyTrustedSleepReasons() {
+  TEST_ASSERT_TRUE(ricohBleDisconnectMayIndicateCameraSleep(0x213));
+  TEST_ASSERT_TRUE(ricohBleDisconnectMayIndicateCameraSleep(0x215));
+  TEST_ASSERT_FALSE(ricohBleDisconnectMayIndicateCameraSleep(0x208));
+  TEST_ASSERT_FALSE(ricohBleDisconnectMayIndicateCameraSleep(0));
+  TEST_ASSERT_FALSE(ricohBleDisconnectMayIndicateCameraSleep(0x299));
 }
 
 struct FlowHarness {
@@ -1067,6 +1092,19 @@ void testHttpShutterIsOnlyClaimedWhereItWasVerified() {
                         .capabilities.supportsHttpShutter);
 }
 
+void testBlePreviewParkingIsDisabledForGr3AndGr4() {
+  // Both supported generations keep BLE available during LiveView so BtnA
+  // follows the same BLE shutter path without a reconnect handoff.
+  TEST_ASSERT_FALSE(cameraProtocolProfile(RicohProtocolGeneration::Gr3Family)
+                        .capabilities.allowBlePreviewParking);
+  TEST_ASSERT_FALSE(cameraProtocolProfile(RicohProtocolGeneration::Gr4Family)
+                        .capabilities.allowBlePreviewParking);
+  TEST_ASSERT_FALSE(cameraProtocolProfile(RicohProtocolGeneration::Gr2Family)
+                        .capabilities.allowBlePreviewParking);
+  TEST_ASSERT_FALSE(cameraProtocolProfile(RicohProtocolGeneration::Unknown)
+                        .capabilities.allowBlePreviewParking);
+}
+
 void testGr3CredentialShapeAllowsOptionalChannel() {
   TEST_ASSERT_TRUE(validGr3WifiCredentials("GR_TEST", "secret", 0));
   TEST_ASSERT_TRUE(validGr3WifiCredentials("GR_TEST", "secret", 11));
@@ -1253,6 +1291,9 @@ int main() {
   RUN_TEST(testCameraSleepAutoPowerOffWaitsForTimeout);
   RUN_TEST(testCameraSleepAutoPowerOffRequiresActiveSleep);
   RUN_TEST(testCameraSleepAutoPowerOffHandlesMillisWrap);
+  RUN_TEST(testBleDisconnectPolicyDistinguishesLocalParkFromCameraSleep);
+  RUN_TEST(testBleDisconnectPolicyUsesCorrectEstablishmentFailureCode);
+  RUN_TEST(testBleDisconnectPolicyKeepsOnlyTrustedSleepReasons);
   RUN_TEST(testPortraitStartupCachesWifiWithoutConnecting);
   RUN_TEST(testLandscapeStartupOpensLiveViewWithoutPropsProbe);
   RUN_TEST(testPortraitToLandscapeResumesAfterCredentialCache);
@@ -1264,6 +1305,7 @@ int main() {
   RUN_TEST(testUnknownAndGr2ProfilesBlockBleSideEffects);
   RUN_TEST(testOperationModeSafetyIsGenerationSpecific);
   RUN_TEST(testHttpShutterIsOnlyClaimedWhereItWasVerified);
+  RUN_TEST(testBlePreviewParkingIsDisabledForGr3AndGr4);
   RUN_TEST(testGr3CredentialShapeAllowsOptionalChannel);
   RUN_TEST(testOldGr4ProfileMetadataMigratesWithoutRepairing);
   RUN_TEST(testNewProfileMetadataRoundTrips);

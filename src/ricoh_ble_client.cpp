@@ -1,6 +1,7 @@
 #include "ricoh_ble_client.h"
 
 #include "ble_discovery_policy.h"
+#include "ble_disconnect_policy.h"
 #include "ble_pairing_policy.h"
 #include "ble_reconnect_policy.h"
 #include "ble_scan_lifecycle_policy.h"
@@ -108,23 +109,11 @@ constexpr uint8_t RICOH_OPERATION_PARAM_NO_AF = 0x00;
 constexpr uint8_t RICOH_OPERATION_PARAM_AF = 0x01;
 
 bool isPowerOffDisconnectReason(int reason) {
-  return reason == RICOH_BLE_DISCONNECT_REMOTE_USER ||
-         reason == RICOH_BLE_DISCONNECT_REMOTE_POWER_OFF;
+  return ricohBleDisconnectMayIndicateCameraSleep(reason);
 }
 
 const char* disconnectReasonName(int reason) {
-  switch (reason) {
-    case RICOH_BLE_DISCONNECT_REMOTE_USER:
-      return "REMOTE_USER_OR_PAIRING_REJECTED";
-    case RICOH_BLE_DISCONNECT_REMOTE_POWER_OFF:
-      return "REMOTE_POWER_OFF";
-    case 0x208:
-      return "SUPERVISION_TIMEOUT";
-    case 0x216:
-      return "CONNECTION_ESTABLISHMENT_FAILED";
-    default:
-      return "UNCLASSIFIED";
-  }
+  return ricohBleDisconnectReasonName(reason);
 }
 
 const char* ricohOperationModeName(RicohCameraOperationMode mode) {

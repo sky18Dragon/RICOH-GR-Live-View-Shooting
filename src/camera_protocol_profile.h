@@ -78,10 +78,11 @@ struct CameraCapabilities {
   bool exposesWifiBssid = false;
   bool exposesWifiSecurity = false;
   bool supportsHttpLiveView = false;
-  // POST /v1/camera/shoot, confirmed on the camera rather than assumed. The
-  // BLE link is only released during preview where this holds, because the
-  // shutter has to keep working without it.
+  // POST /v1/camera/shoot, confirmed on the camera rather than assumed.
   bool supportsHttpShutter = false;
+  // RF scheduling policy, intentionally separate from HTTP functionality.
+  // A generation must opt in explicitly before LiveView can release BLE.
+  bool allowBlePreviewParking = false;
 };
 
 struct CameraProtocolProfile {
