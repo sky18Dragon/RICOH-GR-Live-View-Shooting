@@ -24,6 +24,7 @@ struct UiViewModel {
     bool shutterFailed = false;
     bool resetSplitActive = false;
     bool bleConnected = false;
+    CameraFamilySelection selectedInitialFamily = CameraFamilySelection::Gr4Family;
     bool shouldRenderLivePreview = false;
     bool hasFrame = false;
     int8_t deviceBatteryPercent = -1;
@@ -58,6 +59,7 @@ public:
 
 private:
     static bool isConnectionState(AppState state);
+    static bool isBleUsableState(AppState state);
     static UiOrientation desiredOrientation(UiScene scene, UiOrientation sensed);
     void requestSound(UiSound sound);
 

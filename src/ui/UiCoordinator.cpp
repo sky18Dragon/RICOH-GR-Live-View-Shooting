@@ -40,16 +40,47 @@ bool UiCoordinator::isConnectionState(AppState state) {
     }
 }
 
+bool UiCoordinator::isBleUsableState(AppState state) {
+    switch (state) {
+        case AppState::BleReady:
+        case AppState::CheckingCameraPower:
+        case AppState::ActivatingWifi:
+        case AppState::WifiCredentialsReady:
+        case AppState::WifiConnecting:
+        case AppState::ConnectingWifi:
+        case AppState::HttpProbe:
+        case AppState::HttpProbing:
+        case AppState::PreviewStarting:
+        case AppState::PreviewRunning:
+        case AppState::LiveViewRunning:
+        case AppState::PreviewStopped:
+            return true;
+        default:
+            return false;
+    }
+}
+
 UiScene UiCoordinator::selectScene(const UiSnapshot& snapshot,
                                    UiOrientation orientation,
                                    bool resetVisualActive) {
     if (snapshot.appState == AppState::Error) return UiScene::Error;
+    if (snapshot.initialCameraSelectionActive ||
+        snapshot.appState == AppState::InitialCameraSelection) {
+        return UiScene::InitialCameraSelection;
+    }
     if (snapshot.resettingPairing || resetVisualActive) return UiScene::ResetPairing;
     if (snapshot.cameraSleepLike || snapshot.appState == AppState::CameraSleepGuard ||
         snapshot.appState == AppState::CameraPowerOff) {
         return UiScene::CameraSleep;
     }
     if (snapshot.appState == AppState::Booting) return UiScene::Boot;
+    // Once secure BLE is usable, portrait remains a remote even if optional
+    // WLAN/LiveView work briefly advances through background flow states.
+    if (orientation == UiOrientation::Portrait &&
+        isBleUsableState(snapshot.appState) &&
+        (snapshot.bleConnected || snapshot.shutterReady)) {
+        return UiScene::RemoteReady;
+    }
     if (isConnectionState(snapshot.appState)) {
         return (snapshot.appState == AppState::BleScan || snapshot.appState == AppState::ScanningCamera)
                    ? UiScene::Pairing
@@ -178,6 +209,7 @@ void UiCoordinator::update(const UiSnapshot& snapshot,
     _view.resetSplitActive = _resetSplit.active;
     _view.resetSplitProgress = _resetSplit.progress(nowMs);
     _view.bleConnected = snapshot.bleConnected;
+    _view.selectedInitialFamily = snapshot.selectedInitialFamily;
     _view.shutterOverlayActive = _shutterOverlay.active;
     _view.overlayProgress = _shutterOverlay.progress(nowMs);
     _view.hasFrame = snapshot.hasFrame;

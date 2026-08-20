@@ -190,6 +190,9 @@ void DisplayUi::render(const rvf::UiViewModel& view) {
         case rvf::UiScene::Boot:
             drawBoot(view);
             break;
+        case rvf::UiScene::InitialCameraSelection:
+            drawInitialCameraSelection(view);
+            break;
         case rvf::UiScene::Pairing:
         case rvf::UiScene::Connecting:
             drawConnecting(view);
@@ -237,6 +240,26 @@ void DisplayUi::renderLiveFrameOverlay(const rvf::UiViewModel& view) {
 void DisplayUi::drawBoot(const rvf::UiViewModel& view) {
     const int16_t radius = static_cast<int16_t>(4 + 2 * view.sceneProgress);
     _canvas.fillCircle(_width / 2, _height / 2, radius, rvf::UiTheme::kWhite);
+}
+
+void DisplayUi::drawInitialCameraSelection(const rvf::UiViewModel& view) {
+    drawCenteredText("SELECT CAMERA", 24, rvf::UiTheme::kGreen);
+    drawCenteredText("B:change  A:ok", _height - 28, rvf::UiTheme::kGray);
+
+    const bool gr4Selected = view.selectedInitialFamily != CameraFamilySelection::Gr3Family;
+    const int16_t left = 28;
+    const int16_t gr4Y = _height / 2 - 14;
+    const int16_t gr3Y = _height / 2 + 12;
+    _canvas.setTextSize(2);
+    _canvas.setTextColor(gr4Selected ? rvf::UiTheme::kGreen : rvf::UiTheme::kGray,
+                         rvf::UiTheme::kBlack);
+    _canvas.setCursor(left, gr4Y);
+    _canvas.print(gr4Selected ? "> GR IV" : "  GR IV");
+    _canvas.setTextColor(!gr4Selected ? rvf::UiTheme::kGreen : rvf::UiTheme::kGray,
+                         rvf::UiTheme::kBlack);
+    _canvas.setCursor(left, gr3Y);
+    _canvas.print(!gr4Selected ? "> GR III" : "  GR III");
+    _canvas.setTextSize(1);
 }
 
 void DisplayUi::drawConnecting(const rvf::UiViewModel& view) {

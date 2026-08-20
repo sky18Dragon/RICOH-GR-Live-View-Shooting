@@ -81,6 +81,10 @@ constexpr int RICOH_BLE_DISCONNECT_REMOTE_USER = 0x213;
 constexpr int RICOH_BLE_DISCONNECT_REMOTE_POWER_OFF = 0x215;
 constexpr uint8_t RICOH_BLE_POWER_READ_RETRIES = 2;
 constexpr uint8_t RICOH_BLE_OPERATION_MODE_READ_RETRIES = 2;
+// A GR III can briefly report BLE_STARTUP immediately after a new authenticated
+// bond. Keep the secure BLE remote available while read-only probes settle;
+// WLAN writes remain blocked until the mode becomes safe.
+constexpr uint32_t RICOH_BLE_GR3_NEW_PAIRING_STARTUP_GRACE_MS = 30000;
 constexpr uint32_t RICOH_BLE_POWER_NOTIFY_SETTLE_MS = 30;
 constexpr bool RICOH_BLE_REQUIRE_POWER_ON_BEFORE_WIFI = true;
 constexpr bool RICOH_BLE_ALLOW_WIFI_WHEN_POWER_UNKNOWN = false;
