@@ -1100,6 +1100,18 @@ void testDetectsProtocolOnlyFromSafeEvidence() {
                         static_cast<int>(detectRicohProtocol(incompleteFixedHandleConflict)));
 }
 
+void testShutterPreparationRemainsGenerationSpecific() {
+  const CameraProtocolProfile& gr3 =
+      cameraProtocolProfile(RicohProtocolGeneration::Gr3Family);
+  const CameraProtocolProfile& gr4 =
+      cameraProtocolProfile(RicohProtocolGeneration::Gr4Family);
+
+  TEST_ASSERT_TRUE(gr3.capabilities.supportsBleShutter);
+  TEST_ASSERT_FALSE(gr3.requiresLegacyShutterFlavorWrite);
+  TEST_ASSERT_TRUE(gr4.capabilities.supportsBleShutter);
+  TEST_ASSERT_TRUE(gr4.requiresLegacyShutterFlavorWrite);
+}
+
 void testSecurityProfilesKeepGr4LegacyFrozen() {
   const RicohSecurityProfile& gr3 =
       ricohSecurityProfile(RicohSecurityProfileId::Gr3Passkey);
@@ -1434,6 +1446,7 @@ int main() {
   RUN_TEST(testCachedResumeStopsBeforeWifiConnectWhenReactivationFails);
   RUN_TEST(testWifiDeactivationFailureDoesNotBreakBleShutterState);
   RUN_TEST(testDetectsProtocolOnlyFromSafeEvidence);
+  RUN_TEST(testShutterPreparationRemainsGenerationSpecific);
   RUN_TEST(testSecurityProfilesKeepGr4LegacyFrozen);
   RUN_TEST(testOnlyGr4DiscoveryCanReuseTheLegacyConnection);
   RUN_TEST(testProtocolRouterSelectsExactlyOneImplementation);

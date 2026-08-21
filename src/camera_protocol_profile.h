@@ -100,6 +100,10 @@ struct CameraProtocolProfile {
   WifiCredentialMethod wifiCredentialMethod = WifiCredentialMethod::Unsupported;
   bool requiresPasskeyEntry = false;
   bool requiresProtectedReadBeforePairing = false;
+  // Preserve the established GR IV shutter preparation sequence. GR III must
+  // send OperationRequest directly: the same UUID is its Drive Mode setting,
+  // and rewriting it immediately before START can consume the first shot.
+  bool requiresLegacyShutterFlavorWrite = false;
   bool standbyModeRequiresFreshReconnect = false;
   uint32_t standbyProbeIntervalMs = 0;
   uint16_t capabilityVersion = 1;

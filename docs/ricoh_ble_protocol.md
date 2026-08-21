@@ -50,7 +50,7 @@ Profile 定义和纯逻辑检测位于 `src/camera_protocol_profile.*`。`IRicoh
 
 Operation Mode 映射：`0x00=CAPTURE`、`0x01=PLAYBACK`、`0x02=BLE_STARTUP`、`0x03=OTHER`、`0x04=POWER_OFF_TRANSFER`，其他值为 `UNKNOWN`。
 
-快门复用同一套 Shooting Service：Shooting Flavor 写 `0x00`；Operation Request 写 `{0x01,0x01}`（Start + AF）或 `{0x01,0x00}`（Start + No AF）。Profile 必须声明支持 BLE shutter，Unknown/GR II 不允许写。
+快门复用同一套 Shooting Service，但准备序列按代际隔离：GR III 直接向 Operation Request 写 `{0x01,0x01}`（Start + AF）或 `{0x01,0x00}`（Start + No AF），不得预写 UUID `B29E...`，因为该特征在 GR III 协议中是 Drive Mode，紧邻的模式切换可能吞掉首次拍摄；GR IV 保留原有的 legacy flavor `0x00` 预写后再发送 Operation Request。Profile 必须声明支持 BLE shutter，Unknown/GR II 不允许写。
 
 ## GR III Family UUID 协议
 

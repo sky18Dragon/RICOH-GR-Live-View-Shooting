@@ -58,6 +58,7 @@ CameraProtocolProfile makeGr4Profile() {
   profile.capabilities.supportsHttpLiveView = true;
   profile.wifiActivationMethod = WifiActivationMethod::BleFixedHandle;
   profile.wifiCredentialMethod = WifiCredentialMethod::BleFixedHandles;
+  profile.requiresLegacyShutterFlavorWrite = true;
   return profile;
 }
 

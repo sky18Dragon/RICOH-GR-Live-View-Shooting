@@ -103,7 +103,7 @@ void resetBleScanHostFenceAfterHostStop() {
   g_scanHostFence.reached.store(false, std::memory_order_release);
 }
 
-constexpr uint8_t RICOH_SHOOTING_FLAVOR_IMMEDIATE = 0x00;
+constexpr uint8_t RICOH_LEGACY_SHOOTING_FLAVOR_IMMEDIATE = 0x00;
 constexpr uint8_t RICOH_OPERATION_START = 0x01;
 constexpr uint8_t RICOH_OPERATION_PARAM_NO_AF = 0x00;
 constexpr uint8_t RICOH_OPERATION_PARAM_AF = 0x01;
@@ -2224,19 +2224,13 @@ bool RicohBleClient::shoot(bool autofocus) {
     return false;
   }
 
-  // RICOH GR uses a single capture operation instead of a generic
-  // half-press/full-press/release characteristic.  Keep this aligned with the
-  // furble Ricoh implementation: ShootingFlavor=IMMEDIATE, then
-  // OperationRequest={START, AF|NO_AF}.  There is no release write.
+  // OperationRequest={START, AF|NO_AF} is the complete GR capture command;
+  // there is no release write. Keep GR IV's established preparation write,
+  // but never apply it to GR III: UUID B29E... is Drive Mode on that family,
+  // so rewriting it immediately before START can make the first request land
+  // while the camera is still applying the mode change.
   NimBLERemoteService* shootingService = client->getService(NimBLEUUID(RICOH_BLE_SHOOTING_SERVICE_UUID));
   String err;
-  NimBLERemoteCharacteristic* shootingFlavor =
-      writableCharacteristic(shootingService, RICOH_BLE_SHOOTING_FLAVOR_UUID, "ShootingFlavor", err);
-  if (shootingFlavor == nullptr) {
-    _lastError = err;
-    return false;
-  }
-
   NimBLERemoteCharacteristic* operationRequest =
       writableCharacteristic(shootingService, RICOH_BLE_OPERATION_REQUEST_UUID, "OperationRequest", err);
   if (operationRequest == nullptr) {
@@ -2244,10 +2238,25 @@ bool RicohBleClient::shoot(bool autofocus) {
     return false;
   }
 
-  const uint8_t flavorPayload[] = {RICOH_SHOOTING_FLAVOR_IMMEDIATE};
-  if (!writeCharacteristicValue(shootingFlavor, flavorPayload, sizeof(flavorPayload), "ShootingFlavor", err)) {
-    _lastError = err;
-    return false;
+  if (protocolProfile().requiresLegacyShutterFlavorWrite) {
+    NimBLERemoteCharacteristic* shootingFlavor =
+        writableCharacteristic(shootingService,
+                               RICOH_BLE_SHOOTING_FLAVOR_UUID,
+                               "LegacyShootingFlavor",
+                               err);
+    if (shootingFlavor == nullptr) {
+      _lastError = err;
+      return false;
+    }
+    const uint8_t flavorPayload[] = {RICOH_LEGACY_SHOOTING_FLAVOR_IMMEDIATE};
+    if (!writeCharacteristicValue(shootingFlavor,
+                                  flavorPayload,
+                                  sizeof(flavorPayload),
+                                  "LegacyShootingFlavor",
+                                  err)) {
+      _lastError = err;
+      return false;
+    }
   }
 
   const uint8_t operationParam = autofocus ? RICOH_OPERATION_PARAM_AF : RICOH_OPERATION_PARAM_NO_AF;
@@ -2258,9 +2267,12 @@ bool RicohBleClient::shoot(bool autofocus) {
   }
 
   _lastError = "";
-  Serial.printf("BLE: Ricoh shutter OperationRequest START param=%u autofocus=%d\n",
+  Serial.printf("BLE: Ricoh shutter OperationRequest START param=%u autofocus=%d prep=%s\n",
                 static_cast<unsigned>(operationParam),
-                autofocus ? 1 : 0);
+                autofocus ? 1 : 0,
+                protocolProfile().requiresLegacyShutterFlavorWrite
+                    ? "GR4_LEGACY_FLAVOR"
+                    : "DIRECT");
   return true;
 }
 
