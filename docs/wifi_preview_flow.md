@@ -36,12 +36,18 @@ loop()
 
 - Props：`GET /v1/props HTTP/1.1`，`Connection: close`。
 - LiveView：`GET /v1/liveview HTTP/1.1`，`Connection: keep-alive`。
-- GR III/IIIx 进入 `WifiCredentialsReady`（蓝牙快门界面）前，通过
-  `Network Type` UUID 写 `0x00` 关闭相机 AP；BLE 连接保持用于对焦和快门。
+- 从 LiveView 进入 `WifiCredentialsReady`（蓝牙快门界面）时，先在 Wi-Fi
+  仍连接期间发送 `POST /v1/device/wlan/finish`，再断开 StickS3 STA，最后按
+  代际发送 BLE WLAN OFF 作为幂等兜底；相机可能在 HTTP 响应完成前主动断网。
+- GR III/IIIx 的 BLE 兜底通过 `Network Type` UUID 写 `0x00`；BLE 连接保持
+  用于对焦和快门。
 - GR III/IIIx 从 `WifiCredentialsReady` 再次进入 LiveView 时，先通过 BLE
   写 `Network Type=0x01` 重新开启 AP，再使用缓存的 SSID/密码连接。
 - GR IV 进入 `WifiCredentialsReady` 前，向严格识别后的 WLAN 固定 Handle
   `0x0135` 写 `0x00` 关闭 AP；再次进入 LiveView 时写 `0x01` 重新开启。
+- 已绑定相机在竖持重连且本地 Wi-Fi 缓存有效时，直接发送 WLAN OFF 并进入
+  `WifiCredentialsReady`，不再重复开启 AP、读取相同参数后又关闭；首次配对无缓存，
+  仍执行一次 WLAN 开启、参数读取和关闭。
 - 两个代际退出 LiveView 后都保持 BLE，用于对焦和快门；关闭 AP 失败只记录
   错误，不会把蓝牙快门状态降级为断连。
 - HTTP host 默认 `192.168.0.1:80`。

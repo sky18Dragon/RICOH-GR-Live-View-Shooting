@@ -20,6 +20,7 @@ struct AppFlowActions {
 
     bool (*runBleDiscovery)() = nullptr;
     bool (*activateCameraWifiOverBle)() = nullptr;
+    bool (*finishCameraWifiOverHttp)() = nullptr;
     bool (*deactivateCameraWifiOverBle)() = nullptr;
     bool (*reactivateCameraWifiForCachedResume)() = nullptr;
     bool (*hasUsableCachedWifiCredentials)() = nullptr;

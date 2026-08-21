@@ -16,6 +16,21 @@ uint32_t controllerMillis() {
 #endif
 }
 
+void stopCameraWifiForPortrait(const AppFlowActions& actions, bool wifiConnected) {
+    // Send the HTTP shutdown while the AP is still reachable. The camera may
+    // drop TCP before returning a complete response, so BLE OFF remains the
+    // idempotent fallback after the local STA is disconnected.
+    if (wifiConnected && actions.finishCameraWifiOverHttp != nullptr) {
+        (void)actions.finishCameraWifiOverHttp();
+    }
+    if (actions.disconnectWifi != nullptr) {
+        actions.disconnectWifi();
+    }
+    if (actions.deactivateCameraWifiOverBle != nullptr) {
+        (void)actions.deactivateCameraWifiOverBle();
+    }
+}
+
 }  // namespace
 
 uint32_t elapsedSince(uint32_t nowMs, uint32_t timestampMs) {
@@ -108,9 +123,9 @@ bool AppController::runCameraFlowOnce(const AppFlowActions& actions, uint32_t no
 
         if (connectWifiAfterBleReady(actions)) {
             if (!_previewRequested) {
-                if (actions.disconnectWifi != nullptr) {
-                    actions.disconnectWifi();
-                }
+                const bool wifiConnected =
+                    actions.isWifiConnected != nullptr && actions.isWifiConnected();
+                stopCameraWifiForPortrait(actions, wifiConnected);
                 transitionTo(AppState::WifiCredentialsReady,
                              "portrait requested after WiFi connect",
                              controllerMillis());
@@ -184,9 +199,9 @@ bool AppController::resumeFromBleReady(const AppFlowActions& actions, const char
 
         if (connectWifiAfterBleReady(actions)) {
             if (!_previewRequested) {
-                if (actions.disconnectWifi != nullptr) {
-                    actions.disconnectWifi();
-                }
+                const bool wifiConnected =
+                    actions.isWifiConnected != nullptr && actions.isWifiConnected();
+                stopCameraWifiForPortrait(actions, wifiConnected);
                 transitionTo(AppState::WifiCredentialsReady,
                              "portrait requested after WiFi retry",
                              controllerMillis());
@@ -288,6 +303,22 @@ bool AppController::connectWifiAfterBleReady(const AppFlowActions& actions) {
             return false;
         }
         transitionTo(AppState::BleScan, "BLE lost before WiFi open", controllerMillis());
+        return false;
+    }
+
+    // Portrait is the BLE shutter scene. If credentials for this bound camera
+    // are already cached, keep the AP off without first enabling it only to
+    // read and cache the same values again. First pairing still falls through
+    // because it has no usable credential cache.
+    if (!_previewRequested &&
+        actions.hasUsableCachedWifiCredentials != nullptr &&
+        actions.hasUsableCachedWifiCredentials()) {
+        if (actions.deactivateCameraWifiOverBle != nullptr) {
+            (void)actions.deactivateCameraWifiOverBle();
+        }
+        transitionTo(AppState::WifiCredentialsReady,
+                     "portrait reused cached WiFi params; WLAN kept off",
+                     controllerMillis());
         return false;
     }
 
@@ -546,12 +577,7 @@ void AppController::serviceCameraFlowIfNeeded(const AppFlowActions& actions, uin
     _previewRequestChanged = false;
 
     if (!_previewRequested && (isPreviewActive() || wifiConnected)) {
-        if (actions.disconnectWifi != nullptr) {
-            actions.disconnectWifi();
-        }
-        if (actions.deactivateCameraWifiOverBle != nullptr) {
-            (void)actions.deactivateCameraWifiOverBle();
-        }
+        stopCameraWifiForPortrait(actions, wifiConnected);
         transitionTo(bleConnected ? AppState::WifiCredentialsReady : AppState::BleScan,
                      "portrait disconnects camera WiFi",
                      now);

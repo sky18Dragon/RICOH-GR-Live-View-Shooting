@@ -26,6 +26,7 @@ constexpr uint32_t WIFI_CACHED_CONNECT_GRACE_MS = 0;
 constexpr uint32_t WIFI_CACHE_REFRESH_DELAY_MS = 5000;
 constexpr uint32_t BLE_SCAN_RETRY_INTERVAL_MS = 1000;
 constexpr uint32_t PROPS_TIMEOUT_MS = 3500;
+constexpr uint32_t WLAN_FINISH_TIMEOUT_MS = 1000;
 constexpr uint32_t LIVEVIEW_STALL_TIMEOUT_MS = 5000;
 constexpr uint32_t UI_STATUS_INTERVAL_MS = 1000;
 constexpr uint32_t POWER_BUTTON_POLL_MS = 50;

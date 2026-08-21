@@ -1744,6 +1744,18 @@ void disconnectWifiForController() {
   wifiPreview.disconnectWifi();
 }
 
+bool finishCameraWifiOverHttpForController() {
+  if (!grWifi.isConnected()) {
+    return false;
+  }
+  closeLiveView("portrait WLAN finish");
+  const bool requested = grApi.finishWlan(WLAN_FINISH_TIMEOUT_MS);
+  Serial.printf("HTTP WLAN finish: request=%s detail=%s\n",
+                requested ? "SENT" : "FAILED",
+                requested ? "camera disconnect expected" : grApi.lastError().c_str());
+  return requested;
+}
+
 void clearBleDisconnectReasonForController() {
   bleCamera.clearDisconnectReason();
 }
@@ -1801,6 +1813,7 @@ rvf::AppFlowActions makeAppFlowActions() {
   actions.runBleDiscovery = runBleDiscoveryAtBoot;
   actions.cameraSleepGuardActive = cameraSleepGuardActive;
   actions.activateCameraWifiOverBle = activateCameraWifiOverBle;
+  actions.finishCameraWifiOverHttp = finishCameraWifiOverHttpForController;
   actions.deactivateCameraWifiOverBle = deactivateCameraWifiOverBle;
   actions.reactivateCameraWifiForCachedResume = reactivateCameraWifiForCachedResume;
   actions.disconnectWifi = disconnectWifiForController;

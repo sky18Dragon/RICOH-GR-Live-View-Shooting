@@ -16,6 +16,9 @@ public:
   // POST /v1/camera/shoot. The camera exposes the shutter over Wi-Fi as well
   // as BLE, which is what lets the BLE link be released while streaming.
   bool shoot(uint32_t timeoutMs);
+  // Ask the camera to shut down its WLAN AP. A dropped connection after the
+  // request is expected because the endpoint tears down its own transport.
+  bool finishWlan(uint32_t timeoutMs);
   bool openLiveView();
   void closeLiveView();
   bool isLiveViewOpen();

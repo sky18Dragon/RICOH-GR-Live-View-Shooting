@@ -128,6 +128,8 @@ struct FlowHarness {
   static bool reactivateSucceeds;
   static uint32_t lastRecoveryAt;
   static uint32_t activateCalls;
+  static uint32_t finishWlanCalls;
+  static bool finishWlanSawConnectedSta;
   static uint32_t deactivateCalls;
   static uint32_t reactivateCalls;
   static uint32_t readCredentialsCalls;
@@ -149,6 +151,8 @@ struct FlowHarness {
     reactivateSucceeds = true;
     lastRecoveryAt = 0;
     activateCalls = 0;
+    finishWlanCalls = 0;
+    finishWlanSawConnectedSta = false;
     deactivateCalls = 0;
     reactivateCalls = 0;
     readCredentialsCalls = 0;
@@ -174,6 +178,11 @@ struct FlowHarness {
   }
   static bool activateWifi() {
     ++activateCalls;
+    return true;
+  }
+  static bool finishWlan() {
+    ++finishWlanCalls;
+    finishWlanSawConnectedSta = wifiConnected;
     return true;
   }
   static bool deactivateWifi() {
@@ -222,6 +231,7 @@ struct FlowHarness {
     result.disconnectWifi = disconnectWifi;
     result.runBleDiscovery = runBleDiscovery;
     result.activateCameraWifiOverBle = activateWifi;
+    result.finishCameraWifiOverHttp = finishWlan;
     result.deactivateCameraWifiOverBle = deactivateWifi;
     result.reactivateCameraWifiForCachedResume = reactivateWifi;
     result.hasUsableCachedWifiCredentials = hasCredentials;
@@ -253,6 +263,8 @@ bool FlowHarness::deactivateSucceeds = true;
 bool FlowHarness::reactivateSucceeds = true;
 uint32_t FlowHarness::lastRecoveryAt = 0;
 uint32_t FlowHarness::activateCalls = 0;
+uint32_t FlowHarness::finishWlanCalls = 0;
+bool FlowHarness::finishWlanSawConnectedSta = false;
 uint32_t FlowHarness::deactivateCalls = 0;
 uint32_t FlowHarness::reactivateCalls = 0;
 uint32_t FlowHarness::readCredentialsCalls = 0;
@@ -293,6 +305,27 @@ void testPortraitStartupCachesWifiWithoutConnecting() {
   TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::connectCalls);
   TEST_ASSERT_FALSE(FlowHarness::wifiConnected);
   TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::openPreviewCalls);
+}
+
+void testPortraitReconnectReusesCacheWithoutTogglingCameraWlan() {
+  FlowHarness::reset();
+  FlowHarness::cachedCredentials = true;
+  rvf::AppController controller(rvf::AppState::BleScan);
+  controller.begin(rvf::AppState::BleScan);
+  const rvf::AppFlowActions actions = FlowHarness::actions();
+
+  TEST_ASSERT_TRUE(controller.runCameraFlowOnce(actions, 100));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::AppState::WifiCredentialsReady),
+                        static_cast<int>(controller.state()));
+  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::activateCalls);
+  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::finishWlanCalls);
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::deactivateCalls);
+  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::readCredentialsCalls);
+  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::applyCredentialsCalls);
+  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::connectCalls);
+  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::openPreviewCalls);
+  TEST_ASSERT_TRUE(FlowHarness::bleConnected);
+  TEST_ASSERT_FALSE(FlowHarness::wifiConnected);
 }
 
 void testLandscapeStartupOpensLiveViewWithoutPropsProbe() {
@@ -343,6 +376,8 @@ void testLandscapeToPortraitDisconnectsWifiAndKeepsBleReady() {
   TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::AppState::WifiCredentialsReady),
                         static_cast<int>(controller.state()));
   TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::disconnectCalls);
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::finishWlanCalls);
+  TEST_ASSERT_TRUE(FlowHarness::finishWlanSawConnectedSta);
   TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::deactivateCalls);
   TEST_ASSERT_FALSE(FlowHarness::wifiConnected);
   TEST_ASSERT_FALSE(FlowHarness::previewRunning);
@@ -1440,6 +1475,7 @@ int main() {
   RUN_TEST(testBleDisconnectPolicyUsesCorrectEstablishmentFailureCode);
   RUN_TEST(testBleDisconnectPolicyKeepsOnlyTrustedSleepReasons);
   RUN_TEST(testPortraitStartupCachesWifiWithoutConnecting);
+  RUN_TEST(testPortraitReconnectReusesCacheWithoutTogglingCameraWlan);
   RUN_TEST(testLandscapeStartupOpensLiveViewWithoutPropsProbe);
   RUN_TEST(testPortraitToLandscapeResumesAfterCredentialCache);
   RUN_TEST(testLandscapeToPortraitDisconnectsWifiAndKeepsBleReady);
