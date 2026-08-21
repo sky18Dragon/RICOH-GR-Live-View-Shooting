@@ -21,6 +21,7 @@ CameraProtocolProfile makeGr3Profile() {
   profile.capabilities.supportsOperationMode = true;
   profile.capabilities.supportsBleShutter = true;
   profile.capabilities.supportsWifiActivation = true;
+  profile.capabilities.supportsWifiDeactivation = true;
   profile.capabilities.exposesWifiSsid = true;
   profile.capabilities.exposesWifiPassphrase = true;
   profile.capabilities.exposesWifiChannel = true;
@@ -48,6 +49,7 @@ CameraProtocolProfile makeGr4Profile() {
   profile.capabilities.supportsOperationMode = true;
   profile.capabilities.supportsBleShutter = true;
   profile.capabilities.supportsWifiActivation = true;
+  profile.capabilities.supportsWifiDeactivation = true;
   profile.capabilities.exposesWifiSsid = true;
   profile.capabilities.exposesWifiPassphrase = true;
   profile.capabilities.exposesWifiChannel = true;
@@ -223,6 +225,10 @@ bool protocolAllowsBleSideEffect(const CameraProtocolProfile& profile, BleSideEf
   switch (effect) {
     case BleSideEffect::WifiActivation:
       return profile.capabilities.supportsWifiActivation &&
+             (profile.wifiActivationMethod == WifiActivationMethod::BleNetworkTypeUuid ||
+              profile.wifiActivationMethod == WifiActivationMethod::BleFixedHandle);
+    case BleSideEffect::WifiDeactivation:
+      return profile.capabilities.supportsWifiDeactivation &&
              (profile.wifiActivationMethod == WifiActivationMethod::BleNetworkTypeUuid ||
               profile.wifiActivationMethod == WifiActivationMethod::BleFixedHandle);
     case BleSideEffect::CameraPowerWrite:

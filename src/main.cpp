@@ -27,6 +27,7 @@
 #include "supervisor/SystemSupervisor.h"
 #include "ui/ButtonInput.h"
 #include "ui/OrientationTracker.h"
+#include "ui/PairingGuide.h"
 #include "ui/UiCoordinator.h"
 #include "ui/UiSoundPlayer.h"
 #include "ui/UiTheme.h"
@@ -50,6 +51,7 @@ rvf::PreviewFrameBuffer previewFrameBuffer;
 rvf::SystemSupervisor systemSupervisor;
 rvf::UiCoordinator uiCoordinator;
 rvf::OrientationTracker orientationTracker(rvf::UiOrientation::Portrait);
+rvf::PairingGuide pairingGuide;
 rvf::UiSoundPlayer uiSound;
 using CameraFlowState = rvf::AppState;
 rvf::AppController appController(CameraFlowState::BleScan);
@@ -69,6 +71,7 @@ bool stickPowerReady = false;
 uint32_t lastCameraRecoveryAt = 0;
 bool cameraRecoveryInProgress = false;
 bool setupCameraFlowActive = false;
+bool pairingModelConfirmed = false;
 bool key2PairingResetRequested = false;
 bool cameraAutoWakeBlocked = false;
 bool cameraSleepBlockedFlowLogged = false;
@@ -118,6 +121,7 @@ rvf::AppFlowActions makeAppFlowActions();
 int32_t pollPasskeyButtonEntry(RicohPasskeyPollAction action);
 void toggleDisplayMirror();
 void toggleLiveViewLock();
+bool beginSelectedCameraPairing();
 
 void sampleDeviceBatteryLevel() {
   const int32_t battery = M5.Power.getBatteryLevel();
@@ -855,6 +859,32 @@ bool activateCameraWifiOverBle() {
   return true;
 }
 
+bool deactivateCameraWifiOverBle() {
+  const CameraProtocolProfile& protocol = bleCamera.protocolProfile();
+  if (!protocolAllowsBleSideEffect(protocol, BleSideEffect::WifiDeactivation)) {
+    return true;
+  }
+  if (!bleCamera.isConnected()) {
+    Serial.println("BLE WLAN close skipped: BLE not connected");
+    return false;
+  }
+
+  const rvf::Result closeWifiResult = bleCamera.closeWifi();
+  if (closeWifiResult.failed()) {
+    Serial.printf("BLE: Wi-Fi close failed: %s\n", bleCamera.lastError().c_str());
+    return false;
+  }
+  return true;
+}
+
+bool reactivateCameraWifiForCachedResume() {
+  const CameraProtocolProfile& protocol = bleCamera.protocolProfile();
+  if (!protocolAllowsBleSideEffect(protocol, BleSideEffect::WifiDeactivation)) {
+    return true;
+  }
+  return activateCameraWifiOverBle();
+}
+
 bool hasStoredBleIdentity() {
   return cameraProfile.peerIdentityAddress.length() > 0 ||
          cameraProfile.bleAddress.length() > 0 ||
@@ -1165,6 +1195,10 @@ bool runBleDiscoveryAtBoot() {
     return false;
   }
   const bool firstBootPairing = !hasStoredBleIdentity();
+  if (firstBootPairing && !pairingModelConfirmed) {
+    Serial.println("BLE pairing: waiting for camera model confirmation");
+    return false;
+  }
   bleCamera.setBindingState(firstBootPairing
                               ? CameraBindingState::Pairing
                               : CameraBindingState::Locked);
@@ -1275,9 +1309,12 @@ bool runBleDiscoveryAtBoot() {
                                  : RICOH_BLE_SECURITY_WAIT_MS;
       options.preConnectDelayMs = BLE_SCAN_TO_CONNECT_DELAY_MS;
       options.exchangeMtu = false;
-      options.protocolHint = cameraProfile.protocolGenerationKnown
+      options.protocolHint = !firstBootPairing && cameraProfile.protocolGenerationKnown
                                ? cameraProfile.protocolGeneration
                                : RicohProtocolGeneration::Unknown;
+      options.expectedGeneration = firstBootPairing
+                                     ? pairingGuide.selection()
+                                     : RicohProtocolGeneration::Unknown;
 
       Serial.printf("BLE: connect policy bonded=%d fast_security=%d security_wait=%lums\n",
                     bonded ? 1 : 0,
@@ -1671,6 +1708,7 @@ bool reasonRequiresBleRescan(const char* reason) {
 void disconnectWifiLiveViewToBleReady(const char* reason) {
   closeLiveView(reason != nullptr ? reason : "BLE_READY reset");
   wifiPreview.disconnectWifi();
+  (void)deactivateCameraWifiOverBle();
   if (bleCamera.isConnected()) {
     setCameraFlowState(CameraFlowState::BleReady, reason != nullptr ? reason : "BLE still connected");
   } else {
@@ -1763,6 +1801,8 @@ rvf::AppFlowActions makeAppFlowActions() {
   actions.runBleDiscovery = runBleDiscoveryAtBoot;
   actions.cameraSleepGuardActive = cameraSleepGuardActive;
   actions.activateCameraWifiOverBle = activateCameraWifiOverBle;
+  actions.deactivateCameraWifiOverBle = deactivateCameraWifiOverBle;
+  actions.reactivateCameraWifiForCachedResume = reactivateCameraWifiForCachedResume;
   actions.disconnectWifi = disconnectWifiForController;
   actions.clearBleDisconnectReason = clearBleDisconnectReasonForController;
   actions.hasUsableCachedWifiCredentials = hasUsableCachedWifiCredentials;
@@ -1866,6 +1906,9 @@ rvf::UiSnapshot makeUiSnapshot() {
                              snapshot.appState == rvf::AppState::CameraSleepGuard ||
                              snapshot.appState == rvf::AppState::CameraPowerOff;
   snapshot.resettingPairing = uiResettingPairing;
+  snapshot.pairingGuideActive = pairingGuide.active();
+  snapshot.pairingGuideGr4Selected =
+      pairingGuide.selection() == RicohProtocolGeneration::Gr4Family;
   snapshot.hasFrame = decodedFrames > 0;
   snapshot.fps = currentFps;
   snapshot.rssi = grWifi.rssi();
@@ -1905,7 +1948,8 @@ void updateUi(const ButtonEvents& input) {
   const rvf::UiOrientation sensedOrientation = sampleUiOrientation(snapshot, nowMs);
   const rvf::UiOrientation orientation = rvf::UiCoordinator::resolvePreviewOrientation(
       sensedOrientation, liveViewLocked);
-  appController.setPreviewRequested(orientation == rvf::UiOrientation::Landscape);
+  appController.setPreviewRequested(!pairingGuide.active() &&
+                                    orientation == rvf::UiOrientation::Landscape);
   uiCoordinator.update(snapshot, input, orientation, nowMs);
   ui.render(uiCoordinator.viewModel());
   uiSound.play(uiCoordinator.consumeSound(), nowMs);
@@ -1914,6 +1958,8 @@ void updateUi(const ButtonEvents& input) {
   currentUiInput.buttonADown = false;
   currentUiInput.buttonAReleased = false;
   currentUiInput.resetPairing = false;
+  currentUiInput.buttonBClicked = false;
+  currentUiInput.buttonBDoubleClicked = false;
   currentUiInput.toggleDisplayMirror = false;
   currentUiInput.toggleLiveViewLock = false;
   currentUiInput.powerOff = false;
@@ -1999,6 +2045,8 @@ void resetBlePairingFromKey2() {
   uiCoordinator.notifyResetTriggered(millis());
   updateUi();
   cameraRecoveryInProgress = true;
+  liveViewLocked = false;
+  unparkBleIfNeeded("pairing reset");
 
   Serial.println("BLE pairing reset: Button B / KEY2 long press");
   showStatusIfChanged("Reset pairing", "Clearing BLE...", "", "", true);
@@ -2049,7 +2097,9 @@ void resetBlePairingFromKey2() {
     return;
   }
 
-  showStatusIfChanged("Scanning GR BLE", "Pairing mode", "", "", true);
+  pairingModelConfirmed = false;
+  pairingGuide.activate();
+  showStatusIfChanged("Select camera", "B: model", "A: confirm", "", true);
   setCameraFlowState(CameraFlowState::BleScan, "Reset pairing");
   lastFrameAt = millis();
   lastLiveViewActivityAt = lastFrameAt;
@@ -2058,6 +2108,36 @@ void resetBlePairingFromKey2() {
   uiResettingPairing = false;
   resettingPairing = false;
   updateUi();
+}
+
+bool beginSelectedCameraPairing() {
+  const RicohProtocolGeneration generation = pairingGuide.selection();
+  const RicohSecurityProfileId securityProfile = securityProfileForGeneration(generation);
+  Serial.printf("BLE pairing guide: confirmed model=%s security=%s\n",
+                ricohProtocolGenerationName(generation),
+                ricohSecurityProfileName(securityProfile));
+
+  const rvf::Result securityResult = bleCamera.setSecurityProfile(securityProfile);
+  if (securityResult.failed()) {
+    Serial.printf("BLE pairing guide: security profile apply failed: %s\n",
+                  bleCamera.lastError().c_str());
+    pairingGuide.activate(generation);
+    pairingModelConfirmed = false;
+    updateUi();
+    return false;
+  }
+
+  pairingModelConfirmed = true;
+  setCameraFlowState(CameraFlowState::BleScan, "camera model confirmed");
+  showStatusIfChanged("Pairing GR BLE",
+                      ricohProtocolGenerationName(generation),
+                      "Scanning...",
+                      "",
+                      true);
+  const bool online = appController.runCameraFlowOnce(makeAppFlowActions(), millis());
+  lastFrameAt = millis();
+  lastCameraRecoveryAt = online ? millis() : 0;
+  return online;
 }
 
 void requestManualCameraWake(const char* source) {
@@ -2128,12 +2208,24 @@ void shutdownStickS3() {
 
 void handleButtons() {
   const ButtonEvents events = buttons.poll();
-  const rvf::UserCommand command = rvf::ButtonInput::commandFromEvents(events);
 
-  if (command == rvf::UserCommand::PowerOff || pollStickPowerHold()) {
+  if (events.powerOff || pollStickPowerHold()) {
     shutdownStickS3();
     return;
   }
+
+  if (pairingGuide.active()) {
+    const rvf::PairingGuideAction action = pairingGuide.handle(events);
+    // Never forward guide A/B input into the global UI command/animation
+    // pipeline. This prevents shutter, mirror, LiveView lock and reset actions.
+    updateUi(ButtonEvents{});
+    if (action == rvf::PairingGuideAction::Confirmed) {
+      (void)beginSelectedCameraPairing();
+    }
+    return;
+  }
+
+  const rvf::UserCommand command = rvf::ButtonInput::commandFromEvents(events);
 
   if (command == rvf::UserCommand::ResetPairing) {
     liveViewLocked = false;
@@ -2302,6 +2394,12 @@ void runAppTick() {
   if (tickPlan.handleButtons) {
     handleButtons();
   }
+  if (pairingGuide.active()) {
+    serviceDevicePowerIndicator(millis());
+    updateUi();
+    delay(1);
+    return;
+  }
   if (cameraSleepAutoPowerOffDue(cameraSleepGuardActive(),
                                  cameraSleepEnteredAt,
                                  millis(),
@@ -2369,6 +2467,10 @@ void setup() {
 
   applyDefaultProfile();
   restoreDisplaySettings();
+  if (!hasStoredBleIdentity()) {
+    pairingModelConfirmed = false;
+    pairingGuide.activate();
+  }
 
   if (!psramFound()) {
     LOGLINE_W("MEM", "PSRAM not found; JPEG buffer allocation may fail");
@@ -2399,12 +2501,18 @@ void setup() {
   mjpeg.begin(previewFrameBuffer.data(), previewFrameBuffer.capacity(), onJpegFrame, nullptr);
 
   setupCameraFlowActive = true;
-  const bool startupOnline = appController.runCameraFlowOnce(makeAppFlowActions(), millis());
+  const bool startupOnline = pairingGuide.active()
+                                 ? false
+                                 : appController.runCameraFlowOnce(makeAppFlowActions(), millis());
   setupCameraFlowActive = false;
   lastCameraRecoveryAt = startupOnline ? millis() : 0;
   lastFrameAt = millis();
   lastLiveViewActivityAt = lastFrameAt;
   lastStatusAt = 0;
+  if (pairingGuide.active()) {
+    setCameraFlowState(CameraFlowState::BleScan, "pairing guide");
+    updateUi();
+  }
 }
 
 void loop() {

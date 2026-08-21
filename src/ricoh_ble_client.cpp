@@ -1590,6 +1590,17 @@ bool RicohBleClient::connect(const RicohBleDeviceInfo& info, const RicohBleConne
       _lastError = "RICOH BLE protocol unknown or conflicting; side effects blocked";
       return false;
     }
+    if (!ricohProtocolMatchesExpectedGeneration(options.expectedGeneration, detected)) {
+      disconnect();
+      _lastError = String("Selected ") +
+                   ricohProtocolGenerationName(options.expectedGeneration) +
+                   " but detected " + ricohProtocolGenerationName(detected) +
+                   "; pairing blocked";
+      Serial.printf("BLE discovery: selected generation mismatch expected=%s detected=%s\n",
+                    ricohProtocolGenerationName(options.expectedGeneration),
+                    ricohProtocolGenerationName(detected));
+      return false;
+    }
     const RicohSecurityProfileId detectedSecurity =
         securityProfileForGeneration(detected);
     if (client->isConnected() &&
@@ -1812,7 +1823,7 @@ bool RicohBleClient::openWifi() {
         _lastError = "BLE Network Type characteristic unavailable";
         return false;
       }
-      const uint8_t apMode[] = {0x01};
+      const uint8_t apMode[] = {RICOH_BLE_GR3_WLAN_AP_VALUE};
       String error;
       if (!writeCharacteristicValue(networkType,
                                     apMode,
@@ -1829,6 +1840,78 @@ bool RicohBleClient::openWifi() {
     case RicohWifiActivationTransport::None:
     default:
       _lastError = "BLE WiFi activation transport unavailable";
+      return false;
+  }
+}
+
+bool RicohBleClient::closeWifi() {
+  NimBLEClient* client = static_cast<NimBLEClient*>(_client);
+  const IRicohBleProtocol* protocol = _protocolRouter.protocol();
+  if (!isConnected() || client == nullptr) {
+    _lastError = "BLE not connected";
+    return false;
+  }
+  if (protocol == nullptr) {
+    _lastError = "BLE WiFi deactivation blocked for unknown protocol";
+    return false;
+  }
+  if (!protocolAllowsBleSideEffect(protocolProfile(), BleSideEffect::WifiDeactivation)) {
+    _lastError = "BLE WiFi deactivation unsupported for detected protocol";
+    return false;
+  }
+
+  switch (protocol->wifiActivationTransport()) {
+    case RicohWifiActivationTransport::FixedHandle: {
+      const uint8_t payload[] = {RICOH_BLE_GR4_WLAN_OFF_VALUE};
+      String error;
+      if (!writeHandleWithResponse(client,
+                                   RICOH_BLE_GR4_WLAN_POWER_HANDLE,
+                                   payload,
+                                   sizeof(payload),
+                                   error)) {
+        _lastError = error;
+        return false;
+      }
+      _lastError = "";
+      Serial.printf("BLE WLAN deactivation method=FIXED_HANDLE handle=0x%04X value=0x%02X result=OK\n",
+                    RICOH_BLE_GR4_WLAN_POWER_HANDLE,
+                    RICOH_BLE_GR4_WLAN_OFF_VALUE);
+      return true;
+    }
+    case RicohWifiActivationTransport::NetworkTypeUuid: {
+      const RicohBleSecurityState security = securityState();
+      if (!security.encrypted || !security.authenticated) {
+        _lastError = "BLE UUID WiFi deactivation requires authenticated encryption";
+        return false;
+      }
+
+      NimBLERemoteCharacteristic* networkType =
+          findCharacteristic(client,
+                             RICOH_BLE_GR3_WLAN_SERVICE_UUID,
+                             RICOH_BLE_GR3_WLAN_NETWORK_TYPE_UUID);
+      if (networkType == nullptr || !networkType->canWrite()) {
+        _lastError = "BLE Network Type characteristic unavailable";
+        return false;
+      }
+
+      const uint8_t offMode[] = {RICOH_BLE_GR3_WLAN_OFF_VALUE};
+      String error;
+      if (!writeCharacteristicValue(networkType,
+                                    offMode,
+                                    sizeof(offMode),
+                                    "NetworkTypeOff",
+                                    error)) {
+        _lastError = error;
+        return false;
+      }
+
+      _lastError = "";
+      Serial.println("BLE WLAN deactivation method=NETWORK_TYPE_UUID value=0x00 result=OK");
+      return true;
+    }
+    case RicohWifiActivationTransport::None:
+    default:
+      _lastError = "BLE WiFi deactivation transport unavailable";
       return false;
   }
 }

@@ -45,6 +45,7 @@ UiScene UiCoordinator::selectScene(const UiSnapshot& snapshot,
                                    bool resetVisualActive) {
     if (snapshot.appState == AppState::Error) return UiScene::Error;
     if (snapshot.resettingPairing || resetVisualActive) return UiScene::ResetPairing;
+    if (snapshot.pairingGuideActive) return UiScene::PairingGuide;
     if (snapshot.cameraSleepLike || snapshot.appState == AppState::CameraSleepGuard ||
         snapshot.appState == AppState::CameraPowerOff) {
         return UiScene::CameraSleep;
@@ -178,6 +179,7 @@ void UiCoordinator::update(const UiSnapshot& snapshot,
     _view.resetSplitActive = _resetSplit.active;
     _view.resetSplitProgress = _resetSplit.progress(nowMs);
     _view.bleConnected = snapshot.bleConnected;
+    _view.pairingGuideGr4Selected = snapshot.pairingGuideGr4Selected;
     _view.shutterOverlayActive = _shutterOverlay.active;
     _view.overlayProgress = _shutterOverlay.progress(nowMs);
     _view.hasFrame = snapshot.hasFrame;

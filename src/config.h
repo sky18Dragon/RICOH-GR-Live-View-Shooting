@@ -92,9 +92,13 @@ constexpr uint32_t RICOH_BLE_WIFI_CREDENTIAL_WAIT_MS = 10000;
 constexpr uint32_t RICOH_BLE_WIFI_CREDENTIAL_POLL_MS = 500;
 constexpr uint8_t WIFI_OPEN_ATTEMPTS = 3;
 
-// Verified from the RICOH GR Android app BLE traffic captured on 2026-06-27.
+// Handle mapping and AP value were verified from RICOH GR Android app BLE
+// traffic captured on 2026-06-27. OFF follows the Network Type characteristic
+// value mapping at the same strictly detected GR IV handle; keep write-with-
+// response and validate the transition on GR IV hardware.
 constexpr uint16_t RICOH_BLE_GR4_WLAN_POWER_HANDLE = 0x0135;
 constexpr uint8_t RICOH_BLE_GR4_WLAN_ON_VALUE = 0x01;
+constexpr uint8_t RICOH_BLE_GR4_WLAN_OFF_VALUE = 0x00;
 constexpr uint16_t RICOH_BLE_GR4_WLAN_SSID_HANDLE = 0x0138;
 constexpr uint16_t RICOH_BLE_GR4_WLAN_PASSPHRASE_HANDLE = 0x013A;
 constexpr uint16_t RICOH_BLE_GR4_WLAN_SECURITY_HANDLE = 0x013C;
@@ -139,6 +143,8 @@ constexpr uint8_t RICOH_BLE_GR4_POWER_STATE_OFF_VALUE = 0x00;
 #ifndef RICOH_BLE_GR3_WLAN_NETWORK_TYPE_UUID
 #define RICOH_BLE_GR3_WLAN_NETWORK_TYPE_UUID "9111CDD0-9F01-45C4-A2D4-E09E8FB0424D"
 #endif
+constexpr uint8_t RICOH_BLE_GR3_WLAN_OFF_VALUE = 0x00;
+constexpr uint8_t RICOH_BLE_GR3_WLAN_AP_VALUE = 0x01;
 #ifndef RICOH_BLE_GR3_WLAN_SSID_UUID
 #define RICOH_BLE_GR3_WLAN_SSID_UUID "90638E5A-E77D-409D-B550-78F7E1CA5AB4"
 #endif

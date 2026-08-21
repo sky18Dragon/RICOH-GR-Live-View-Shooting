@@ -231,11 +231,20 @@ bool AppController::resumeFromWifiCredentialsReady(const AppFlowActions& actions
         return false;
     }
 
+    if (actions.reactivateCameraWifiForCachedResume == nullptr ||
+        !actions.reactivateCameraWifiForCachedResume()) {
+        transitionTo(AppState::BleReady, "camera WiFi reactivation failed", controllerMillis());
+        return false;
+    }
+
     transitionTo(AppState::ConnectingWifi, "landscape resumes cached WiFi params", controllerMillis());
     if (actions.connectFreshWifiFromProfile == nullptr ||
         !actions.connectFreshWifiFromProfile()) {
         if (actions.disconnectWifi != nullptr) {
             actions.disconnectWifi();
+        }
+        if (actions.deactivateCameraWifiOverBle != nullptr) {
+            (void)actions.deactivateCameraWifiOverBle();
         }
         transitionTo(_previewRequested ? AppState::BleReady : AppState::WifiCredentialsReady,
                      _previewRequested ? "WiFi resume failed" : "portrait cancelled WiFi resume",
@@ -251,6 +260,9 @@ bool AppController::resumeFromWifiCredentialsReady(const AppFlowActions& actions
 
     if (actions.disconnectWifi != nullptr) {
         actions.disconnectWifi();
+    }
+    if (actions.deactivateCameraWifiOverBle != nullptr) {
+        (void)actions.deactivateCameraWifiOverBle();
     }
     if (actions.isBleConnected != nullptr && actions.isBleConnected()) {
         transitionTo(AppState::WifiCredentialsReady,
@@ -311,6 +323,9 @@ bool AppController::connectWifiAfterBleReady(const AppFlowActions& actions) {
         if (!credentialsReady) {
             transitionTo(AppState::BleReady, "WiFi params unavailable while portrait", controllerMillis());
             return false;
+        }
+        if (actions.deactivateCameraWifiOverBle != nullptr) {
+            (void)actions.deactivateCameraWifiOverBle();
         }
         transitionTo(AppState::WifiCredentialsReady,
                      "portrait cached WiFi params; connection paused",
@@ -533,6 +548,9 @@ void AppController::serviceCameraFlowIfNeeded(const AppFlowActions& actions, uin
     if (!_previewRequested && (isPreviewActive() || wifiConnected)) {
         if (actions.disconnectWifi != nullptr) {
             actions.disconnectWifi();
+        }
+        if (actions.deactivateCameraWifiOverBle != nullptr) {
+            (void)actions.deactivateCameraWifiOverBle();
         }
         transitionTo(bleConnected ? AppState::WifiCredentialsReady : AppState::BleScan,
                      "portrait disconnects camera WiFi",

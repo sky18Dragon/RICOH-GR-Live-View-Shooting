@@ -37,6 +37,9 @@ struct RicohBleConnectOptions {
   int8_t connectRetries = -1;
   bool exchangeMtu = true;
   RicohProtocolGeneration protocolHint = RicohProtocolGeneration::Unknown;
+  // When set, read-only discovery must identify this exact generation before
+  // the formal security/pairing flow is allowed to continue.
+  RicohProtocolGeneration expectedGeneration = RicohProtocolGeneration::Unknown;
 };
 
 enum class RicohPasskeyPollAction : uint8_t {
@@ -82,6 +85,7 @@ public:
   bool shutterReady() const;
   bool shoot(bool autofocus = true);
   bool openWifi();
+  bool closeWifi();
   bool readPowerState(RicohCameraPowerState& state);
   bool readOperationMode(RicohCameraOperationMode& mode);
   bool enablePowerStateNotify();

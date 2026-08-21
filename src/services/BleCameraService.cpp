@@ -191,6 +191,19 @@ Result BleCameraService::openWifi() {
     return Result::success();
 }
 
+Result BleCameraService::closeWifi() {
+    Result ready = requireClient("closeWifi");
+    if (ready.failed()) {
+        publish(AppEventType::ErrorRaised, static_cast<int>(ready.code), "closeWifi");
+        return ready;
+    }
+    if (!_client->closeWifi()) {
+        publish(AppEventType::ErrorRaised, static_cast<int>(ErrorCode::BleConnectFailed), "closeWifi");
+        return Result::failure(ErrorCode::BleConnectFailed, _client->lastError());
+    }
+    return Result::success();
+}
+
 Result BleCameraService::readPowerState(RicohCameraPowerState& state) {
     Result ready = requireClient("readPowerState");
     if (ready.failed()) {

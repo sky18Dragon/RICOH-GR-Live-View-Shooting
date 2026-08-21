@@ -102,7 +102,7 @@ GR IV Profile 保留原项目路径，不改成 GR III UUID，也不通过失败
 
 | 功能 | Handle / Value |
 | --- | --- |
-| WLAN Power | `0x0135`，写 `0x01` |
+| WLAN Power / Network Type | `0x0135`，`0x01=AP`、`0x00=OFF` |
 | WLAN SSID | `0x0138` |
 | WLAN Passphrase | `0x013A` |
 | WLAN Security | `0x013C` |

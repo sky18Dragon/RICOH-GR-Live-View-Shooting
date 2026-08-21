@@ -9,6 +9,12 @@ enum class RicohProtocolGeneration : uint8_t {
   Gr4Family = 4,
 };
 
+inline bool ricohProtocolMatchesExpectedGeneration(
+    RicohProtocolGeneration expected,
+    RicohProtocolGeneration detected) {
+  return expected == RicohProtocolGeneration::Unknown || expected == detected;
+}
+
 enum class RicohSecurityProfileId : uint8_t {
   Unknown = 0,
   Gr3Passkey = 1,
@@ -61,6 +67,7 @@ enum class RicohCameraOperationMode : uint8_t {
 
 enum class BleSideEffect : uint8_t {
   WifiActivation,
+  WifiDeactivation,
   CameraPowerWrite,
   Shutter,
 };
@@ -72,6 +79,7 @@ struct CameraCapabilities {
   bool supportsOperationMode = false;
   bool supportsBleShutter = false;
   bool supportsWifiActivation = false;
+  bool supportsWifiDeactivation = false;
   bool exposesWifiSsid = false;
   bool exposesWifiPassphrase = false;
   bool exposesWifiChannel = false;

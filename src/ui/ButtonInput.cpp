@@ -37,6 +37,7 @@ ButtonEvents ButtonInput::update(bool buttonADown,
     if (!buttonBDown && !_buttonBWasDown && _buttonBClickPending &&
         uiElapsedMs(nowMs, _buttonBReleasedAtMs) >= _doubleClickWindowMs) {
         _buttonBClickPending = false;
+        events.buttonBClicked = true;
         events.toggleDisplayMirror = true;
     }
 
@@ -47,6 +48,7 @@ ButtonEvents ButtonInput::update(bool buttonADown,
                               uiElapsedMs(nowMs, _buttonBReleasedAtMs) <= _doubleClickWindowMs;
         if (_buttonBClickPending && !_buttonBSecondClick) {
             _buttonBClickPending = false;
+            events.buttonBClicked = true;
             events.toggleDisplayMirror = true;
         }
     }
@@ -71,6 +73,7 @@ ButtonEvents ButtonInput::update(bool buttonADown,
             if (_buttonBSecondClick) {
                 _buttonBClickPending = false;
                 _buttonBSecondClick = false;
+                events.buttonBDoubleClicked = true;
                 events.toggleLiveViewLock = true;
             } else {
                 _buttonBClickPending = true;
@@ -83,7 +86,8 @@ ButtonEvents ButtonInput::update(bool buttonADown,
 
     events.powerOff = powerOffTriggered;
     events.any = events.buttonADown || events.buttonAReleased || events.resetHoldActive ||
-                 events.resetPairing || events.toggleDisplayMirror ||
+                 events.resetPairing || events.buttonBClicked || events.buttonBDoubleClicked ||
+                 events.toggleDisplayMirror ||
                  events.toggleLiveViewLock || events.powerOff;
     _buttonAWasDown = buttonADown;
     _buttonBWasDown = buttonBDown;

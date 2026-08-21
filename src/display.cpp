@@ -190,6 +190,9 @@ void DisplayUi::render(const rvf::UiViewModel& view) {
         case rvf::UiScene::Boot:
             drawBoot(view);
             break;
+        case rvf::UiScene::PairingGuide:
+            drawPairingGuide(view);
+            break;
         case rvf::UiScene::Pairing:
         case rvf::UiScene::Connecting:
             drawConnecting(view);
@@ -237,6 +240,33 @@ void DisplayUi::renderLiveFrameOverlay(const rvf::UiViewModel& view) {
 void DisplayUi::drawBoot(const rvf::UiViewModel& view) {
     const int16_t radius = static_cast<int16_t>(4 + 2 * view.sceneProgress);
     _canvas.fillCircle(_width / 2, _height / 2, radius, rvf::UiTheme::kWhite);
+}
+
+void DisplayUi::drawPairingGuide(const rvf::UiViewModel& view) {
+    drawCenteredText("PAIR CAMERA", 24, rvf::UiTheme::kWhite);
+    drawCenteredText("B: SELECT", 48, rvf::UiTheme::kGray);
+
+    constexpr int16_t optionX = 12;
+    constexpr int16_t optionWidth = 111;
+    constexpr int16_t optionHeight = 34;
+    constexpr int16_t gr3Y = 76;
+    constexpr int16_t gr4Y = 120;
+    const bool gr4Selected = view.pairingGuideGr4Selected;
+
+    const auto drawOption = [this, optionX, optionWidth, optionHeight](
+                                const char* label, int16_t y, bool selected) {
+        const uint16_t color = selected ? rvf::UiTheme::kGreen : rvf::UiTheme::kDarkGray;
+        _canvas.drawRect(optionX, y, optionWidth, optionHeight, color);
+        if (selected) {
+            _canvas.drawRect(optionX + 1, y + 1, optionWidth - 2, optionHeight - 2, color);
+        }
+        drawCenteredText(label, y + 13, selected ? rvf::UiTheme::kGreen : rvf::UiTheme::kWhite);
+    };
+
+    drawOption("GR III", gr3Y, !gr4Selected);
+    drawOption("GR IV", gr4Y, gr4Selected);
+    drawCenteredText("A: CONFIRM", 183, rvf::UiTheme::kWhite);
+    drawCenteredText("Power on camera first", 207, rvf::UiTheme::kGray);
 }
 
 void DisplayUi::drawConnecting(const rvf::UiViewModel& view) {

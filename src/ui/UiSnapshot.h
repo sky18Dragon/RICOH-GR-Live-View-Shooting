@@ -12,6 +12,8 @@ struct UiSnapshot {
     bool shutterReady = false;
     bool cameraSleepLike = false;
     bool resettingPairing = false;
+    bool pairingGuideActive = false;
+    bool pairingGuideGr4Selected = false;
     bool hasFrame = false;
 
     float fps = 0.0f;

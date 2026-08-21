@@ -24,6 +24,7 @@ struct UiViewModel {
     bool shutterFailed = false;
     bool resetSplitActive = false;
     bool bleConnected = false;
+    bool pairingGuideGr4Selected = false;
     bool shouldRenderLivePreview = false;
     bool hasFrame = false;
     int8_t deviceBatteryPercent = -1;

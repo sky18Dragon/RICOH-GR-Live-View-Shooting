@@ -25,6 +25,7 @@ void tearDown(void) {}
 #include "supervisor/SystemSupervisor.h"
 #include "ui/ButtonInput.h"
 #include "ui/OrientationTracker.h"
+#include "ui/PairingGuide.h"
 #include "ui/UiAnimator.h"
 #include "ui/UiCoordinator.h"
 
@@ -123,8 +124,12 @@ struct FlowHarness {
   static bool cachedCredentials;
   static bool guardActive;
   static bool resetStackSucceeds;
+  static bool deactivateSucceeds;
+  static bool reactivateSucceeds;
   static uint32_t lastRecoveryAt;
   static uint32_t activateCalls;
+  static uint32_t deactivateCalls;
+  static uint32_t reactivateCalls;
   static uint32_t readCredentialsCalls;
   static uint32_t applyCredentialsCalls;
   static uint32_t connectCalls;
@@ -140,8 +145,12 @@ struct FlowHarness {
     cachedCredentials = false;
     guardActive = false;
     resetStackSucceeds = true;
+    deactivateSucceeds = true;
+    reactivateSucceeds = true;
     lastRecoveryAt = 0;
     activateCalls = 0;
+    deactivateCalls = 0;
+    reactivateCalls = 0;
     readCredentialsCalls = 0;
     applyCredentialsCalls = 0;
     connectCalls = 0;
@@ -166,6 +175,14 @@ struct FlowHarness {
   static bool activateWifi() {
     ++activateCalls;
     return true;
+  }
+  static bool deactivateWifi() {
+    ++deactivateCalls;
+    return deactivateSucceeds;
+  }
+  static bool reactivateWifi() {
+    ++reactivateCalls;
+    return reactivateSucceeds;
   }
   static bool hasCredentials() { return cachedCredentials; }
   static bool readCredentials() {
@@ -205,6 +222,8 @@ struct FlowHarness {
     result.disconnectWifi = disconnectWifi;
     result.runBleDiscovery = runBleDiscovery;
     result.activateCameraWifiOverBle = activateWifi;
+    result.deactivateCameraWifiOverBle = deactivateWifi;
+    result.reactivateCameraWifiForCachedResume = reactivateWifi;
     result.hasUsableCachedWifiCredentials = hasCredentials;
     result.connectCachedWifiFromProfile = connectWifi;
     result.readFreshWifiCredentials = readCredentials;
@@ -230,8 +249,12 @@ bool FlowHarness::previewRunning = false;
 bool FlowHarness::cachedCredentials = false;
 bool FlowHarness::guardActive = false;
 bool FlowHarness::resetStackSucceeds = true;
+bool FlowHarness::deactivateSucceeds = true;
+bool FlowHarness::reactivateSucceeds = true;
 uint32_t FlowHarness::lastRecoveryAt = 0;
 uint32_t FlowHarness::activateCalls = 0;
+uint32_t FlowHarness::deactivateCalls = 0;
+uint32_t FlowHarness::reactivateCalls = 0;
 uint32_t FlowHarness::readCredentialsCalls = 0;
 uint32_t FlowHarness::applyCredentialsCalls = 0;
 uint32_t FlowHarness::connectCalls = 0;
@@ -264,6 +287,7 @@ void testPortraitStartupCachesWifiWithoutConnecting() {
   TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::AppState::WifiCredentialsReady),
                         static_cast<int>(controller.state()));
   TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::activateCalls);
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::deactivateCalls);
   TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::readCredentialsCalls);
   TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::applyCredentialsCalls);
   TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::connectCalls);
@@ -282,6 +306,7 @@ void testLandscapeStartupOpensLiveViewWithoutPropsProbe() {
   TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::AppState::PreviewRunning),
                         static_cast<int>(controller.state()));
   TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::activateCalls);
+  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::deactivateCalls);
   TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::connectCalls);
   TEST_ASSERT_TRUE(FlowHarness::wifiConnected);
   TEST_ASSERT_TRUE(FlowHarness::previewRunning);
@@ -301,6 +326,7 @@ void testPortraitToLandscapeResumesAfterCredentialCache() {
   TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::AppState::PreviewRunning),
                         static_cast<int>(controller.state()));
   TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::connectCalls);
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::reactivateCalls);
   TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::openPreviewCalls);
 }
 
@@ -317,6 +343,45 @@ void testLandscapeToPortraitDisconnectsWifiAndKeepsBleReady() {
   TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::AppState::WifiCredentialsReady),
                         static_cast<int>(controller.state()));
   TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::disconnectCalls);
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::deactivateCalls);
+  TEST_ASSERT_FALSE(FlowHarness::wifiConnected);
+  TEST_ASSERT_FALSE(FlowHarness::previewRunning);
+  TEST_ASSERT_TRUE(FlowHarness::bleConnected);
+}
+
+void testCachedResumeStopsBeforeWifiConnectWhenReactivationFails() {
+  FlowHarness::reset();
+  rvf::AppController controller(rvf::AppState::BleScan);
+  controller.begin(rvf::AppState::BleScan);
+  const rvf::AppFlowActions actions = FlowHarness::actions();
+  TEST_ASSERT_TRUE(controller.runCameraFlowOnce(actions, 100));
+
+  FlowHarness::reactivateSucceeds = false;
+  controller.setPreviewRequested(true);
+  controller.serviceCameraFlowIfNeeded(actions, 200);
+
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::AppState::BleReady),
+                        static_cast<int>(controller.state()));
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::reactivateCalls);
+  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::connectCalls);
+  TEST_ASSERT_TRUE(FlowHarness::bleConnected);
+}
+
+void testWifiDeactivationFailureDoesNotBreakBleShutterState() {
+  FlowHarness::reset();
+  rvf::AppController controller(rvf::AppState::BleScan);
+  controller.begin(rvf::AppState::BleScan);
+  controller.setPreviewRequested(true);
+  const rvf::AppFlowActions actions = FlowHarness::actions();
+  TEST_ASSERT_TRUE(controller.runCameraFlowOnce(actions, 100));
+
+  FlowHarness::deactivateSucceeds = false;
+  controller.setPreviewRequested(false);
+  controller.serviceCameraFlowIfNeeded(actions, 200);
+
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::AppState::WifiCredentialsReady),
+                        static_cast<int>(controller.state()));
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::deactivateCalls);
   TEST_ASSERT_FALSE(FlowHarness::wifiConnected);
   TEST_ASSERT_FALSE(FlowHarness::previewRunning);
   TEST_ASSERT_TRUE(FlowHarness::bleConnected);
@@ -696,6 +761,59 @@ void testUiScenePriority() {
                             snapshot, rvf::UiOrientation::Landscape)));
 }
 
+void testPairingGuideOverridesConnectionScene() {
+  rvf::UiSnapshot snapshot;
+  snapshot.appState = rvf::AppState::BleScan;
+  snapshot.pairingGuideActive = true;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiScene::PairingGuide),
+                        static_cast<int>(rvf::UiCoordinator::selectScene(
+                            snapshot, rvf::UiOrientation::Landscape)));
+}
+
+void testPairingGuideUsesBToSelectAndAToConfirm() {
+  rvf::PairingGuide guide;
+  guide.activate();
+  TEST_ASSERT_TRUE(guide.active());
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohProtocolGeneration::Gr3Family),
+                        static_cast<int>(guide.selection()));
+
+  rvf::ButtonEvents select;
+  select.buttonBClicked = true;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::PairingGuideAction::SelectionChanged),
+                        static_cast<int>(guide.handle(select)));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohProtocolGeneration::Gr4Family),
+                        static_cast<int>(guide.selection()));
+
+  rvf::ButtonEvents confirm;
+  confirm.buttonADown = true;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::PairingGuideAction::Confirmed),
+                        static_cast<int>(guide.handle(confirm)));
+  TEST_ASSERT_FALSE(guide.active());
+}
+
+void testPairingGuideConsumesLongBWithoutResettingOrSelecting() {
+  rvf::PairingGuide guide;
+  guide.activate();
+  rvf::ButtonEvents longB;
+  longB.resetPairing = true;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::PairingGuideAction::None),
+                        static_cast<int>(guide.handle(longB)));
+  TEST_ASSERT_TRUE(guide.active());
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohProtocolGeneration::Gr3Family),
+                        static_cast<int>(guide.selection()));
+}
+
+void testPairingSelectionRejectsTheOtherProtocolGeneration() {
+  TEST_ASSERT_TRUE(ricohProtocolMatchesExpectedGeneration(
+      RicohProtocolGeneration::Unknown, RicohProtocolGeneration::Gr3Family));
+  TEST_ASSERT_TRUE(ricohProtocolMatchesExpectedGeneration(
+      RicohProtocolGeneration::Gr3Family, RicohProtocolGeneration::Gr3Family));
+  TEST_ASSERT_FALSE(ricohProtocolMatchesExpectedGeneration(
+      RicohProtocolGeneration::Gr3Family, RicohProtocolGeneration::Gr4Family));
+  TEST_ASSERT_FALSE(ricohProtocolMatchesExpectedGeneration(
+      RicohProtocolGeneration::Gr4Family, RicohProtocolGeneration::Gr3Family));
+}
+
 void testOrientationRequiresStableCandidate() {
   rvf::OrientationTracker tracker(rvf::UiOrientation::Portrait);
   tracker.reset(rvf::UiOrientation::Portrait, 0);
@@ -802,6 +920,8 @@ void testButtonBSingleClickTogglesMirrorAfterDoubleClickWindow() {
   TEST_ASSERT_FALSE(released.resetHoldActive);
   TEST_ASSERT_FALSE(released.toggleDisplayMirror);
   const rvf::ButtonEvents confirmed = input.update(false, false, false, 551);
+  TEST_ASSERT_TRUE(confirmed.buttonBClicked);
+  TEST_ASSERT_FALSE(confirmed.buttonBDoubleClicked);
   TEST_ASSERT_TRUE(confirmed.toggleDisplayMirror);
   TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UserCommand::ToggleDisplayMirror),
                         static_cast<int>(rvf::ButtonInput::commandFromEvents(confirmed)));
@@ -816,6 +936,8 @@ void testButtonBDoubleClickTogglesLiveViewLockWithoutMirror() {
 
   input.update(false, true, false, 260);
   const rvf::ButtonEvents secondRelease = input.update(false, false, false, 320);
+  TEST_ASSERT_TRUE(secondRelease.buttonBDoubleClicked);
+  TEST_ASSERT_FALSE(secondRelease.buttonBClicked);
   TEST_ASSERT_TRUE(secondRelease.toggleLiveViewLock);
   TEST_ASSERT_FALSE(secondRelease.toggleDisplayMirror);
   TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UserCommand::ToggleLiveViewLock),
@@ -1050,6 +1172,7 @@ void testProtocolRouterSelectsExactlyOneImplementation() {
 void testUnknownAndGr2ProfilesBlockBleSideEffects() {
   const CameraProtocolProfile& unknown = cameraProtocolProfile(RicohProtocolGeneration::Unknown);
   TEST_ASSERT_FALSE(protocolAllowsBleSideEffect(unknown, BleSideEffect::WifiActivation));
+  TEST_ASSERT_FALSE(protocolAllowsBleSideEffect(unknown, BleSideEffect::WifiDeactivation));
   TEST_ASSERT_FALSE(protocolAllowsBleSideEffect(unknown, BleSideEffect::CameraPowerWrite));
   TEST_ASSERT_FALSE(protocolAllowsBleSideEffect(unknown, BleSideEffect::Shutter));
 
@@ -1059,6 +1182,16 @@ void testUnknownAndGr2ProfilesBlockBleSideEffects() {
   TEST_ASSERT_EQUAL_INT(static_cast<int>(WifiCredentialMethod::ManualConfiguration),
                         static_cast<int>(gr2.wifiCredentialMethod));
   TEST_ASSERT_FALSE(protocolAllowsBleSideEffect(gr2, BleSideEffect::WifiActivation));
+  TEST_ASSERT_FALSE(protocolAllowsBleSideEffect(gr2, BleSideEffect::WifiDeactivation));
+}
+
+void testGr3AndGr4AllowProfileScopedWifiDeactivation() {
+  TEST_ASSERT_TRUE(protocolAllowsBleSideEffect(
+      cameraProtocolProfile(RicohProtocolGeneration::Gr3Family),
+      BleSideEffect::WifiDeactivation));
+  TEST_ASSERT_TRUE(protocolAllowsBleSideEffect(
+      cameraProtocolProfile(RicohProtocolGeneration::Gr4Family),
+      BleSideEffect::WifiDeactivation));
 }
 
 void testOperationModeSafetyIsGenerationSpecific() {
@@ -1298,11 +1431,14 @@ int main() {
   RUN_TEST(testLandscapeStartupOpensLiveViewWithoutPropsProbe);
   RUN_TEST(testPortraitToLandscapeResumesAfterCredentialCache);
   RUN_TEST(testLandscapeToPortraitDisconnectsWifiAndKeepsBleReady);
+  RUN_TEST(testCachedResumeStopsBeforeWifiConnectWhenReactivationFails);
+  RUN_TEST(testWifiDeactivationFailureDoesNotBreakBleShutterState);
   RUN_TEST(testDetectsProtocolOnlyFromSafeEvidence);
   RUN_TEST(testSecurityProfilesKeepGr4LegacyFrozen);
   RUN_TEST(testOnlyGr4DiscoveryCanReuseTheLegacyConnection);
   RUN_TEST(testProtocolRouterSelectsExactlyOneImplementation);
   RUN_TEST(testUnknownAndGr2ProfilesBlockBleSideEffects);
+  RUN_TEST(testGr3AndGr4AllowProfileScopedWifiDeactivation);
   RUN_TEST(testOperationModeSafetyIsGenerationSpecific);
   RUN_TEST(testHttpShutterIsOnlyClaimedWhereItWasVerified);
   RUN_TEST(testBlePreviewParkingIsDisabledForGr3AndGr4);
@@ -1345,6 +1481,10 @@ int main() {
   RUN_TEST(testUiPropagatesDeviceChargingIndicator);
   RUN_TEST(testConnectingDotsOnlyMergeAfterBleConnects);
   RUN_TEST(testUiScenePriority);
+  RUN_TEST(testPairingGuideOverridesConnectionScene);
+  RUN_TEST(testPairingGuideUsesBToSelectAndAToConfirm);
+  RUN_TEST(testPairingGuideConsumesLongBWithoutResettingOrSelecting);
+  RUN_TEST(testPairingSelectionRejectsTheOtherProtocolGeneration);
   RUN_TEST(testOrientationRequiresStableCandidate);
   RUN_TEST(testOrientationMapsStickS3PhysicalAxes);
   RUN_TEST(testOrientationHysteresisPreventsBoundaryChatter);

@@ -36,6 +36,14 @@ loop()
 
 - Props：`GET /v1/props HTTP/1.1`，`Connection: close`。
 - LiveView：`GET /v1/liveview HTTP/1.1`，`Connection: keep-alive`。
+- GR III/IIIx 进入 `WifiCredentialsReady`（蓝牙快门界面）前，通过
+  `Network Type` UUID 写 `0x00` 关闭相机 AP；BLE 连接保持用于对焦和快门。
+- GR III/IIIx 从 `WifiCredentialsReady` 再次进入 LiveView 时，先通过 BLE
+  写 `Network Type=0x01` 重新开启 AP，再使用缓存的 SSID/密码连接。
+- GR IV 进入 `WifiCredentialsReady` 前，向严格识别后的 WLAN 固定 Handle
+  `0x0135` 写 `0x00` 关闭 AP；再次进入 LiveView 时写 `0x01` 重新开启。
+- 两个代际退出 LiveView 后都保持 BLE，用于对焦和快门；关闭 AP 失败只记录
+  错误，不会把蓝牙快门状态降级为断连。
 - HTTP host 默认 `192.168.0.1:80`。
 - `readHttpHeaders()` 最多读取 2048 bytes header。
 - Props body 上限：16KB。
