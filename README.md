@@ -59,13 +59,23 @@
 
 ### 使用 M5Burner
 
-1. 在 M5Burner 中选择自定义固件并导入项目发布的单文件全量 BIN。
-2. 目标芯片选择 ESP32-S3，烧录地址设置为 `0x0000`。
-3. 如果界面提供 Flash Mode，选择 `DIO`；建议首次烧录前清除 Flash。
-4. 烧录完成后重新启动 StickS3。
+不需要安装编程环境，也不需要下载源代码。准备一台 StickS3、一根可传输数据的 USB-C 线和 Chrome/Edge 浏览器，然后按下面操作：
+
+1. 打开 M5Stack 官方在线烧录网站：[https://burner.m5stack.com/](https://burner.m5stack.com/)。
+2. 在页面顶部搜索框输入 `GR`，点击“搜索”。
+3. 找到名称为 **“理光 GR 实时取景拍摄”** 的固件卡片，并确认设备是 **StickS3**、作者是 **TinkerZhang**。
+4. 点击固件卡片进入详情页，再点击页面中的“烧录”按钮。
+5. 使用 USB-C 数据线连接 StickS3。浏览器询问串口权限时，选择对应的 **USB JTAG/serial debug unit** 或 StickS3 串口并允许连接。
+6. 按页面提示开始烧录。烧录期间不要拔线或关闭网页，等待页面提示成功并让 StickS3 自动重启。
+7. 首次启动会进入相机机型选择页面：Button B 选择 GR III/GR IV，Button A 确认。
+
+![在 M5Burner 中搜索并选择理光 GR 实时取景拍摄固件](docs/images/M5Burner_Search_GR.png)
+
+> [!TIP]
+> 如果这个固件对你有帮助，欢迎在固件卡片或详情页点击 **爱心点赞**。你的点赞可以帮助作者 **TinkerZhang** 积累 M5Stack 社区积分，也会支持项目继续维护和更新，谢谢！
 
 > [!WARNING]
-> M5Burner 必须使用已经合并 Bootloader、分区表、`boot_app0` 和应用程序的全量 BIN。不要把 `.pio/build/m5stack-sticks3/firmware.bin` 当作 `0x0000` 全量镜像烧录，也不要在合并时强制把 Bootloader 模式改为 QIO，否则可能出现黑屏。
+> 请认准 StickS3 设备和作者 TinkerZhang，不要选择名称相近但目标设备不同的固件。M5Burner 社区中的正式版本已经包含完整烧录镜像，普通用户不需要设置地址或 Flash Mode。开发者手动导入 BIN 时，才需要使用包含 Bootloader、分区表、`boot_app0` 和应用程序的全量镜像，并从 `0x0000` 以 DIO 参数烧录；不要把 `.pio/build/m5stack-sticks3/firmware.bin` 当作全量镜像。
 
 ### 从源码编译
 

@@ -59,13 +59,23 @@ The default build uses Arduino, `espressif32@6.12.0`, M5Unified, M5PM1, NimBLE-A
 
 ### M5Burner
 
-1. Select custom firmware in M5Burner and import the project's single-file merged BIN.
-2. Select ESP32-S3 and set the flash offset to `0x0000`.
-3. If M5Burner exposes Flash Mode, select `DIO`. Erasing Flash before the first installation is recommended.
-4. Restart the StickS3 after flashing completes.
+No programming tools or source-code download are required. Prepare a StickS3, a USB-C data cable, and Chrome or Edge, then follow these steps:
+
+1. Open the official M5Stack online burner: [https://burner.m5stack.com/](https://burner.m5stack.com/).
+2. Enter `GR` in the search box at the top of the page and click Search.
+3. Find the firmware card named **“理光 GR 实时取景拍摄”**. Confirm that the target device is **StickS3** and the author is **TinkerZhang**.
+4. Open the firmware details and click the Burn button shown on the page.
+5. Connect the StickS3 with a USB-C data cable. When the browser requests serial permission, select the corresponding **USB JTAG/serial debug unit** or StickS3 serial port and allow access.
+6. Follow the on-screen instructions to start flashing. Do not unplug the cable or close the page until M5Burner reports success and the StickS3 restarts.
+7. On first boot, select the camera generation: Button B selects GR III/GR IV, and Button A confirms.
+
+![Search for and select the RICOH GR Live View firmware in M5Burner](docs/images/M5Burner_Search_GR.png)
+
+> [!TIP]
+> If you find the firmware useful, please click the **heart/Like** button on its card or detail page. Your Like helps **TinkerZhang** earn M5Stack community points and supports continued maintenance and updates. Thank you!
 
 > [!WARNING]
-> M5Burner requires a full image containing the Bootloader, partition table, `boot_app0`, and application. Do not flash `.pio/build/m5stack-sticks3/firmware.bin` as a complete image at `0x0000`, and do not force the merged Bootloader header to QIO. Either mistake can leave the device on a black screen.
+> Verify the StickS3 target and TinkerZhang author so that you do not install a similarly named package for another device. The published M5Burner community release already contains the complete flash image; regular users do not need to set an offset or Flash Mode. Only developers importing a BIN manually need the merged Bootloader, partition table, `boot_app0`, and application image flashed at `0x0000` with DIO parameters. Never use `.pio/build/m5stack-sticks3/firmware.bin` as a complete image.
 
 ### Build from Source
 
