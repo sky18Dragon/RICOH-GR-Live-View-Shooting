@@ -103,12 +103,13 @@ flowchart TD
 | 参数 | 默认 | 位置 | 说明 |
 | --- | ---: | --- | --- |
 | `BLE_SCAN_SECONDS` | 2 | config.h | 单轮 BLE 扫描时长 |
-| `BLE_FAST_CONNECT_TIMEOUT_MS` | 3000 | config.h | 已保存 BLE 地址/地址类型时的 direct reconnect 超时 |
+| `BLE_FAST_CONNECT_TIMEOUT_MS` | 6000 | config.h | 启动直连窗口，覆盖相机旧链路 5.12 秒监督超时 |
 | `BLE_CONNECT_ATTEMPTS` | 12 | config.h | 有身份时重连尝试次数 |
 | `RICOH_BLE_BONDED_SECURITY_WAIT_MS` | 1500 | config.h | 已 bonded 相机重连时的加密恢复等待 |
+| `RICOH_BLE_BOND_PERSIST_SETTLE_MS` | 1000 | config.h | 新设备加密后等待 Bond 落盘，超时不保存 Profile |
 | `FIRST_BOOT_BLE_PAIRING_ATTEMPTS` | 12 | config.h | 无 NVS 身份时配对扫描次数 |
 | `CAMERA_POWER_OFF_COOLDOWN_MS` | 15000 | config.h | 关机断连冷却 |
-| `BLE_MANUAL_WAKE_REINIT_SETTLE_MS` | 3000 | config.h | 手动唤醒 BLE 栈重建等待 |
+| `BLE_MANUAL_WAKE_REINIT_SETTLE_MS` | 200 | config.h | 手动唤醒 BLE 栈同步重建后的稳定窗口 |
 | `LIVEVIEW_STALL_TIMEOUT_MS` | 5000 | config.h | LiveView 卡顿恢复阈值 |
 | `WIFI_CONNECT_TIMEOUT_MS` | 15000 | config.h | Wi-Fi 连接超时 |
 | `FRAME_BUFFER_SIZE` | 256KB | config.h | JPEG 帧缓冲（PSRAM） |

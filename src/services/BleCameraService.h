@@ -18,6 +18,10 @@ public:
 
     Result begin();
     Result begin(RicohBleClient& client);
+    Result setSecurityProfile(RicohSecurityProfileId profile);
+    void setBindingState(CameraBindingState state);
+    CameraBindingState bindingState() const;
+    bool consumeBondInvalidRequest();
 
     Result scan();
     bool consumeEvent(AppMessage& message);
@@ -36,6 +40,7 @@ public:
 
     Result shoot(bool autofocus = true);
     Result openWifi();
+    Result closeWifi();
     Result readPowerState(RicohCameraPowerState& state);
     Result readOperationMode(RicohCameraOperationMode& mode);
     Result enablePowerStateNotify();
@@ -45,8 +50,13 @@ public:
     int consumeDisconnectReason();
     void clearDisconnectReason();
     Result deleteAllBonds();
-    void resetStack(bool clearObjects = false);
+    Result resetStack(bool clearObjects = false);
     bool lastFailureWasResourceExhausted() const;
+    const CameraProtocolProfile& protocolProfile() const;
+    RicohBleSecurityState securityState() const;
+    String connectedIdentityAddress() const;
+    uint8_t connectedIdentityAddressType() const;
+    bool connectedIdentityKnown() const;
 
     String statusText() const;
     String lastError() const;

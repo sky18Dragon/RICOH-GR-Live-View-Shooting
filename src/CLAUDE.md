@@ -14,7 +14,7 @@
 | `gr_api.{cpp,h}` | 342 / 35 | HTTP | `/v1/props` + `/v1/liveview` MJPEG |
 | `camera_identity.{cpp,h}` | 49 / 5 | 相机身份 | 从 Wi-Fi SSID 推导候选 BLE 名称 |
 | `display.{cpp,h}` | 336 / 50 | 渲染 | 屏幕 UI：boot/status/error/overlay |
-| `jpeg_decoder.{cpp,h}` | 172 / 49 | 渲染 | JPEGDEC 解码到 RGB565 画布 |
+| `jpeg_decoder.{cpp,h}` | — | 渲染 | `esp_new_jpeg` 解码到 RGB565，居中裁剪到画布 |
 | `mjpeg_stream.{cpp,h}` | 110 / 39 | 渲染 | MJPEG 字节流切分为单帧 |
 | `camera_profile_store.{cpp,h}` | 62 / 31 | 持久化 | NVS 相机身份存储 |
 | `buttons.{cpp,h}` | 16 / 15 | 输入 | 轮询 `M5.BtnA` |
@@ -145,11 +145,11 @@ BleScan → BleReady → WifiConnecting → HttpProbe → LiveViewRunning
 
 ### `jpeg_decoder.{cpp,h}` — `JpegDecoder`
 
-`JPEGDEC` 库解码单帧到 RGB565 画布。
+Espressif `esp_new_jpeg` 库解码单帧到 RGB565 buffer，再裁剪到画布。
 
-- `drawFrame(LovyanGFX* dst, data, length)`：`_jpeg.openRAM` → `setPixelType(RGB565_BIG_ENDIAN)` → 按 `JPEG_SCALE_POLICY`（config.h = `JPEG_SCALE_HALF`）选缩放 → 居中算 `_drawX/_drawY` → `decode()`。
-- `jpegDrawCallback`（静态）转发到实例 `drawBlock`，逐块写入目标画布。
-- 裁剪：`visibleX/Y/W/H` 处理解码图大于屏幕的可见区。
+- `drawFrame(LovyanGFX* dst, data, length)`：`jpeg_dec_parse_header` → SIMD decode 到 216×144 `RGB565_BE` → center crop 到 216×135 → 写入画布。
+- 输出 buffer 16-byte aligned，优先 PSRAM、失败时回退 internal RAM；decoder handle 和 buffer 跨帧复用。
+- 横屏左右各留 12 px，垂直居中裁掉上 4 / 下 5 行；镜像模式逐行反转。
 - `lastDecodeMs`/`lastWidth`/`lastHeight`/`lastError` 状态查询。
 
 ### `display.{cpp,h}` — `DisplayUi`
@@ -189,7 +189,7 @@ BleScan → BleReady → WifiConnecting → HttpProbe → LiveViewRunning
 
 全局 `constexpr` 常量与 `#define` 守卫。**改 BLE 行为前必读**。
 
-- 显示/缓冲：`DISPLAY_WIDTH/HEIGHT`、`FRAME_BUFFER_SIZE=256KB`、`STREAM_READ_BUFFER_SIZE=2048`、`JPEG_SCALE_POLICY=JPEG_SCALE_HALF`。
+- 显示/缓冲：`DISPLAY_WIDTH/HEIGHT`、`FRAME_BUFFER_SIZE=256KB`、`STREAM_READ_BUFFER_SIZE=8192`、`JPEG_DECODE_WIDTH/HEIGHT=216/144`。
 - 超时/周期：`WIFI_CONNECT_TIMEOUT_MS`、`PROPS_TIMEOUT_MS`、`LIVEVIEW_STALL_TIMEOUT_MS`、`UI_STATUS_INTERVAL_MS`、`PROPS_REFRESH_INTERVAL_MS`。
 - BLE 时序：`BLE_SCAN_SECONDS`、`BLE_CONNECT_ATTEMPTS`、`FIRST_BOOT_BLE_PAIRING_ATTEMPTS`、`BLE_STACK_RESET_AFTER_FAILURES`、`RICOH_BLE_SECURITY_WAIT_MS` 等。
 - 电源/保护：`CAMERA_POWER_OFF_COOLDOWN_MS`、`BLE_MANUAL_WAKE_REINIT_SETTLE_MS`、`RICOH_BLE_DISCONNECT_REMOTE_USER=0x213`、`RICOH_BLE_DISCONNECT_REMOTE_POWER_OFF=0x215`、`RICOH_BLE_REQUIRE_POWER_ON_BEFORE_WIFI=true`。
@@ -206,7 +206,7 @@ gr_wifi → WiFi.h (ESP32 Arduino)
 gr_api → WiFiClient, ArduinoJson, config.h
 camera_identity → 标准 C++ 头文件（纯逻辑，无硬件依赖）
 mjpeg_stream → 标准 C++ 头文件（纯逻辑，无硬件依赖）
-jpeg_decoder → JPEGDEC, M5Unified(LovyanGFX), config.h
+jpeg_decoder → esp_new_jpeg, M5Unified(LovyanGFX), config.h
 display → M5Unified, config.h
 camera_profile_store → Preferences
 buttons → M5Unified

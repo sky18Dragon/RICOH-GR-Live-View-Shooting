@@ -8,6 +8,8 @@ enum class UserCommand {
     StopPreview,
     Shoot,
     ResetPairing,
+    ToggleDisplayMirror,
+    ToggleLiveViewLock,
     ManualWake,
     PowerOff,
     LockScreen,
@@ -25,6 +27,8 @@ inline const char* userCommandName(UserCommand command) {
         case UserCommand::StopPreview: return "StopPreview";
         case UserCommand::Shoot: return "Shoot";
         case UserCommand::ResetPairing: return "ResetPairing";
+        case UserCommand::ToggleDisplayMirror: return "ToggleDisplayMirror";
+        case UserCommand::ToggleLiveViewLock: return "ToggleLiveViewLock";
         case UserCommand::ManualWake: return "ManualWake";
         case UserCommand::PowerOff: return "PowerOff";
         case UserCommand::LockScreen: return "LockScreen";

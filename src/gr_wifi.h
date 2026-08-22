@@ -19,6 +19,7 @@ public:
 
   String ssid() const;
   String bssidString() const;
+  uint8_t channel() const;
   int32_t rssi() const;
   String localIPString() const;
   String statusText() const;

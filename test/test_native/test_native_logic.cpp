@@ -8,16 +8,24 @@
 void setUp(void) {}
 void tearDown(void) {}
 
+#include "ble_pairing_policy.h"
+#include "ble_disconnect_policy.h"
+#include "ble_discovery_policy.h"
 #include "ble_reconnect_policy.h"
+#include "ble_scan_lifecycle_policy.h"
 
 #include "app/AppController.h"
 #include "camera_identity.h"
+#include "camera_profile_schema.h"
+#include "camera_protocol_profile.h"
+#include "ricoh/RicohBleProtocolRouter.h"
 #include "camera_sleep_policy.h"
 #include "image_fit.h"
 #include "mjpeg_stream.h"
 #include "supervisor/SystemSupervisor.h"
 #include "ui/ButtonInput.h"
 #include "ui/OrientationTracker.h"
+#include "ui/PairingGuide.h"
 #include "ui/UiAnimator.h"
 #include "ui/UiCoordinator.h"
 
@@ -85,20 +93,52 @@ void testCameraSleepAutoPowerOffHandlesMillisWrap() {
   TEST_ASSERT_TRUE(cameraSleepAutoPowerOffDue(true, enteredAt, 0x00000300U, 1000));
 }
 
+void testBleDisconnectPolicyDistinguishesLocalParkFromCameraSleep() {
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohBleDisconnectKind::LocalHost),
+                        static_cast<int>(classifyRicohBleDisconnect(0x216)));
+  TEST_ASSERT_FALSE(ricohBleDisconnectMayIndicateCameraSleep(0x216));
+  TEST_ASSERT_EQUAL_STRING("LOCAL_HOST_TERMINATED", ricohBleDisconnectReasonName(0x216));
+}
+
+void testBleDisconnectPolicyUsesCorrectEstablishmentFailureCode() {
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(RicohBleDisconnectKind::ConnectionEstablishmentFailed),
+      static_cast<int>(classifyRicohBleDisconnect(0x23E)));
+  TEST_ASSERT_FALSE(ricohBleDisconnectMayIndicateCameraSleep(0x23E));
+  TEST_ASSERT_EQUAL_STRING("CONNECTION_ESTABLISHMENT_FAILED",
+                           ricohBleDisconnectReasonName(0x23E));
+}
+
+void testBleDisconnectPolicyKeepsOnlyTrustedSleepReasons() {
+  TEST_ASSERT_TRUE(ricohBleDisconnectMayIndicateCameraSleep(0x213));
+  TEST_ASSERT_TRUE(ricohBleDisconnectMayIndicateCameraSleep(0x215));
+  TEST_ASSERT_FALSE(ricohBleDisconnectMayIndicateCameraSleep(0x208));
+  TEST_ASSERT_FALSE(ricohBleDisconnectMayIndicateCameraSleep(0));
+  TEST_ASSERT_FALSE(ricohBleDisconnectMayIndicateCameraSleep(0x299));
+}
+
 struct FlowHarness {
   static bool bleConnected;
   static bool wifiConnected;
   static bool previewRunning;
   static bool cachedCredentials;
   static bool guardActive;
+  static bool resetStackSucceeds;
+  static bool deactivateSucceeds;
+  static bool reactivateSucceeds;
   static uint32_t lastRecoveryAt;
   static uint32_t activateCalls;
+  static uint32_t finishWlanCalls;
+  static bool finishWlanSawConnectedSta;
+  static uint32_t deactivateCalls;
+  static uint32_t reactivateCalls;
   static uint32_t readCredentialsCalls;
   static uint32_t applyCredentialsCalls;
   static uint32_t connectCalls;
   static uint32_t disconnectCalls;
-  static uint32_t fetchPropsCalls;
   static uint32_t openPreviewCalls;
+  static uint32_t runBleDiscoveryCalls;
+  static uint32_t resetStackCalls;
 
   static void reset() {
     bleConnected = true;
@@ -106,24 +146,52 @@ struct FlowHarness {
     previewRunning = false;
     cachedCredentials = false;
     guardActive = false;
+    resetStackSucceeds = true;
+    deactivateSucceeds = true;
+    reactivateSucceeds = true;
     lastRecoveryAt = 0;
     activateCalls = 0;
+    finishWlanCalls = 0;
+    finishWlanSawConnectedSta = false;
+    deactivateCalls = 0;
+    reactivateCalls = 0;
     readCredentialsCalls = 0;
     applyCredentialsCalls = 0;
     connectCalls = 0;
     disconnectCalls = 0;
-    fetchPropsCalls = 0;
     openPreviewCalls = 0;
+    runBleDiscoveryCalls = 0;
+    resetStackCalls = 0;
   }
 
   static bool guardBlocks(const char*) { return guardActive; }
   static bool isGuardActive() { return guardActive; }
   static bool isBleConnected() { return bleConnected; }
   static bool isWifiConnected() { return wifiConnected; }
-  static bool runBleDiscovery() { return bleConnected; }
+  static bool runBleDiscovery() {
+    ++runBleDiscoveryCalls;
+    return bleConnected;
+  }
+  static bool resetBleStack(const char*) {
+    ++resetStackCalls;
+    return resetStackSucceeds;
+  }
   static bool activateWifi() {
     ++activateCalls;
     return true;
+  }
+  static bool finishWlan() {
+    ++finishWlanCalls;
+    finishWlanSawConnectedSta = wifiConnected;
+    return true;
+  }
+  static bool deactivateWifi() {
+    ++deactivateCalls;
+    return deactivateSucceeds;
+  }
+  static bool reactivateWifi() {
+    ++reactivateCalls;
+    return reactivateSucceeds;
   }
   static bool hasCredentials() { return cachedCredentials; }
   static bool readCredentials() {
@@ -144,10 +212,6 @@ struct FlowHarness {
     wifiConnected = false;
     previewRunning = false;
   }
-  static bool fetchProps() {
-    ++fetchPropsCalls;
-    return wifiConnected;
-  }
   static bool openPreview() {
     ++openPreviewCalls;
     previewRunning = wifiConnected;
@@ -167,15 +231,18 @@ struct FlowHarness {
     result.disconnectWifi = disconnectWifi;
     result.runBleDiscovery = runBleDiscovery;
     result.activateCameraWifiOverBle = activateWifi;
+    result.finishCameraWifiOverHttp = finishWlan;
+    result.deactivateCameraWifiOverBle = deactivateWifi;
+    result.reactivateCameraWifiForCachedResume = reactivateWifi;
     result.hasUsableCachedWifiCredentials = hasCredentials;
     result.connectCachedWifiFromProfile = connectWifi;
     result.readFreshWifiCredentials = readCredentials;
     result.applyFreshWifiCredentials = applyCredentials;
     result.connectFreshWifiFromProfile = connectWifi;
-    result.fetchCameraProps = fetchProps;
     result.openLiveView = openPreview;
     result.previewStreamRunning = isPreviewRunning;
     result.cameraRecoveryInProgress = recoveryInactive;
+    result.resetBleStackBeforeScanAfterLinkLoss = resetBleStack;
     result.lastCameraRecoveryAt = getLastRecoveryAt;
     result.setLastCameraRecoveryAt = setLastRecoveryAt;
     result.liveviewEnabled = true;
@@ -191,14 +258,36 @@ bool FlowHarness::wifiConnected = false;
 bool FlowHarness::previewRunning = false;
 bool FlowHarness::cachedCredentials = false;
 bool FlowHarness::guardActive = false;
+bool FlowHarness::resetStackSucceeds = true;
+bool FlowHarness::deactivateSucceeds = true;
+bool FlowHarness::reactivateSucceeds = true;
 uint32_t FlowHarness::lastRecoveryAt = 0;
 uint32_t FlowHarness::activateCalls = 0;
+uint32_t FlowHarness::finishWlanCalls = 0;
+bool FlowHarness::finishWlanSawConnectedSta = false;
+uint32_t FlowHarness::deactivateCalls = 0;
+uint32_t FlowHarness::reactivateCalls = 0;
 uint32_t FlowHarness::readCredentialsCalls = 0;
 uint32_t FlowHarness::applyCredentialsCalls = 0;
 uint32_t FlowHarness::connectCalls = 0;
 uint32_t FlowHarness::disconnectCalls = 0;
-uint32_t FlowHarness::fetchPropsCalls = 0;
 uint32_t FlowHarness::openPreviewCalls = 0;
+uint32_t FlowHarness::runBleDiscoveryCalls = 0;
+uint32_t FlowHarness::resetStackCalls = 0;
+
+void testRecoveryStopsWhenBleStackResetFails() {
+  FlowHarness::reset();
+  FlowHarness::bleConnected = false;
+  FlowHarness::resetStackSucceeds = false;
+  rvf::AppController controller(rvf::AppState::BleScan);
+  controller.begin(rvf::AppState::BleScan);
+  const rvf::AppFlowActions actions = FlowHarness::actions();
+
+  controller.recoverCameraConnection(actions, "BLE disconnected");
+
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::resetStackCalls);
+  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::runBleDiscoveryCalls);
+}
 
 void testPortraitStartupCachesWifiWithoutConnecting() {
   FlowHarness::reset();
@@ -210,15 +299,36 @@ void testPortraitStartupCachesWifiWithoutConnecting() {
   TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::AppState::WifiCredentialsReady),
                         static_cast<int>(controller.state()));
   TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::activateCalls);
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::deactivateCalls);
   TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::readCredentialsCalls);
   TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::applyCredentialsCalls);
   TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::connectCalls);
   TEST_ASSERT_FALSE(FlowHarness::wifiConnected);
-  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::fetchPropsCalls);
   TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::openPreviewCalls);
 }
 
-void testLandscapeStartupRunsOriginalFullFlow() {
+void testPortraitReconnectReusesCacheWithoutTogglingCameraWlan() {
+  FlowHarness::reset();
+  FlowHarness::cachedCredentials = true;
+  rvf::AppController controller(rvf::AppState::BleScan);
+  controller.begin(rvf::AppState::BleScan);
+  const rvf::AppFlowActions actions = FlowHarness::actions();
+
+  TEST_ASSERT_TRUE(controller.runCameraFlowOnce(actions, 100));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::AppState::WifiCredentialsReady),
+                        static_cast<int>(controller.state()));
+  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::activateCalls);
+  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::finishWlanCalls);
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::deactivateCalls);
+  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::readCredentialsCalls);
+  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::applyCredentialsCalls);
+  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::connectCalls);
+  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::openPreviewCalls);
+  TEST_ASSERT_TRUE(FlowHarness::bleConnected);
+  TEST_ASSERT_FALSE(FlowHarness::wifiConnected);
+}
+
+void testLandscapeStartupOpensLiveViewWithoutPropsProbe() {
   FlowHarness::reset();
   rvf::AppController controller(rvf::AppState::BleScan);
   controller.begin(rvf::AppState::BleScan);
@@ -229,9 +339,11 @@ void testLandscapeStartupRunsOriginalFullFlow() {
   TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::AppState::PreviewRunning),
                         static_cast<int>(controller.state()));
   TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::activateCalls);
+  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::deactivateCalls);
   TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::connectCalls);
   TEST_ASSERT_TRUE(FlowHarness::wifiConnected);
   TEST_ASSERT_TRUE(FlowHarness::previewRunning);
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::openPreviewCalls);
 }
 
 void testPortraitToLandscapeResumesAfterCredentialCache() {
@@ -247,7 +359,7 @@ void testPortraitToLandscapeResumesAfterCredentialCache() {
   TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::AppState::PreviewRunning),
                         static_cast<int>(controller.state()));
   TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::connectCalls);
-  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::fetchPropsCalls);
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::reactivateCalls);
   TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::openPreviewCalls);
 }
 
@@ -264,6 +376,47 @@ void testLandscapeToPortraitDisconnectsWifiAndKeepsBleReady() {
   TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::AppState::WifiCredentialsReady),
                         static_cast<int>(controller.state()));
   TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::disconnectCalls);
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::finishWlanCalls);
+  TEST_ASSERT_TRUE(FlowHarness::finishWlanSawConnectedSta);
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::deactivateCalls);
+  TEST_ASSERT_FALSE(FlowHarness::wifiConnected);
+  TEST_ASSERT_FALSE(FlowHarness::previewRunning);
+  TEST_ASSERT_TRUE(FlowHarness::bleConnected);
+}
+
+void testCachedResumeStopsBeforeWifiConnectWhenReactivationFails() {
+  FlowHarness::reset();
+  rvf::AppController controller(rvf::AppState::BleScan);
+  controller.begin(rvf::AppState::BleScan);
+  const rvf::AppFlowActions actions = FlowHarness::actions();
+  TEST_ASSERT_TRUE(controller.runCameraFlowOnce(actions, 100));
+
+  FlowHarness::reactivateSucceeds = false;
+  controller.setPreviewRequested(true);
+  controller.serviceCameraFlowIfNeeded(actions, 200);
+
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::AppState::BleReady),
+                        static_cast<int>(controller.state()));
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::reactivateCalls);
+  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::connectCalls);
+  TEST_ASSERT_TRUE(FlowHarness::bleConnected);
+}
+
+void testWifiDeactivationFailureDoesNotBreakBleShutterState() {
+  FlowHarness::reset();
+  rvf::AppController controller(rvf::AppState::BleScan);
+  controller.begin(rvf::AppState::BleScan);
+  controller.setPreviewRequested(true);
+  const rvf::AppFlowActions actions = FlowHarness::actions();
+  TEST_ASSERT_TRUE(controller.runCameraFlowOnce(actions, 100));
+
+  FlowHarness::deactivateSucceeds = false;
+  controller.setPreviewRequested(false);
+  controller.serviceCameraFlowIfNeeded(actions, 200);
+
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::AppState::WifiCredentialsReady),
+                        static_cast<int>(controller.state()));
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::deactivateCalls);
   TEST_ASSERT_FALSE(FlowHarness::wifiConnected);
   TEST_ASSERT_FALSE(FlowHarness::previewRunning);
   TEST_ASSERT_TRUE(FlowHarness::bleConnected);
@@ -405,6 +558,86 @@ void testRequiresBleAddressAndAddressTypeForDirectReconnect() {
   TEST_ASSERT_FALSE(hasDirectBleReconnectIdentity(nullptr, true));
 }
 
+void testDirectReconnectIsOnlyUsedForKnownBondedBootProfile() {
+  constexpr const char* address = "aa:bb:cc:dd:ee:ff";
+  TEST_ASSERT_TRUE(shouldAttemptDirectBleReconnect(true, true, true, address, true));
+  TEST_ASSERT_FALSE(shouldAttemptDirectBleReconnect(false, true, true, address, true));
+  TEST_ASSERT_FALSE(shouldAttemptDirectBleReconnect(true, false, true, address, true));
+  TEST_ASSERT_FALSE(shouldAttemptDirectBleReconnect(true, true, false, address, true));
+  TEST_ASSERT_FALSE(shouldAttemptDirectBleReconnect(true, true, true, address, false));
+}
+
+void testProtocolDiscoveryRefreshesOnlyRequiredCharacteristicServices() {
+  TEST_ASSERT_TRUE(shouldRefreshProtocolDiscoveryCharacteristics(
+      BleProtocolDiscoveryService::SharedWlan));
+  TEST_ASSERT_TRUE(shouldRefreshProtocolDiscoveryCharacteristics(
+      BleProtocolDiscoveryService::Camera));
+  TEST_ASSERT_TRUE(shouldRefreshProtocolDiscoveryCharacteristics(
+      BleProtocolDiscoveryService::Shooting));
+  TEST_ASSERT_FALSE(shouldRefreshProtocolDiscoveryCharacteristics(
+      BleProtocolDiscoveryService::Control));
+}
+
+void testNewPeerMustPersistBondBeforeConnectionSucceeds() {
+  constexpr unsigned long timeoutMs = 1000;
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(BleBondPersistenceDecision::Wait),
+      static_cast<int>(decideBleBondPersistence(false, true, false, 100, timeoutMs)));
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(BleBondPersistenceDecision::Wait),
+      static_cast<int>(decideBleBondPersistence(false, true, false, 300, timeoutMs)));
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(BleBondPersistenceDecision::Wait),
+      static_cast<int>(decideBleBondPersistence(false, true, false, 500, timeoutMs)));
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(BleBondPersistenceDecision::Ready),
+      static_cast<int>(decideBleBondPersistence(false, true, true, 500, timeoutMs)));
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(BleBondPersistenceDecision::Ready),
+      static_cast<int>(decideBleBondPersistence(true, true, false, timeoutMs, timeoutMs)));
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(BleBondPersistenceDecision::Disconnected),
+      static_cast<int>(decideBleBondPersistence(true, false, false, 0, timeoutMs)));
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(BleBondPersistenceDecision::Disconnected),
+      static_cast<int>(decideBleBondPersistence(false, false, false, 500, timeoutMs)));
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(BleBondPersistenceDecision::TimedOut),
+      static_cast<int>(decideBleBondPersistence(false, true, false, timeoutMs, timeoutMs)));
+}
+
+void testBleScanCleanupRequiresHostAndCallbackQuiescence() {
+  TEST_ASSERT_TRUE(canCleanupBleScanSession(false, false, false, false, false, true, false));
+  TEST_ASSERT_FALSE(canCleanupBleScanSession(false, false, false, false, false, false, true));
+
+  // Natural completion requires the host's onScanEnd signal.
+  TEST_ASSERT_TRUE(canCleanupBleScanSession(true, false, true, true, true, true, false));
+  TEST_ASSERT_FALSE(canCleanupBleScanSession(true, false, true, false, true, true, true));
+
+  // NimBLE stop() does not emit onScanEnd; successful cancellation, an
+  // inactive controller, callback quiescence and a host-queue fence are the
+  // safe terminal state.
+  TEST_ASSERT_TRUE(canCleanupBleScanSession(true, true, true, false, true, true, true));
+  TEST_ASSERT_FALSE(canCleanupBleScanSession(true, true, true, false, true, true, false));
+  TEST_ASSERT_FALSE(canCleanupBleScanSession(true, true, false, false, true, true, true));
+  TEST_ASSERT_FALSE(canCleanupBleScanSession(true, true, true, false, false, true, true));
+  TEST_ASSERT_FALSE(canCleanupBleScanSession(true, true, true, false, true, false, true));
+}
+
+void testBleStackObjectsClearOnlyAfterHostStops() {
+  TEST_ASSERT_TRUE(canUseBleStack(false));
+  TEST_ASSERT_FALSE(canUseBleStack(true));
+
+  TEST_ASSERT_FALSE(canClearBleStackObjects(false));
+  TEST_ASSERT_TRUE(canClearBleStackObjects(true));
+
+  TEST_ASSERT_FALSE(canRestartBleStack(false, false, true));
+  TEST_ASSERT_FALSE(canRestartBleStack(false, true, true));
+  TEST_ASSERT_TRUE(canRestartBleStack(true, false, false));
+  TEST_ASSERT_TRUE(canRestartBleStack(true, true, true));
+  TEST_ASSERT_FALSE(canRestartBleStack(true, true, false));
+}
+
 void testBleCandidateDiscoveryIsOpenWithoutStoredIdentity() {
   TEST_ASSERT_TRUE(bleCandidateMatchesStoredIdentity("", "34:90:ea:cc:87:35"));
   TEST_ASSERT_TRUE(bleCandidateMatchesStoredIdentity(nullptr, "34:90:ea:cc:87:35"));
@@ -516,6 +749,25 @@ void testUiMapsAppStatesToScenes() {
                             snapshot, rvf::UiOrientation::Landscape)));
 }
 
+void testUiPropagatesDeviceChargingIndicator() {
+  rvf::UiCoordinator coordinator;
+  rvf::UiSnapshot snapshot;
+  rvf::ButtonEvents input;
+  snapshot.appState = rvf::AppState::BleReady;
+  snapshot.deviceBatteryPercent = 68;
+  snapshot.deviceCharging = true;
+
+  coordinator.begin(0);
+  coordinator.update(snapshot, input, rvf::UiOrientation::Portrait, 1);
+
+  TEST_ASSERT_EQUAL_INT8(68, coordinator.viewModel().deviceBatteryPercent);
+  TEST_ASSERT_TRUE(coordinator.viewModel().deviceCharging);
+
+  snapshot.deviceCharging = false;
+  coordinator.update(snapshot, input, rvf::UiOrientation::Portrait, 2);
+  TEST_ASSERT_FALSE(coordinator.viewModel().deviceCharging);
+}
+
 void testConnectingDotsOnlyMergeAfterBleConnects() {
   rvf::UiCoordinator coordinator;
   rvf::UiSnapshot snapshot;
@@ -542,6 +794,59 @@ void testUiScenePriority() {
   TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiScene::ResetPairing),
                         static_cast<int>(rvf::UiCoordinator::selectScene(
                             snapshot, rvf::UiOrientation::Landscape)));
+}
+
+void testPairingGuideOverridesConnectionScene() {
+  rvf::UiSnapshot snapshot;
+  snapshot.appState = rvf::AppState::BleScan;
+  snapshot.pairingGuideActive = true;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiScene::PairingGuide),
+                        static_cast<int>(rvf::UiCoordinator::selectScene(
+                            snapshot, rvf::UiOrientation::Landscape)));
+}
+
+void testPairingGuideUsesBToSelectAndAToConfirm() {
+  rvf::PairingGuide guide;
+  guide.activate();
+  TEST_ASSERT_TRUE(guide.active());
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohProtocolGeneration::Gr3Family),
+                        static_cast<int>(guide.selection()));
+
+  rvf::ButtonEvents select;
+  select.buttonBClicked = true;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::PairingGuideAction::SelectionChanged),
+                        static_cast<int>(guide.handle(select)));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohProtocolGeneration::Gr4Family),
+                        static_cast<int>(guide.selection()));
+
+  rvf::ButtonEvents confirm;
+  confirm.buttonADown = true;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::PairingGuideAction::Confirmed),
+                        static_cast<int>(guide.handle(confirm)));
+  TEST_ASSERT_FALSE(guide.active());
+}
+
+void testPairingGuideConsumesLongBWithoutResettingOrSelecting() {
+  rvf::PairingGuide guide;
+  guide.activate();
+  rvf::ButtonEvents longB;
+  longB.resetPairing = true;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::PairingGuideAction::None),
+                        static_cast<int>(guide.handle(longB)));
+  TEST_ASSERT_TRUE(guide.active());
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohProtocolGeneration::Gr3Family),
+                        static_cast<int>(guide.selection()));
+}
+
+void testPairingSelectionRejectsTheOtherProtocolGeneration() {
+  TEST_ASSERT_TRUE(ricohProtocolMatchesExpectedGeneration(
+      RicohProtocolGeneration::Unknown, RicohProtocolGeneration::Gr3Family));
+  TEST_ASSERT_TRUE(ricohProtocolMatchesExpectedGeneration(
+      RicohProtocolGeneration::Gr3Family, RicohProtocolGeneration::Gr3Family));
+  TEST_ASSERT_FALSE(ricohProtocolMatchesExpectedGeneration(
+      RicohProtocolGeneration::Gr3Family, RicohProtocolGeneration::Gr4Family));
+  TEST_ASSERT_FALSE(ricohProtocolMatchesExpectedGeneration(
+      RicohProtocolGeneration::Gr4Family, RicohProtocolGeneration::Gr3Family));
 }
 
 void testOrientationRequiresStableCandidate() {
@@ -585,6 +890,34 @@ void testOrientationHysteresisPreventsBoundaryChatter() {
                         static_cast<int>(tracker.orientation()));
 }
 
+void testLiveViewLockForcesLandscapeAndUnlockRestoresPosture() {
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(rvf::UiOrientation::Landscape),
+      static_cast<int>(rvf::UiCoordinator::resolvePreviewOrientation(
+          rvf::UiOrientation::Portrait, true)));
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(rvf::UiOrientation::Portrait),
+      static_cast<int>(rvf::UiCoordinator::resolvePreviewOrientation(
+          rvf::UiOrientation::Portrait, false)));
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(rvf::UiOrientation::Landscape),
+      static_cast<int>(rvf::UiCoordinator::resolvePreviewOrientation(
+          rvf::UiOrientation::Landscape, false)));
+}
+
+void testActivePreviewOutlivesPortraitUiForLockHandoff() {
+  rvf::AppController controller(rvf::AppState::PreviewRunning);
+  rvf::UiSnapshot snapshot;
+  snapshot.appState = rvf::AppState::PreviewRunning;
+  snapshot.previewRunning = true;
+
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(rvf::UiScene::RemoteReady),
+      static_cast<int>(rvf::UiCoordinator::selectScene(
+          snapshot, rvf::UiOrientation::Portrait)));
+  TEST_ASSERT_TRUE(controller.isPreviewActive());
+}
+
 void testAnimationProgressAndCompletion() {
   rvf::AnimationState animation;
   animation.start(1000, 1000);
@@ -614,12 +947,40 @@ void testButtonBReportsContinuousProgress() {
   TEST_ASSERT_FALSE(halfway.resetPairing);
 }
 
-void testButtonBReleaseBeforeThresholdDoesNotReset() {
-  rvf::ButtonInput input(3000);
+void testButtonBSingleClickTogglesMirrorAfterDoubleClickWindow() {
+  rvf::ButtonInput input(3000, 350);
   input.update(false, true, false, 100);
-  const rvf::ButtonEvents released = input.update(false, false, false, 2500);
+  const rvf::ButtonEvents released = input.update(false, false, false, 200);
   TEST_ASSERT_FALSE(released.resetPairing);
   TEST_ASSERT_FALSE(released.resetHoldActive);
+  TEST_ASSERT_FALSE(released.toggleDisplayMirror);
+  const rvf::ButtonEvents confirmed = input.update(false, false, false, 551);
+  TEST_ASSERT_TRUE(confirmed.buttonBClicked);
+  TEST_ASSERT_FALSE(confirmed.buttonBDoubleClicked);
+  TEST_ASSERT_TRUE(confirmed.toggleDisplayMirror);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UserCommand::ToggleDisplayMirror),
+                        static_cast<int>(rvf::ButtonInput::commandFromEvents(confirmed)));
+}
+
+void testButtonBDoubleClickTogglesLiveViewLockWithoutMirror() {
+  rvf::ButtonInput input(3000, 350);
+  input.update(false, true, false, 100);
+  const rvf::ButtonEvents firstRelease = input.update(false, false, false, 160);
+  TEST_ASSERT_FALSE(firstRelease.toggleDisplayMirror);
+  TEST_ASSERT_FALSE(firstRelease.toggleLiveViewLock);
+
+  input.update(false, true, false, 260);
+  const rvf::ButtonEvents secondRelease = input.update(false, false, false, 320);
+  TEST_ASSERT_TRUE(secondRelease.buttonBDoubleClicked);
+  TEST_ASSERT_FALSE(secondRelease.buttonBClicked);
+  TEST_ASSERT_TRUE(secondRelease.toggleLiveViewLock);
+  TEST_ASSERT_FALSE(secondRelease.toggleDisplayMirror);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UserCommand::ToggleLiveViewLock),
+                        static_cast<int>(rvf::ButtonInput::commandFromEvents(secondRelease)));
+
+  const rvf::ButtonEvents afterWindow = input.update(false, false, false, 1000);
+  TEST_ASSERT_FALSE(afterWindow.toggleDisplayMirror);
+  TEST_ASSERT_FALSE(afterWindow.toggleLiveViewLock);
 }
 
 void testButtonBThresholdTriggersOnlyOnce() {
@@ -628,6 +989,9 @@ void testButtonBThresholdTriggersOnlyOnce() {
   TEST_ASSERT_TRUE(input.update(false, true, false, 3100).resetPairing);
   TEST_ASSERT_FALSE(input.update(false, true, false, 4100).resetPairing);
   TEST_ASSERT_FALSE(input.update(false, true, false, 5100).resetPairing);
+  const rvf::ButtonEvents released = input.update(false, false, false, 5200);
+  TEST_ASSERT_FALSE(released.toggleDisplayMirror);
+  TEST_ASSERT_FALSE(released.toggleLiveViewLock);
 }
 
 void testButtonAOperationTriggersAtMostOneShoot() {
@@ -693,6 +1057,409 @@ void testErrorSceneOverridesEveryOrdinaryScene() {
                             snapshot, rvf::UiOrientation::Landscape, true)));
 }
 
+void testDetectsProtocolOnlyFromSafeEvidence() {
+  ProtocolDetectionEvidence gr3;
+  gr3.gattDiscoveryComplete = true;
+  gr3.hasGr3WlanService = true;
+  gr3.hasGr3NetworkTypeCharacteristic = true;
+  gr3.hasGr3SsidCharacteristic = true;
+  gr3.hasGr3PassphraseCharacteristic = true;
+  gr3.hasCameraService = true;
+  gr3.hasOperationModeCharacteristic = true;
+  gr3.hasShootingService = true;
+  gr3.hasShootingFlavorCharacteristic = true;
+  gr3.hasOperationRequestCharacteristic = true;
+  gr3.hasControlService = true;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohProtocolGeneration::Gr3Family),
+                        static_cast<int>(detectRicohProtocol(gr3)));
+
+  ProtocolDetectionEvidence incompleteGr3;
+  incompleteGr3.gattDiscoveryComplete = true;
+  incompleteGr3.hasGr3WlanService = true;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohProtocolGeneration::Unknown),
+                        static_cast<int>(detectRicohProtocol(incompleteGr3)));
+
+  ProtocolDetectionEvidence interruptedGr4MisleadingAsGr3 = gr3;
+  interruptedGr4MisleadingAsGr3.gattDiscoveryComplete = false;
+  interruptedGr4MisleadingAsGr3.hasGr4PowerCharacteristicAtExpectedHandle = false;
+  interruptedGr4MisleadingAsGr3.gr4ExpectedWlanCharacteristicCount = 0;
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(RicohProtocolGeneration::Unknown),
+      static_cast<int>(detectRicohProtocol(interruptedGr4MisleadingAsGr3)));
+
+  ProtocolDetectionEvidence gr4;
+  gr4.hasCameraService = true;
+  gr4.hasOperationModeCharacteristic = true;
+  gr4.hasShootingService = true;
+  gr4.hasShootingFlavorCharacteristic = true;
+  gr4.hasOperationRequestCharacteristic = true;
+  gr4.hasControlService = true;
+  gr4.hasGr4PowerCharacteristicAtExpectedHandle = true;
+  gr4.gr4WlanHandlesInExpectedService = true;
+  gr4.gr4KnownWlanUuidHandleMapping = true;
+  gr4.gr4ExpectedWlanCharacteristicCount = 6;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohProtocolGeneration::Gr4Family),
+                        static_cast<int>(detectRicohProtocol(gr4)));
+
+  ProtocolDetectionEvidence gr4WithSharedWlanUuids = gr4;
+  gr4WithSharedWlanUuids.hasGr3WlanService = true;
+  gr4WithSharedWlanUuids.hasGr3NetworkTypeCharacteristic = true;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohProtocolGeneration::Gr4Family),
+                        static_cast<int>(detectRicohProtocol(gr4WithSharedWlanUuids)));
+
+  ProtocolDetectionEvidence crossServiceNumericCollision = gr4;
+  crossServiceNumericCollision.gr4WlanHandlesInExpectedService = false;
+  crossServiceNumericCollision.gr4KnownWlanUuidHandleMapping = false;
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(RicohProtocolGeneration::Unknown),
+      static_cast<int>(detectRicohProtocol(crossServiceNumericCollision)));
+
+  ProtocolDetectionEvidence fiveOfSixGr4Handles = gr4;
+  fiveOfSixGr4Handles.gr4ExpectedWlanCharacteristicCount = 5;
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(RicohProtocolGeneration::Unknown),
+      static_cast<int>(detectRicohProtocol(fiveOfSixGr4Handles)));
+
+  ProtocolDetectionEvidence wrongKnownUuidMapping = gr4;
+  wrongKnownUuidMapping.gr4KnownWlanUuidHandleMapping = false;
+  TEST_ASSERT_EQUAL_INT(
+      static_cast<int>(RicohProtocolGeneration::Unknown),
+      static_cast<int>(detectRicohProtocol(wrongKnownUuidMapping)));
+
+  ProtocolDetectionEvidence incompleteFixedHandleConflict = gr3;
+  incompleteFixedHandleConflict.hasGr4PowerCharacteristicAtExpectedHandle = true;
+  incompleteFixedHandleConflict.gr4WlanHandlesInExpectedService = false;
+  incompleteFixedHandleConflict.gr4KnownWlanUuidHandleMapping = false;
+  incompleteFixedHandleConflict.gr4ExpectedWlanCharacteristicCount = 3;
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohProtocolGeneration::Unknown),
+                        static_cast<int>(detectRicohProtocol(incompleteFixedHandleConflict)));
+}
+
+void testShutterPreparationRemainsGenerationSpecific() {
+  const CameraProtocolProfile& gr3 =
+      cameraProtocolProfile(RicohProtocolGeneration::Gr3Family);
+  const CameraProtocolProfile& gr4 =
+      cameraProtocolProfile(RicohProtocolGeneration::Gr4Family);
+
+  TEST_ASSERT_TRUE(gr3.capabilities.supportsBleShutter);
+  TEST_ASSERT_FALSE(gr3.requiresLegacyShutterFlavorWrite);
+  TEST_ASSERT_TRUE(gr4.capabilities.supportsBleShutter);
+  TEST_ASSERT_TRUE(gr4.requiresLegacyShutterFlavorWrite);
+}
+
+void testSecurityProfilesKeepGr4LegacyFrozen() {
+  const RicohSecurityProfile& gr3 =
+      ricohSecurityProfile(RicohSecurityProfileId::Gr3Passkey);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohBleIoCapability::KeyboardDisplay),
+                        static_cast<int>(gr3.ioCapability));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohBleOwnAddressMode::Public),
+                        static_cast<int>(gr3.ownAddressMode));
+  TEST_ASSERT_TRUE(gr3.distributeEncryptionKey);
+  TEST_ASSERT_TRUE(gr3.distributeIdentityKey);
+  TEST_ASSERT_TRUE(gr3.distributeSigningKey);
+  TEST_ASSERT_FALSE(gr3.usesFixedPasskey);
+
+  const RicohSecurityProfile& gr4 =
+      ricohSecurityProfile(RicohSecurityProfileId::Gr4Legacy);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohBleIoCapability::DisplayYesNo),
+                        static_cast<int>(gr4.ioCapability));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohBleOwnAddressMode::RpaPublicDefault),
+                        static_cast<int>(gr4.ownAddressMode));
+  TEST_ASSERT_TRUE(gr4.distributeEncryptionKey);
+  TEST_ASSERT_TRUE(gr4.distributeIdentityKey);
+  TEST_ASSERT_FALSE(gr4.distributeSigningKey);
+  TEST_ASSERT_TRUE(gr4.usesFixedPasskey);
+  TEST_ASSERT_EQUAL_UINT32(123456, gr4.fixedPasskey);
+}
+
+void testOnlyGr4DiscoveryCanReuseTheLegacyConnection() {
+  TEST_ASSERT_TRUE(canPromoteDiscoveryConnectionInPlace(
+      RicohSecurityProfileId::Unknown,
+      RicohProtocolGeneration::Gr4Family));
+  TEST_ASSERT_TRUE(canPromoteDiscoveryConnectionInPlace(
+      RicohSecurityProfileId::Gr4Legacy,
+      RicohProtocolGeneration::Gr4Family));
+  TEST_ASSERT_FALSE(canPromoteDiscoveryConnectionInPlace(
+      RicohSecurityProfileId::Unknown,
+      RicohProtocolGeneration::Gr3Family));
+  TEST_ASSERT_FALSE(canPromoteDiscoveryConnectionInPlace(
+      RicohSecurityProfileId::Gr3Passkey,
+      RicohProtocolGeneration::Gr4Family));
+}
+
+void testProtocolRouterSelectsExactlyOneImplementation() {
+  RicohBleProtocolRouter router;
+  TEST_ASSERT_FALSE(router.hasProtocol());
+  TEST_ASSERT_FALSE(router.select(RicohProtocolGeneration::Unknown));
+  TEST_ASSERT_FALSE(router.hasProtocol());
+
+  TEST_ASSERT_TRUE(router.select(RicohProtocolGeneration::Gr4Family));
+  TEST_ASSERT_TRUE(router.hasProtocol());
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohProtocolGeneration::Gr4Family),
+                        static_cast<int>(router.generation()));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohSecurityProfileId::Gr4Legacy),
+                        static_cast<int>(router.securityProfile()));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohWifiActivationTransport::FixedHandle),
+                        static_cast<int>(router.protocol()->wifiActivationTransport()));
+  TEST_ASSERT_FALSE(router.protocol()->requireAuthenticatedBond());
+
+  TEST_ASSERT_TRUE(router.select(RicohProtocolGeneration::Gr3Family));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohProtocolGeneration::Gr3Family),
+                        static_cast<int>(router.profile().generation));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohSecurityProfileId::Gr3Passkey),
+                        static_cast<int>(router.securityProfile()));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohWifiActivationTransport::NetworkTypeUuid),
+                        static_cast<int>(router.protocol()->wifiActivationTransport()));
+  TEST_ASSERT_TRUE(router.protocol()->requireAuthenticatedBond());
+
+  TEST_ASSERT_FALSE(router.select(RicohProtocolGeneration::Gr2Family));
+  TEST_ASSERT_FALSE(router.hasProtocol());
+}
+
+void testUnknownAndGr2ProfilesBlockBleSideEffects() {
+  const CameraProtocolProfile& unknown = cameraProtocolProfile(RicohProtocolGeneration::Unknown);
+  TEST_ASSERT_FALSE(protocolAllowsBleSideEffect(unknown, BleSideEffect::WifiActivation));
+  TEST_ASSERT_FALSE(protocolAllowsBleSideEffect(unknown, BleSideEffect::WifiDeactivation));
+  TEST_ASSERT_FALSE(protocolAllowsBleSideEffect(unknown, BleSideEffect::CameraPowerWrite));
+  TEST_ASSERT_FALSE(protocolAllowsBleSideEffect(unknown, BleSideEffect::Shutter));
+
+  const CameraProtocolProfile& gr2 = cameraProtocolProfile(RicohProtocolGeneration::Gr2Family);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(WifiActivationMethod::ManualOnly),
+                        static_cast<int>(gr2.wifiActivationMethod));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(WifiCredentialMethod::ManualConfiguration),
+                        static_cast<int>(gr2.wifiCredentialMethod));
+  TEST_ASSERT_FALSE(protocolAllowsBleSideEffect(gr2, BleSideEffect::WifiActivation));
+  TEST_ASSERT_FALSE(protocolAllowsBleSideEffect(gr2, BleSideEffect::WifiDeactivation));
+}
+
+void testGr3AndGr4AllowProfileScopedWifiDeactivation() {
+  TEST_ASSERT_TRUE(protocolAllowsBleSideEffect(
+      cameraProtocolProfile(RicohProtocolGeneration::Gr3Family),
+      BleSideEffect::WifiDeactivation));
+  TEST_ASSERT_TRUE(protocolAllowsBleSideEffect(
+      cameraProtocolProfile(RicohProtocolGeneration::Gr4Family),
+      BleSideEffect::WifiDeactivation));
+}
+
+void testOperationModeSafetyIsGenerationSpecific() {
+  const CameraProtocolProfile& gr3 = cameraProtocolProfile(RicohProtocolGeneration::Gr3Family);
+  TEST_ASSERT_TRUE(operationModeAllowsWifi(gr3, RicohCameraOperationMode::Capture, true));
+  // A GR IIIx ready to shoot reports Other, not Capture.
+  TEST_ASSERT_TRUE(operationModeAllowsWifi(gr3, RicohCameraOperationMode::Other, true));
+  TEST_ASSERT_TRUE(operationModeAllowsWifi(gr3, RicohCameraOperationMode::Playback, true));
+  TEST_ASSERT_FALSE(operationModeAllowsWifi(gr3, RicohCameraOperationMode::BleStartup, true));
+  TEST_ASSERT_FALSE(operationModeAllowsWifi(gr3, RicohCameraOperationMode::PowerOffTransfer, true));
+  // Unlike GR IV, GR III still refuses to act on a mode it could not read.
+  TEST_ASSERT_FALSE(operationModeAllowsWifi(gr3, RicohCameraOperationMode::Capture, false));
+
+  const CameraProtocolProfile& gr4 = cameraProtocolProfile(RicohProtocolGeneration::Gr4Family);
+  TEST_ASSERT_TRUE(operationModeAllowsWifi(gr4, RicohCameraOperationMode::Playback, true));
+  TEST_ASSERT_TRUE(operationModeAllowsWifi(gr4, RicohCameraOperationMode::Unknown, false));
+  TEST_ASSERT_FALSE(operationModeAllowsWifi(gr4, RicohCameraOperationMode::PowerOffTransfer, true));
+}
+
+void testHttpShutterIsOnlyClaimedWhereItWasVerified() {
+  // Parking the BLE link moves the shutter onto POST /v1/camera/shoot, so a
+  // generation may only be parked once that endpoint is confirmed on real
+  // hardware. GR III is; GR IV has not been tested and must stay untouched.
+  TEST_ASSERT_TRUE(cameraProtocolProfile(RicohProtocolGeneration::Gr3Family)
+                       .capabilities.supportsHttpShutter);
+  TEST_ASSERT_FALSE(cameraProtocolProfile(RicohProtocolGeneration::Gr4Family)
+                        .capabilities.supportsHttpShutter);
+  TEST_ASSERT_FALSE(cameraProtocolProfile(RicohProtocolGeneration::Gr2Family)
+                        .capabilities.supportsHttpShutter);
+  TEST_ASSERT_FALSE(cameraProtocolProfile(RicohProtocolGeneration::Unknown)
+                        .capabilities.supportsHttpShutter);
+}
+
+void testBlePreviewParkingIsDisabledForGr3AndGr4() {
+  // Both supported generations keep BLE available during LiveView so BtnA
+  // follows the same BLE shutter path without a reconnect handoff.
+  TEST_ASSERT_FALSE(cameraProtocolProfile(RicohProtocolGeneration::Gr3Family)
+                        .capabilities.allowBlePreviewParking);
+  TEST_ASSERT_FALSE(cameraProtocolProfile(RicohProtocolGeneration::Gr4Family)
+                        .capabilities.allowBlePreviewParking);
+  TEST_ASSERT_FALSE(cameraProtocolProfile(RicohProtocolGeneration::Gr2Family)
+                        .capabilities.allowBlePreviewParking);
+  TEST_ASSERT_FALSE(cameraProtocolProfile(RicohProtocolGeneration::Unknown)
+                        .capabilities.allowBlePreviewParking);
+}
+
+void testGr3CredentialShapeAllowsOptionalChannel() {
+  TEST_ASSERT_TRUE(validGr3WifiCredentials("GR_TEST", "secret", 0));
+  TEST_ASSERT_TRUE(validGr3WifiCredentials("GR_TEST", "secret", 11));
+  TEST_ASSERT_FALSE(validGr3WifiCredentials("GR_TEST", "secret", 12));
+  TEST_ASSERT_FALSE(validGr3WifiCredentials("", "secret", 1));
+  TEST_ASSERT_FALSE(validGr3WifiCredentials("GR_TEST", "", 1));
+}
+
+void testOldGr4ProfileMetadataMigratesWithoutRepairing() {
+  StoredCameraProfileMetadata old;
+  old.schemaVersion = 3;
+  old.legacyBleIdentityPresent = true;
+  old.legacyWifiValid = true;
+  const CameraProfileMetadata decoded = decodeCameraProfileMetadata(old);
+  TEST_ASSERT_EQUAL_UINT32(CAMERA_PROFILE_SCHEMA_VERSION, decoded.schemaVersion);
+  TEST_ASSERT_TRUE(decoded.protocolGenerationKnown);
+  TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(RicohProtocolGeneration::Gr4Family),
+                          decoded.protocolGeneration);
+  TEST_ASSERT_TRUE(decoded.securityProfileKnown);
+  TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(RicohSecurityProfileId::Gr4Legacy),
+                          decoded.securityProfile);
+  TEST_ASSERT_TRUE(decoded.migratedLegacyGr4);
+  TEST_ASSERT_TRUE(decoded.wifiCredentialsValid);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(WifiCredentialSource::BleFixedHandles),
+                        static_cast<int>(decoded.wifiSource));
+}
+
+void testNewProfileMetadataRoundTrips() {
+  CameraProfileMetadata metadata;
+  metadata.protocolGeneration = static_cast<uint8_t>(RicohProtocolGeneration::Gr3Family);
+  metadata.protocolGenerationKnown = true;
+  metadata.securityProfile = static_cast<uint8_t>(RicohSecurityProfileId::Gr3Passkey);
+  metadata.securityProfileKnown = true;
+  metadata.bleAuthenticated = true;
+  metadata.capabilityVersion = CAMERA_CAPABILITY_SCHEMA_VERSION;
+  metadata.wifiSource = WifiCredentialSource::BleUuidCharacteristics;
+  metadata.wifiCredentialsValid = true;
+
+  const StoredCameraProfileMetadata stored = encodeCameraProfileMetadata(metadata);
+  const CameraProfileMetadata decoded = decodeCameraProfileMetadata(stored);
+  TEST_ASSERT_TRUE(decoded.protocolGenerationKnown);
+  TEST_ASSERT_EQUAL_UINT8(metadata.protocolGeneration, decoded.protocolGeneration);
+  TEST_ASSERT_EQUAL_UINT8(metadata.securityProfile, decoded.securityProfile);
+  TEST_ASSERT_TRUE(decoded.securityProfileKnown);
+  TEST_ASSERT_TRUE(decoded.bleAuthenticated);
+  TEST_ASSERT_EQUAL_UINT16(metadata.capabilityVersion, decoded.capabilityVersion);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(metadata.wifiSource), static_cast<int>(decoded.wifiSource));
+  TEST_ASSERT_TRUE(decoded.wifiCredentialsValid);
+}
+
+void testLockedBindingRejectsNewPairingAndOtherCameras() {
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(PairingRequestDecision::Allow),
+                        static_cast<int>(pairingRequestDecision(CameraBindingState::Pairing)));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(PairingRequestDecision::RejectAndInvalidate),
+                        static_cast<int>(pairingRequestDecision(CameraBindingState::Locked)));
+  TEST_ASSERT_TRUE(bindingStateAllowsCandidate(CameraBindingState::Locked,
+                                               "AA:BB:CC:DD:EE:FF",
+                                               "aa:bb:cc:dd:ee:ff"));
+  TEST_ASSERT_FALSE(bindingStateAllowsCandidate(CameraBindingState::Locked,
+                                                "AA:BB:CC:DD:EE:FF",
+                                                "11:22:33:44:55:66"));
+  TEST_ASSERT_FALSE(bindingStateAllowsCandidate(CameraBindingState::BondInvalid,
+                                                "AA:BB:CC:DD:EE:FF",
+                                                "AA:BB:CC:DD:EE:FF"));
+}
+
+void testPairingBindingAcceptsFirstValidCandidateWithoutStoredIdentity() {
+  TEST_ASSERT_TRUE(bindingStateAllowsCandidate(CameraBindingState::Unpaired,
+                                               "",
+                                               "F0:3E:05:26:44:57"));
+  TEST_ASSERT_TRUE(bindingStateAllowsCandidate(CameraBindingState::Pairing,
+                                               "",
+                                               "F0:3E:05:26:44:57"));
+  TEST_ASSERT_FALSE(bindingStateAllowsCandidate(CameraBindingState::Pairing,
+                                                "",
+                                                ""));
+  TEST_ASSERT_FALSE(bindingStateAllowsCandidate(CameraBindingState::Pairing,
+                                                "",
+                                                nullptr));
+}
+
+void testNormalizesResolvedPeerAddressTypes() {
+  TEST_ASSERT_EQUAL_UINT8(0x00, normalizedPeerAddressType(0x00));
+  TEST_ASSERT_EQUAL_UINT8(0x01, normalizedPeerAddressType(0x01));
+  TEST_ASSERT_EQUAL_UINT8(0x00, normalizedPeerAddressType(0x02));
+  TEST_ASSERT_EQUAL_UINT8(0x01, normalizedPeerAddressType(0x03));
+}
+
+void testPairingRecoveryCountsOnlyExplicitSecurityFailures() {
+  PairingRecoveryPolicy policy;
+  TEST_ASSERT_FALSE(policy.onBondedSecurityFailure(0x213));
+  TEST_ASSERT_FALSE(policy.onBondedSecurityFailure(0x213));
+  TEST_ASSERT_FALSE(policy.onBondedSecurityFailure(0x208));
+  TEST_ASSERT_FALSE(policy.onBondedSecurityFailure(0x213));
+  TEST_ASSERT_FALSE(policy.onBondedSecurityFailure(0x213));
+  TEST_ASSERT_TRUE(policy.onBondedSecurityFailure(0x213));
+}
+
+void testPairingLatencyPolicyAvoidsNestedUnbondedRetries() {
+  TEST_ASSERT_EQUAL_UINT8(0, bleClientConnectRetries(false));
+  TEST_ASSERT_EQUAL_UINT8(1, bleClientConnectRetries(true));
+  TEST_ASSERT_EQUAL_UINT32(150, bleRetryDelayMs(true, 1000, 150));
+  TEST_ASSERT_EQUAL_UINT32(1000, bleRetryDelayMs(false, 1000, 150));
+}
+
+void testPairingRecoveryDropsUnauthenticatedBondAfterTwoReads() {
+  PairingRecoveryPolicy policy;
+  TEST_ASSERT_FALSE(policy.onInsufficientAuthRead(0x105));
+  TEST_ASSERT_FALSE(policy.onInsufficientAuthRead(0x101));
+  TEST_ASSERT_FALSE(policy.onInsufficientAuthRead(0x10F));
+  TEST_ASSERT_TRUE(policy.onInsufficientAuthRead(0x108));
+  policy.onAuthenticatedRead();
+  TEST_ASSERT_FALSE(policy.onInsufficientAuthRead(0x105));
+}
+
+void testPasskeySerialCollectorCompletesWithoutLoggingValue() {
+  PasskeyDigitCollector collector;
+  int32_t code = -1;
+  const char* input = "2x5 6\r4:45";
+  for (const char* c = input; *c != '\0'; ++c) {
+    const int32_t result = collector.feed(*c);
+    if (result >= 0) {
+      code = result;
+    }
+  }
+  TEST_ASSERT_EQUAL_INT32(256445, code);
+  TEST_ASSERT_EQUAL_INT32(-1, collector.feed('1'));
+}
+
+void testPasskeyButtonEntryCompletesResetsAndTimesOut() {
+  PasskeyButtonEntry entry;
+  entry.start(1000, 45000);
+  for (int i = 0; i < 5; ++i) {
+    entry.shortPress();
+  }
+  TEST_ASSERT_EQUAL_UINT8(5, entry.digits()[0]);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(PasskeyEntryStatus::Editing),
+                        static_cast<int>(entry.confirmDigit()));
+  for (int i = 0; i < 11; ++i) {
+    entry.shortPress();
+  }
+  TEST_ASSERT_EQUAL_UINT8(1, entry.digits()[1]);
+  for (int i = 0; i < 5; ++i) {
+    entry.confirmDigit();
+  }
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(PasskeyEntryStatus::Complete),
+                        static_cast<int>(entry.status(2000)));
+  TEST_ASSERT_EQUAL_INT32(510000, entry.code());
+
+  entry.start(5000, 100);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(PasskeyEntryStatus::Editing),
+                        static_cast<int>(entry.status(5099)));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(PasskeyEntryStatus::TimedOut),
+                        static_cast<int>(entry.status(5100)));
+  entry.reset();
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(PasskeyEntryStatus::Idle),
+                        static_cast<int>(entry.status(6000)));
+  TEST_ASSERT_EQUAL_INT32(0, entry.code());
+}
+
+void testPasskeyCanMoveWithBAndSubmitWithLongA() {
+  PasskeyButtonEntry entry;
+  entry.start(100, 1000);
+  entry.shortPress();
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(PasskeyEntryStatus::Editing),
+                        static_cast<int>(entry.confirmDigit()));
+  entry.shortPress();
+  entry.shortPress();
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(PasskeyEntryStatus::Complete),
+                        static_cast<int>(entry.submit()));
+  TEST_ASSERT_EQUAL_INT32(120000, entry.code());
+  entry.reset();
+  TEST_ASSERT_EQUAL_INT32(0, entry.code());
+}
+
 }  // namespace
 
 int main() {
@@ -704,11 +1471,40 @@ int main() {
   RUN_TEST(testCameraSleepAutoPowerOffWaitsForTimeout);
   RUN_TEST(testCameraSleepAutoPowerOffRequiresActiveSleep);
   RUN_TEST(testCameraSleepAutoPowerOffHandlesMillisWrap);
+  RUN_TEST(testBleDisconnectPolicyDistinguishesLocalParkFromCameraSleep);
+  RUN_TEST(testBleDisconnectPolicyUsesCorrectEstablishmentFailureCode);
+  RUN_TEST(testBleDisconnectPolicyKeepsOnlyTrustedSleepReasons);
   RUN_TEST(testPortraitStartupCachesWifiWithoutConnecting);
-  RUN_TEST(testLandscapeStartupRunsOriginalFullFlow);
+  RUN_TEST(testPortraitReconnectReusesCacheWithoutTogglingCameraWlan);
+  RUN_TEST(testLandscapeStartupOpensLiveViewWithoutPropsProbe);
   RUN_TEST(testPortraitToLandscapeResumesAfterCredentialCache);
   RUN_TEST(testLandscapeToPortraitDisconnectsWifiAndKeepsBleReady);
+  RUN_TEST(testCachedResumeStopsBeforeWifiConnectWhenReactivationFails);
+  RUN_TEST(testWifiDeactivationFailureDoesNotBreakBleShutterState);
+  RUN_TEST(testDetectsProtocolOnlyFromSafeEvidence);
+  RUN_TEST(testShutterPreparationRemainsGenerationSpecific);
+  RUN_TEST(testSecurityProfilesKeepGr4LegacyFrozen);
+  RUN_TEST(testOnlyGr4DiscoveryCanReuseTheLegacyConnection);
+  RUN_TEST(testProtocolRouterSelectsExactlyOneImplementation);
+  RUN_TEST(testUnknownAndGr2ProfilesBlockBleSideEffects);
+  RUN_TEST(testGr3AndGr4AllowProfileScopedWifiDeactivation);
+  RUN_TEST(testOperationModeSafetyIsGenerationSpecific);
+  RUN_TEST(testHttpShutterIsOnlyClaimedWhereItWasVerified);
+  RUN_TEST(testBlePreviewParkingIsDisabledForGr3AndGr4);
+  RUN_TEST(testGr3CredentialShapeAllowsOptionalChannel);
+  RUN_TEST(testOldGr4ProfileMetadataMigratesWithoutRepairing);
+  RUN_TEST(testNewProfileMetadataRoundTrips);
+  RUN_TEST(testNormalizesResolvedPeerAddressTypes);
+  RUN_TEST(testPairingRecoveryCountsOnlyExplicitSecurityFailures);
+  RUN_TEST(testPairingLatencyPolicyAvoidsNestedUnbondedRetries);
+  RUN_TEST(testPairingRecoveryDropsUnauthenticatedBondAfterTwoReads);
+  RUN_TEST(testPasskeySerialCollectorCompletesWithoutLoggingValue);
+  RUN_TEST(testPasskeyButtonEntryCompletesResetsAndTimesOut);
+  RUN_TEST(testPasskeyCanMoveWithBAndSubmitWithLongA);
+  RUN_TEST(testLockedBindingRejectsNewPairingAndOtherCameras);
+  RUN_TEST(testPairingBindingAcceptsFirstValidCandidateWithoutStoredIdentity);
   RUN_TEST(testCameraSleepGuardKeepsControllerOutOfScan);
+  RUN_TEST(testRecoveryStopsWhenBleStackResetFails);
   RUN_TEST(testBeginRejectsInvalidInputs);
   RUN_TEST(testDeliversFrameSplitAcrossChunks);
   RUN_TEST(testDropsShortFrame);
@@ -718,6 +1514,11 @@ int main() {
   RUN_TEST(testLeavesNonNumericRicohWifiSsidUnchanged);
   RUN_TEST(testRejectsNonRicohWifiSsidForBleName);
   RUN_TEST(testRequiresBleAddressAndAddressTypeForDirectReconnect);
+  RUN_TEST(testDirectReconnectIsOnlyUsedForKnownBondedBootProfile);
+  RUN_TEST(testProtocolDiscoveryRefreshesOnlyRequiredCharacteristicServices);
+  RUN_TEST(testNewPeerMustPersistBondBeforeConnectionSucceeds);
+  RUN_TEST(testBleScanCleanupRequiresHostAndCallbackQuiescence);
+  RUN_TEST(testBleStackObjectsClearOnlyAfterHostStops);
   RUN_TEST(testBleCandidateDiscoveryIsOpenWithoutStoredIdentity);
   RUN_TEST(testBleCandidateMustMatchStoredIdentity);
   RUN_TEST(testSupervisorWaitsForIntervalAndIgnoresHealthyPreview);
@@ -726,15 +1527,23 @@ int main() {
   RUN_TEST(testSupervisorReportsPreviewIdleTimeout);
   RUN_TEST(testSupervisorReportsFrameStallDespiteIncomingBytes);
   RUN_TEST(testUiMapsAppStatesToScenes);
+  RUN_TEST(testUiPropagatesDeviceChargingIndicator);
   RUN_TEST(testConnectingDotsOnlyMergeAfterBleConnects);
   RUN_TEST(testUiScenePriority);
+  RUN_TEST(testPairingGuideOverridesConnectionScene);
+  RUN_TEST(testPairingGuideUsesBToSelectAndAToConfirm);
+  RUN_TEST(testPairingGuideConsumesLongBWithoutResettingOrSelecting);
+  RUN_TEST(testPairingSelectionRejectsTheOtherProtocolGeneration);
   RUN_TEST(testOrientationRequiresStableCandidate);
   RUN_TEST(testOrientationMapsStickS3PhysicalAxes);
   RUN_TEST(testOrientationHysteresisPreventsBoundaryChatter);
+  RUN_TEST(testLiveViewLockForcesLandscapeAndUnlockRestoresPosture);
+  RUN_TEST(testActivePreviewOutlivesPortraitUiForLockHandoff);
   RUN_TEST(testAnimationProgressAndCompletion);
   RUN_TEST(testAnimationElapsedIsMillisWrapSafe);
   RUN_TEST(testButtonBReportsContinuousProgress);
-  RUN_TEST(testButtonBReleaseBeforeThresholdDoesNotReset);
+  RUN_TEST(testButtonBSingleClickTogglesMirrorAfterDoubleClickWindow);
+  RUN_TEST(testButtonBDoubleClickTogglesLiveViewLockWithoutMirror);
   RUN_TEST(testButtonBThresholdTriggersOnlyOnce);
   RUN_TEST(testButtonAOperationTriggersAtMostOneShoot);
   RUN_TEST(testShutterOverlaySuccessAndFailureLifecycles);

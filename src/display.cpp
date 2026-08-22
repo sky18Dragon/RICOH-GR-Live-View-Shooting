@@ -14,20 +14,6 @@ const char* safeText(const char* value, const char* fallback = "") {
     return value != nullptr && value[0] != '\0' ? value : fallback;
 }
 
-int parsePercent(const char* text) {
-    if (text == nullptr) return -1;
-    int value = -1;
-    for (size_t i = 0; text[i] != '\0'; ++i) {
-        if (text[i] >= '0' && text[i] <= '9') {
-            if (value < 0) value = 0;
-            value = value * 10 + (text[i] - '0');
-        } else if (value >= 0) {
-            break;
-        }
-    }
-    return value > 100 ? 100 : value;
-}
-
 uint16_t gray565(float intensity) {
     const uint8_t five = static_cast<uint8_t>(rvf::uiClamp01(intensity) * 31.0f + 0.5f);
     const uint8_t six = static_cast<uint8_t>(rvf::uiClamp01(intensity) * 63.0f + 0.5f);
@@ -39,7 +25,10 @@ uint16_t gray565(float intensity) {
 bool DisplayUi::begin() {
     auto cfg = M5.config();
     cfg.serial_baudrate = 115200;
+    cfg.output_power = false;
     cfg.internal_imu = true;
+    cfg.internal_mic = false;
+    cfg.internal_rtc = false;
     cfg.internal_spk = rvf::UiTheme::kSoundEnabled;
     M5.begin(cfg);
 
@@ -71,7 +60,18 @@ bool DisplayUi::createCanvasFor(rvf::UiOrientation orientation) {
 
     const int16_t width = M5.Display.width();
     const int16_t height = M5.Display.height();
+    // Keep the always-on portrait UI in PSRAM, but use DMA-capable internal RAM
+    // for the short-lived landscape preview canvas. A full 240x135 RGB565 frame
+    // is 64.8 KiB and fits after Wi-Fi/BLE bring-up on StickS3.
+    _canvasUsePsram = orientation != rvf::UiOrientation::Landscape && psramFound();
+    _canvas.setPsram(_canvasUsePsram);
     void* sprite = _canvas.createSprite(width, height);
+    if (sprite == nullptr && !_canvasUsePsram && psramFound()) {
+        Serial.println("UI Canvas: internal allocation failed; retrying in PSRAM");
+        _canvasUsePsram = true;
+        _canvas.setPsram(true);
+        sprite = _canvas.createSprite(width, height);
+    }
     if (sprite == nullptr) return false;
 
     _width = width;
@@ -127,9 +127,10 @@ bool DisplayUi::setOrientation(rvf::UiOrientation orientation) {
     _orientationFailurePending = false;
     clear(rvf::UiTheme::kBlack);
     pushCanvas();
-    Serial.printf("UI Canvas: ready %dx%d heap=%lu psram=%lu\n",
+    Serial.printf("UI Canvas: ready %dx%d storage=%s heap=%lu psram=%lu\n",
                   _width,
                   _height,
+                  _canvasUsePsram ? "psram" : "internal",
                   static_cast<unsigned long>(ESP.getFreeHeap()),
                   static_cast<unsigned long>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)));
     return true;
@@ -137,6 +138,15 @@ bool DisplayUi::setOrientation(rvf::UiOrientation orientation) {
 
 void DisplayUi::pushCanvas() {
     if (_canvasReady) _canvas.pushSprite(&M5.Display, 0, 0);
+}
+
+void DisplayUi::setMirrored(bool mirrored) {
+    _mirrored = mirrored;
+}
+
+bool DisplayUi::toggleMirror() {
+    _mirrored = !_mirrored;
+    return _mirrored;
 }
 
 void DisplayUi::clear(uint16_t color) {
@@ -179,6 +189,9 @@ void DisplayUi::render(const rvf::UiViewModel& view) {
     switch (view.scene) {
         case rvf::UiScene::Boot:
             drawBoot(view);
+            break;
+        case rvf::UiScene::PairingGuide:
+            drawPairingGuide(view);
             break;
         case rvf::UiScene::Pairing:
         case rvf::UiScene::Connecting:
@@ -227,6 +240,33 @@ void DisplayUi::renderLiveFrameOverlay(const rvf::UiViewModel& view) {
 void DisplayUi::drawBoot(const rvf::UiViewModel& view) {
     const int16_t radius = static_cast<int16_t>(4 + 2 * view.sceneProgress);
     _canvas.fillCircle(_width / 2, _height / 2, radius, rvf::UiTheme::kWhite);
+}
+
+void DisplayUi::drawPairingGuide(const rvf::UiViewModel& view) {
+    drawCenteredText("PAIR CAMERA", 24, rvf::UiTheme::kWhite);
+    drawCenteredText("B: SELECT", 48, rvf::UiTheme::kGray);
+
+    constexpr int16_t optionX = 12;
+    constexpr int16_t optionWidth = 111;
+    constexpr int16_t optionHeight = 34;
+    constexpr int16_t gr3Y = 76;
+    constexpr int16_t gr4Y = 120;
+    const bool gr4Selected = view.pairingGuideGr4Selected;
+
+    const auto drawOption = [this, optionX, optionWidth, optionHeight](
+                                const char* label, int16_t y, bool selected) {
+        const uint16_t color = selected ? rvf::UiTheme::kGreen : rvf::UiTheme::kDarkGray;
+        _canvas.drawRect(optionX, y, optionWidth, optionHeight, color);
+        if (selected) {
+            _canvas.drawRect(optionX + 1, y + 1, optionWidth - 2, optionHeight - 2, color);
+        }
+        drawCenteredText(label, y + 13, selected ? rvf::UiTheme::kGreen : rvf::UiTheme::kWhite);
+    };
+
+    drawOption("GR III", gr3Y, !gr4Selected);
+    drawOption("GR IV", gr4Y, gr4Selected);
+    drawCenteredText("A: CONFIRM", 183, rvf::UiTheme::kWhite);
+    drawCenteredText("Power on camera first", 207, rvf::UiTheme::kGray);
 }
 
 void DisplayUi::drawConnecting(const rvf::UiViewModel& view) {
@@ -333,10 +373,16 @@ void DisplayUi::drawError(const rvf::UiViewModel& view) {
 }
 
 void DisplayUi::drawBatteryIndicator(const rvf::UiViewModel& view) {
-    int percent = parsePercent(view.cameraBattery);
-    if (percent < 0) percent = view.deviceBatteryPercent;
+    const int percent = view.deviceBatteryPercent;
     const int16_t x = _width - 22;
     const int16_t y = 7;
+    if (view.deviceCharging) {
+        // Primitive lightning glyph avoids depending on Unicode font support.
+        const int16_t boltX = x - 8;
+        _canvas.drawLine(boltX + 5, y, boltX + 1, y + 4, rvf::UiTheme::kGreen);
+        _canvas.drawLine(boltX + 1, y + 4, boltX + 4, y + 4, rvf::UiTheme::kGreen);
+        _canvas.drawLine(boltX + 4, y + 4, boltX, y + 8, rvf::UiTheme::kGreen);
+    }
     _canvas.drawRect(x, y, 14, 8, rvf::UiTheme::kWhite);
     _canvas.fillRect(x + 14, y + 2, 2, 4, rvf::UiTheme::kWhite);
     if (percent >= 0) {
@@ -407,26 +453,41 @@ void DisplayUi::showError(const String& message, const String& detail) {
     showError(message.c_str(), detail.c_str());
 }
 
-void DisplayUi::drawOverlay(const String&,
-                            const String&,
-                            const String&,
-                            const String& battery,
-                            float fps,
-                            int32_t,
-                            uint32_t frames,
-                            uint32_t droppedFrames) {
-    rvf::UiViewModel view;
-    view.cameraBattery = battery.c_str();
-    view.deviceBatteryPercent = static_cast<int8_t>(M5.Power.getBatteryLevel());
-    drawBatteryIndicator(view);
-    if (rvf::UiTheme::kDebugHud) {
-        char text[32];
-        snprintf(text, sizeof(text), "%.1f %lu/%lu", static_cast<double>(fps),
-                 static_cast<unsigned long>(frames),
-                 static_cast<unsigned long>(droppedFrames));
-        _canvas.setTextSize(1);
-        _canvas.setTextColor(rvf::UiTheme::kWhite);
-        _canvas.setCursor(5, 5);
-        _canvas.print(text);
+void DisplayUi::showPasskeyEntry(const uint8_t digits[6], uint8_t activeIndex) {
+    if (!setOrientation(rvf::UiOrientation::Portrait) || !_canvasReady) return;
+    clear(rvf::UiTheme::kBlack);
+
+    drawCenteredText("PAIRING PASSKEY", 26, rvf::UiTheme::kGreen);
+    drawCenteredText("Match camera code", 44, rvf::UiTheme::kGray);
+
+    // Keep all six cells inside the StickS3's 135-pixel portrait width.
+    const int16_t cellW = 16;
+    const int16_t cellH = 30;
+    const int16_t gap = 3;
+    const int16_t totalW = 6 * cellW + 5 * gap;
+    const int16_t startX = (_width - totalW) / 2;
+    const int16_t y = _height / 2 - cellH / 2;
+
+    _canvas.setTextSize(2);
+    for (uint8_t i = 0; i < 6; ++i) {
+        const int16_t x = startX + i * (cellW + gap);
+        const bool active = i == activeIndex;
+        const bool confirmed = i < activeIndex;
+        const uint16_t frame = active ? rvf::UiTheme::kGreen : rvf::UiTheme::kDarkGray;
+        const uint16_t text = active ? rvf::UiTheme::kGreen :
+                              (confirmed ? rvf::UiTheme::kWhite : rvf::UiTheme::kGray);
+        _canvas.drawRoundRect(x, y, cellW, cellH, 4, frame);
+        _canvas.setTextColor(text, rvf::UiTheme::kBlack);
+        _canvas.setCursor(x + 2, y + 7);
+        _canvas.print(static_cast<char>('0' + (digits[i] % 10)));
     }
+
+    _canvas.setTextSize(1);
+    if (activeIndex >= 6) {
+        drawCenteredText("Submitting...", _height - 28, rvf::UiTheme::kGreen);
+    } else {
+        drawCenteredText("A:+1  B:next", _height - 38, rvf::UiTheme::kWhite);
+        drawCenteredText("Hold A:submit", _height - 24, rvf::UiTheme::kWhite);
+    }
+    pushCanvas();
 }

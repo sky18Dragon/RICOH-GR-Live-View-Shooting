@@ -8,8 +8,11 @@ void ButtonInput::reset() {
     _buttonAWasDown = false;
     _buttonBWasDown = false;
     _resetReported = false;
+    _buttonBClickPending = false;
+    _buttonBSecondClick = false;
     _buttonAPressedAtMs = 0;
     _buttonBPressedAtMs = 0;
+    _buttonBReleasedAtMs = 0;
 }
 
 ButtonEvents ButtonInput::update(bool buttonADown,
@@ -31,9 +34,23 @@ ButtonEvents ButtonInput::update(bool buttonADown,
         events.buttonA = true;
     }
 
+    if (!buttonBDown && !_buttonBWasDown && _buttonBClickPending &&
+        uiElapsedMs(nowMs, _buttonBReleasedAtMs) >= _doubleClickWindowMs) {
+        _buttonBClickPending = false;
+        events.buttonBClicked = true;
+        events.toggleDisplayMirror = true;
+    }
+
     if (buttonBDown && !_buttonBWasDown) {
         _buttonBPressedAtMs = nowMs;
         _resetReported = false;
+        _buttonBSecondClick = _buttonBClickPending &&
+                              uiElapsedMs(nowMs, _buttonBReleasedAtMs) <= _doubleClickWindowMs;
+        if (_buttonBClickPending && !_buttonBSecondClick) {
+            _buttonBClickPending = false;
+            events.buttonBClicked = true;
+            events.toggleDisplayMirror = true;
+        }
     }
     if (buttonBDown) {
         events.resetHoldActive = true;
@@ -46,15 +63,32 @@ ButtonEvents ButtonInput::update(bool buttonADown,
         }
         if (!_resetReported && events.resetHoldMs >= _resetHoldThresholdMs) {
             _resetReported = true;
+            _buttonBClickPending = false;
+            _buttonBSecondClick = false;
             events.resetPairing = true;
         }
     } else if (_buttonBWasDown) {
+        const uint32_t heldMs = uiElapsedMs(nowMs, _buttonBPressedAtMs);
+        if (!_resetReported && heldMs < _resetHoldThresholdMs) {
+            if (_buttonBSecondClick) {
+                _buttonBClickPending = false;
+                _buttonBSecondClick = false;
+                events.buttonBDoubleClicked = true;
+                events.toggleLiveViewLock = true;
+            } else {
+                _buttonBClickPending = true;
+                _buttonBReleasedAtMs = nowMs;
+            }
+        }
         _resetReported = false;
+        _buttonBSecondClick = false;
     }
 
     events.powerOff = powerOffTriggered;
     events.any = events.buttonADown || events.buttonAReleased || events.resetHoldActive ||
-                 events.resetPairing || events.powerOff;
+                 events.resetPairing || events.buttonBClicked || events.buttonBDoubleClicked ||
+                 events.toggleDisplayMirror ||
+                 events.toggleLiveViewLock || events.powerOff;
     _buttonAWasDown = buttonADown;
     _buttonBWasDown = buttonBDown;
     return events;
@@ -63,6 +97,8 @@ ButtonEvents ButtonInput::update(bool buttonADown,
 UserCommand ButtonInput::commandFromEvents(const ButtonEvents& events) {
     if (events.powerOff) return UserCommand::PowerOff;
     if (events.resetPairing) return UserCommand::ResetPairing;
+    if (events.toggleLiveViewLock) return UserCommand::ToggleLiveViewLock;
+    if (events.toggleDisplayMirror) return UserCommand::ToggleDisplayMirror;
     if (events.buttonADown) return UserCommand::Shoot;
     return UserCommand::None;
 }

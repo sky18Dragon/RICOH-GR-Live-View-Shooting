@@ -15,12 +15,6 @@ whose points face away from the aligned print edge.
   with the M2 hole line at X=8.5 mm (`.stl` and `.step`)
 - `ricoh_gr_sticks3_selfie_hotshoe_adapter_holes_x39_5.*` - mirrored upright
   adapter with the M2 hole line at X=39.5 mm (`.stl` and `.step`)
-- `ricoh_gr_sticks3_hinged_selfie_hotshoe_base.*` - camera-side hinge half
-  with the hot-shoe foot (`.stl` and `.step`)
-- `ricoh_gr_sticks3_hinged_selfie_screen_plate.*` - StickS3 mounting plate
-  with both mirrored M2 patterns (`.stl` and `.step`)
-- `ricoh_gr_sticks3_hinged_selfie_adapter.FCStd` - editable FreeCAD assembly
-  with upright/folded references and the filament pin reference
 - `generate_adapter.py` - reproducible parametric generator
 
 Running the generator also creates an editable FreeCAD document for each
@@ -56,104 +50,6 @@ The generator exports both long-axis orientations:
 Choose the version that places the display and controls in the preferred
 direction on the camera. Both use circular screw passages and 90-degree
 countersinks because the holes print vertically in the recommended orientation.
-
-## Two-piece hinged selfie-screen variant
-
-The hinged version replaces the two orientation-specific rigid adapters with a
-single two-piece assembly:
-
-- a compact hot-shoe base with one fixed center knuckle
-- a StickS3 plate with two outer knuckles and both X=8.5/X=39.5 M2 pairs
-
-The hinge axis runs along the StickS3's 48 mm dimension at the camera-front
-edge of the shoe. The screen rests display-up when folded and rotates 90 degrees
-upward to face the front of the camera for selfie framing. The generator checks
-the complete rotation for solid-to-solid collisions.
-
-### Filament-pin dimensions
-
-- Pin: nominal 1.75 mm filament, cut to approximately 26.4 mm
-- Bore: 2.0 mm
-- Bore roof relief: a full teardrop extending approximately 0.414 mm outside
-  the complete 2.0 mm circle, pointed away from each part's build plate. Its
-  two roof faces meet the circle tangentially at 45 degrees and never reduce
-  the nominal round pin passage
-- Knuckle outside diameter: 5.5 mm
-- Two shortened 6.2 mm moving knuckles and one 11.8 mm fixed center knuckle,
-  with 0.3 mm axial gaps over the original 24.8 mm active span
-- 2.5 mm internal lead-ins at the knuckle seams
-- A deep camera-side support ramp extending almost to the hinge axis
-- The fixed center knuckle is widened to the hot-shoe neck's full 11.8 mm and
-  aligns flush with both sides of that upper structure for a stronger joint
-- The rear support plane is also 11.8 mm wide, matching the center knuckle and
-  hot-shoe neck instead of extending beyond the 18 mm shoe foot
-- The fixed cylinder's outside bottom sits 2.3 mm above the hot-shoe insert
-  bottom, matching the measured camera envelope in front of the shoe and
-  reducing the camera-side part's vertical thickness by 1.2 mm
-- A full-width lower rear gusset fills the concave divot between the lowered
-  cylinder and shoe neck down to that same 2.3 mm clearance plane, giving the
-  joint continuous load-bearing material instead of a thin tangent overlap
-- The two-knuckle mounting plate and all four screw holes move down 1.15 mm
-  with the lowered hinge, returning the outer knuckles flush with the plate's
-  lower edge instead of leaving them exposed below it
-- The entire hinge is pushed forward until every cylinder's rear tangent sits
-  0.2 mm beyond the hot-shoe front edge, clearing the camera's raised retaining
-  rails. The hinge now extends 5.70 mm beyond the shoe front, and the folded
-  StickS3 plate center sits 1.40 mm forward of the shoe center rather than
-  reintroducing any rear overhang
-- The camera-facing caps of the two moving outer knuckles are flattened by
-  0.50 mm. In the folded position their lowest surface is exactly 2.80 mm above
-  the hot-shoe base, providing insertion clearance without moving the hinge
-  axis, fixed center knuckle, or filament bore
-- The camera-facing lower half of the fixed barrel is filled down to the shoe
-  structure, removing the side-view undercut and supporting flat-bed printing
-- Its upper camera-facing quadrant is filled as well, squaring the fixed
-  knuckle's top-left side profile
-- The hinge-facing hot-shoe corners remain rounded, while the two corners on
-  the edge farthest from the hinge return to hard 45-degree bevels for
-  edge-down printing. The same hybrid profile continues through the upper
-  support and fixed-knuckle structure
-- One short sub-45-degree ramp joins that plane to the fixed center knuckle
-  while remaining clear of the moving knuckles and the folded screen plate
-- The hinge uses one fixed center barrel and two moving outer barrels; the
-  former outer fixed barrels and the temporary stop nubs have been removed
-- The mounting plate surrounds the outer barrels and has a square-ended,
-  edge-open center slot around the fixed barrel. This removes the fragile thin
-  web, leaves every pin bore unobstructed, and forms the folded 90-degree stop.
-- The mounting plate is trimmed to 37 mm and uses true 3 mm corner radii. Each
-  corner arc is centered on its countersunk screw hole, leaving a consistent
-  1 mm radial border around the 4 mm countersink at the outside corners.
-- Two straight 2.0 mm feed channels extend the hinge bore into the inner side
-  of the lower countersinks. The screw recess exposes each loading point while
-  the outer half of the countersink and the plate edge remain intact.
-- A shallow stop pad recessed inside the square center-relief roof bears on the
-  fixed knuckle just beyond 90 degrees. The rest of the relief retains 0.4 mm
-  running clearance, and the hot-shoe half has no protruding stop bump
-
-The 0.3 mm knuckle gaps use a close common starting clearance for moving FDM
-parts. The 2.0 mm bore intentionally gives a light-friction fit around
-nominal 1.75 mm filament; actual fit still depends on printer calibration,
-material shrinkage, layer height, and the measured filament diameter.
-
-### Print and assemble
-
-1. Print each STL separately at 0.15-0.20 mm layers with at least four
-   perimeters. The base STL is laid on the beveled edge farthest from the
-   hinge, and the screen-plate STL is laid flat on its broad Y-min face. No
-   manual rotation should be necessary. STEP files retain the upright assembly
-   coordinates for editing.
-2. Attach the StickS3 to the screen plate with two M2x4 flat-head screws. Use
-   only the X=8.5 or X=39.5 pair matching the desired device direction.
-3. Place the fixed center knuckle between the plate's two outer knuckles.
-4. Cut about 26.4 mm of 1.75 mm PETG, PA, or PLA filament. Bevel one end,
-   place it in either lower countersink's straight loading guide, and push it
-   through the aligned hinge bore without forcing it.
-5. If the bore is tight, clear it by hand with a 2.0 mm drill bit or pin reamer;
-   do not use a powered drill near the small knuckles.
-6. Trim the pin to about 0.8 mm proud at each end. Lightly mushroom the ends
-   against the outer barrel faces with a temperature-controlled soldering-iron
-   tip. Apply only enough heat to retain the pin without melting the hinge
-   barrels.
 
 ## Hardware and printing
 

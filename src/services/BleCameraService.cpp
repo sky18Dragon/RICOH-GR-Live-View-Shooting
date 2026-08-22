@@ -18,7 +18,10 @@ Result BleCameraService::begin() {
         publish(AppEventType::ErrorRaised, static_cast<int>(ready.code), "begin");
         return ready;
     }
-    _client->begin();
+    if (!_client->begin()) {
+        publish(AppEventType::ErrorRaised, static_cast<int>(ErrorCode::Unknown), "begin");
+        return Result::failure(ErrorCode::Unknown, _client->lastError());
+    }
     LOGLINE_I("BLE", "BLE service initialized");
     return Result::success();
 }
@@ -26,6 +29,33 @@ Result BleCameraService::begin() {
 Result BleCameraService::begin(RicohBleClient& client) {
     attach(client);
     return begin();
+}
+
+Result BleCameraService::setSecurityProfile(RicohSecurityProfileId profile) {
+    Result ready = requireClient("setSecurityProfile");
+    if (ready.failed()) {
+        publish(AppEventType::ErrorRaised, static_cast<int>(ready.code), "setSecurityProfile");
+        return ready;
+    }
+    if (!_client->setSecurityProfile(profile)) {
+        publish(AppEventType::ErrorRaised, static_cast<int>(ErrorCode::Unknown), "setSecurityProfile");
+        return Result::failure(ErrorCode::Unknown, _client->lastError());
+    }
+    return Result::success();
+}
+
+void BleCameraService::setBindingState(CameraBindingState state) {
+    if (_client != nullptr) {
+        _client->setBindingState(state);
+    }
+}
+
+CameraBindingState BleCameraService::bindingState() const {
+    return _client != nullptr ? _client->bindingState() : CameraBindingState::Unpaired;
+}
+
+bool BleCameraService::consumeBondInvalidRequest() {
+    return _client != nullptr && _client->consumeBondInvalidRequest();
 }
 
 Result BleCameraService::scan() {
@@ -161,6 +191,19 @@ Result BleCameraService::openWifi() {
     return Result::success();
 }
 
+Result BleCameraService::closeWifi() {
+    Result ready = requireClient("closeWifi");
+    if (ready.failed()) {
+        publish(AppEventType::ErrorRaised, static_cast<int>(ready.code), "closeWifi");
+        return ready;
+    }
+    if (!_client->closeWifi()) {
+        publish(AppEventType::ErrorRaised, static_cast<int>(ErrorCode::BleConnectFailed), "closeWifi");
+        return Result::failure(ErrorCode::BleConnectFailed, _client->lastError());
+    }
+    return Result::success();
+}
+
 Result BleCameraService::readPowerState(RicohCameraPowerState& state) {
     Result ready = requireClient("readPowerState");
     if (ready.failed()) {
@@ -255,14 +298,43 @@ Result BleCameraService::deleteAllBonds() {
     return Result::success();
 }
 
-void BleCameraService::resetStack(bool clearObjects) {
-    if (_client != nullptr) {
-        _client->resetStack(clearObjects);
+Result BleCameraService::resetStack(bool clearObjects) {
+    Result ready = requireClient("resetStack");
+    if (ready.failed()) {
+        publish(AppEventType::ErrorRaised, static_cast<int>(ready.code), "resetStack");
+        return ready;
     }
+    if (!_client->resetStack(clearObjects)) {
+        publish(AppEventType::ErrorRaised, static_cast<int>(ErrorCode::Unknown), "resetStack");
+        return Result::failure(ErrorCode::Unknown, _client->lastError());
+    }
+    return Result::success();
 }
 
 bool BleCameraService::lastFailureWasResourceExhausted() const {
     return _client != nullptr && _client->lastFailureWasResourceExhausted();
+}
+
+const CameraProtocolProfile& BleCameraService::protocolProfile() const {
+    return _client != nullptr
+             ? _client->protocolProfile()
+             : cameraProtocolProfile(RicohProtocolGeneration::Unknown);
+}
+
+RicohBleSecurityState BleCameraService::securityState() const {
+    return _client != nullptr ? _client->securityState() : RicohBleSecurityState{};
+}
+
+String BleCameraService::connectedIdentityAddress() const {
+    return _client != nullptr ? _client->connectedIdentityAddress() : String();
+}
+
+uint8_t BleCameraService::connectedIdentityAddressType() const {
+    return _client != nullptr ? _client->connectedIdentityAddressType() : 0;
+}
+
+bool BleCameraService::connectedIdentityKnown() const {
+    return _client != nullptr && _client->connectedIdentityKnown();
 }
 
 String BleCameraService::statusText() const {

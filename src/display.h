@@ -23,17 +23,12 @@ public:
     void showStatus(const String& line1, const String& line2, const String& line3, const String& line4);
     void showError(const char* message, const char* detail = nullptr);
     void showError(const String& message, const String& detail = String());
-    void drawOverlay(const String& wifiStatus,
-                     const String& liveviewStatus,
-                     const String& model,
-                     const String& battery,
-                     float fps,
-                     int32_t rssi,
-                     uint32_t frames,
-                     uint32_t droppedFrames);
-
+    void showPasskeyEntry(const uint8_t digits[6], uint8_t activeIndex);
     int16_t width() const { return _width; }
     int16_t height() const { return _height; }
+    void setMirrored(bool mirrored);
+    bool toggleMirror();
+    bool mirrored() const { return _mirrored; }
     LovyanGFX* getCanvas() { return _canvasReady ? &_canvas : nullptr; }
     void pushCanvas();
 
@@ -41,6 +36,7 @@ private:
     bool createCanvasFor(rvf::UiOrientation orientation);
     void clear(uint16_t color = 0x0000);
     void drawBoot(const rvf::UiViewModel& view);
+    void drawPairingGuide(const rvf::UiViewModel& view);
     void drawConnecting(const rvf::UiViewModel& view);
     void drawRemote(const rvf::UiViewModel& view);
     void drawReset(const rvf::UiViewModel& view);
@@ -67,4 +63,5 @@ private:
     bool _frameWriteActive = false;
     bool _sceneDrawn = false;
     bool _orientationFailurePending = false;
+    bool _mirrored = false;
 };

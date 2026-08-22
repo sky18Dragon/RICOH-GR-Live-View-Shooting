@@ -27,8 +27,7 @@ public:
     bool resumeFromBleReady(const AppFlowActions& actions, const char* reason);
     bool resumeFromWifiCredentialsReady(const AppFlowActions& actions);
     bool connectWifiAfterBleReady(const AppFlowActions& actions);
-    bool httpProbeCamera(const AppFlowActions& actions);
-    bool startLiveViewFromProbe(const AppFlowActions& actions);
+    bool startLiveView(const AppFlowActions& actions);
     void recoverCameraConnection(const AppFlowActions& actions, const char* reason);
     void serviceCameraFlowIfNeeded(const AppFlowActions& actions, uint32_t nowMs);
     void monitorWifi(const AppFlowActions& actions);

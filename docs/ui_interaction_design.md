@@ -89,7 +89,8 @@ Error > ResetPairing > CameraSleep > Pairing/Connecting
   -> 读取并持久化 Wi-Fi 参数 -> WifiCredentialsReady（停驻）
 
 WifiCredentialsReady + 转为横屏
-  -> 连接缓存的相机 Wi-Fi -> HTTP Probe -> PreviewRunning
+  -> 连接缓存的相机 Wi-Fi -> PreviewStarting -> PreviewRunning
+  -> 首帧后延迟刷新 /v1/props
 
 PreviewRunning + 转为竖屏
   -> 关闭 LiveView -> 断开相机 Wi-Fi -> WifiCredentialsReady

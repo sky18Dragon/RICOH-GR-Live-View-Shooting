@@ -20,6 +20,9 @@ struct AppFlowActions {
 
     bool (*runBleDiscovery)() = nullptr;
     bool (*activateCameraWifiOverBle)() = nullptr;
+    bool (*finishCameraWifiOverHttp)() = nullptr;
+    bool (*deactivateCameraWifiOverBle)() = nullptr;
+    bool (*reactivateCameraWifiForCachedResume)() = nullptr;
     bool (*hasUsableCachedWifiCredentials)() = nullptr;
     bool (*connectCachedWifiFromProfile)() = nullptr;
     void (*onCachedWifiConnected)() = nullptr;
@@ -29,9 +32,6 @@ struct AppFlowActions {
     bool (*connectFreshWifiFromProfile)() = nullptr;
     void (*onFreshWifiConnected)() = nullptr;
 
-    bool (*fetchCameraProps)() = nullptr;
-    void (*onHttpProbeSucceeded)() = nullptr;
-    void (*onHttpProbeFailed)() = nullptr;
     void (*showStartingLiveView)() = nullptr;
     bool (*openLiveView)() = nullptr;
     void (*onLiveViewOpened)() = nullptr;
@@ -45,7 +45,7 @@ struct AppFlowActions {
     bool (*reasonRequiresBleRescan)(const char* reason) = nullptr;
     void (*showRecoveryBleReadyRetry)(const char* reason) = nullptr;
     void (*showRecoveryBleScan)(const char* reason) = nullptr;
-    void (*resetBleStackBeforeScanAfterLinkLoss)(const char* reason) = nullptr;
+    bool (*resetBleStackBeforeScanAfterLinkLoss)(const char* reason) = nullptr;
     void (*shortRecoveryDelay)() = nullptr;
     void (*onRecoveryGuardBlocked)() = nullptr;
     void (*onRecoveryFinished)(bool recovered) = nullptr;

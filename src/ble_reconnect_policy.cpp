@@ -7,6 +7,17 @@ bool hasDirectBleReconnectIdentity(const char* bleAddress, bool bleAddressTypeKn
   return bleAddressTypeKnown && bleAddress != nullptr && std::strlen(bleAddress) > 0;
 }
 
+bool shouldAttemptDirectBleReconnect(bool initialBootFlow,
+                                     bool bonded,
+                                     bool protocolKnown,
+                                     const char* bleAddress,
+                                     bool bleAddressTypeKnown) {
+  return initialBootFlow &&
+         bonded &&
+         protocolKnown &&
+         hasDirectBleReconnectIdentity(bleAddress, bleAddressTypeKnown);
+}
+
 bool bleCandidateMatchesStoredIdentity(const char* storedBleAddress,
                                        const char* candidateBleAddress) {
   if (storedBleAddress == nullptr || storedBleAddress[0] == '\0') {
@@ -26,4 +37,21 @@ bool bleCandidateMatchesStoredIdentity(const char* storedBleAddress,
     ++index;
   }
   return storedBleAddress[index] == '\0' && candidateBleAddress[index] == '\0';
+}
+
+BleBondPersistenceDecision decideBleBondPersistence(bool peerWasBonded,
+                                                     bool connected,
+                                                     bool bondedNow,
+                                                     unsigned long elapsedMs,
+                                                     unsigned long timeoutMs) {
+  if (!connected) {
+    return BleBondPersistenceDecision::Disconnected;
+  }
+  if (peerWasBonded || bondedNow) {
+    return BleBondPersistenceDecision::Ready;
+  }
+  if (elapsedMs >= timeoutMs) {
+    return BleBondPersistenceDecision::TimedOut;
+  }
+  return BleBondPersistenceDecision::Wait;
 }

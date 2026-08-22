@@ -2,6 +2,10 @@
 
 #include <Arduino.h>
 
+#include "ble_pairing_policy.h"
+#include "camera_protocol_profile.h"
+#include "ricoh/RicohBleProtocolRouter.h"
+
 struct RicohBleDeviceInfo {
   bool found = false;
   String name;
@@ -30,7 +34,25 @@ struct RicohBleConnectOptions {
   uint32_t timeoutMs = 0;
   uint32_t securityWaitMs = 0;
   uint32_t preConnectDelayMs = 0;
+  int8_t connectRetries = -1;
   bool exchangeMtu = true;
+  RicohProtocolGeneration protocolHint = RicohProtocolGeneration::Unknown;
+  // When set, read-only discovery must identify this exact generation before
+  // the formal security/pairing flow is allowed to continue.
+  RicohProtocolGeneration expectedGeneration = RicohProtocolGeneration::Unknown;
+};
+
+enum class RicohPasskeyPollAction : uint8_t {
+  Start,
+  Poll,
+  Cancel,
+};
+
+struct RicohBleSecurityState {
+  bool bonded = false;
+  bool encrypted = false;
+  bool authenticated = false;
+  uint8_t keySize = 0;
 };
 
 enum class RicohCameraPowerState {
@@ -39,21 +61,22 @@ enum class RicohCameraPowerState {
   OffOrShuttingDown,
 };
 
-enum class RicohCameraOperationMode {
-  Unknown,
-  Capture,
-  Playback,
-  BleStartup,
-  Other,
-  PowerOffTransfer,
-};
-
 class RicohBleClient {
 public:
   using ServiceCallback = bool (*)();
+  // Returns a completed six-digit code for Poll, -1 while pending, or -2 when
+  // the local entry UI canceled/timed out. Start and Cancel reset UI state.
+  using PasskeyPoller = int32_t (*)(RicohPasskeyPollAction action);
 
-  void begin();
+  bool begin();
+  bool setSecurityProfile(RicohSecurityProfileId profile);
+  bool switchSecurityProfile(RicohSecurityProfileId profile);
+  RicohSecurityProfileId securityProfileId() const { return _securityProfile; }
+  void setBindingState(CameraBindingState state);
+  CameraBindingState bindingState() const { return _bindingState; }
+  bool consumeBondInvalidRequest();
   void setServiceCallback(ServiceCallback callback);
+  void setPasskeyPoller(PasskeyPoller poller);
   RicohBleDeviceInfo scanForCamera(const String& preferredAddress, const String& preferredName, uint32_t scanSeconds);
   bool connect(const RicohBleDeviceInfo& info, uint32_t timeoutMs);
   bool connect(const RicohBleDeviceInfo& info, const RicohBleConnectOptions& options);
@@ -62,6 +85,7 @@ public:
   bool shutterReady() const;
   bool shoot(bool autofocus = true);
   bool openWifi();
+  bool closeWifi();
   bool readPowerState(RicohCameraPowerState& state);
   bool readOperationMode(RicohCameraOperationMode& mode);
   bool enablePowerStateNotify();
@@ -71,22 +95,32 @@ public:
   int consumeDisconnectReason();
   void clearDisconnectReason();
   bool deleteAllBonds();
-  void resetStack(bool clearObjects = false);
+  bool resetStack(bool clearObjects = false);
   bool lastFailureWasResourceExhausted() const;
+  const CameraProtocolProfile& protocolProfile() const;
+  RicohBleSecurityState securityState() const;
+  String connectedIdentityAddress() const { return _connectedIdentityAddress; }
+  uint8_t connectedIdentityAddressType() const { return _connectedIdentityAddressType; }
+  bool connectedIdentityKnown() const { return _connectedIdentityKnown; }
 
   String statusText() const;
   const String& lastError() const;
 
 private:
-  bool prepareShutter();
-  void resetShutterCache();
-
   bool _begun = false;
+  // A failed host stop/object-clear leaves NimBLE ownership uncertain.  Only a
+  // later successful resetStack() may clear this latch and permit operations.
+  bool _stackRestartBlocked = false;
   bool _connected = false;
-  bool _shutterPrepared = false;
   bool _lastFailureResourceExhausted = false;
+  RicohSecurityProfileId _securityProfile = RicohSecurityProfileId::Unknown;
+  CameraBindingState _bindingState = CameraBindingState::Unpaired;
   String _lastError;
+  String _connectedIdentityAddress;
+  uint8_t _connectedIdentityAddressType = 0;
+  bool _connectedIdentityKnown = false;
   void* _client = nullptr;
-  void* _shootingFlavor = nullptr;
-  void* _operationRequest = nullptr;
+  RicohBleProtocolRouter _protocolRouter;
+  RicohCameraOperationMode _lastOperationMode = RicohCameraOperationMode::Unknown;
+  bool _lastOperationModeValid = false;
 };

@@ -161,6 +161,67 @@ bool GrApi::fetchProps(CameraProps& props, uint32_t timeoutMs) {
 }
 
 
+bool GrApi::shoot(uint32_t timeoutMs) {
+  WiFiClient client;
+  if (!connectClient(client, timeoutMs)) {
+    return false;
+  }
+
+  const String host = _host.length() ? _host : String(GR_HOST);
+  client.print(String("POST /v1/camera/shoot HTTP/1.1\r\nHost: ") + host +
+               "\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+
+  String headers;
+  if (!readHttpHeaders(client, timeoutMs, headers)) {
+    setError("Timed out reading /v1/camera/shoot response");
+    client.stop();
+    return false;
+  }
+
+  const int status = parseHttpStatus(headers);
+  client.stop();
+  if (status < 200 || status >= 300) {
+    setError(String("POST /v1/camera/shoot HTTP ") + status);
+    return false;
+  }
+
+  _lastError = "";
+  return true;
+}
+
+bool GrApi::finishWlan(uint32_t timeoutMs) {
+  closeLiveView();
+
+  WiFiClient client;
+  if (!connectClient(client, timeoutMs)) {
+    return false;
+  }
+
+  const String host = _host.length() ? _host : String(GR_HOST);
+  const String request = String("POST /v1/device/wlan/finish HTTP/1.1\r\nHost: ") + host +
+                         "\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+  const size_t written = client.print(request);
+  if (written != request.length()) {
+    client.stop();
+    setError("POST /v1/device/wlan/finish request incomplete");
+    return false;
+  }
+
+  // Give the TCP stack and camera a bounded window to consume the request.
+  // Do not wait for headers: successful shutdown commonly drops this same
+  // connection before a complete HTTP response is returned.
+  const uint32_t settleMs = timeoutMs < 250 ? timeoutMs : 250;
+  const uint32_t startedAt = millis();
+  while (client.connected() && millis() - startedAt < settleMs) {
+    yield();
+    delay(10);
+  }
+  client.stop();
+  _lastError = "";
+  return true;
+}
+
+
 bool GrApi::openLiveView() {
   closeLiveView();
 
