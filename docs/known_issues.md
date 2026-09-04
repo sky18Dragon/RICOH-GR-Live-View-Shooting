@@ -5,7 +5,7 @@
 1. **GR IIIx 已在本分支固件上实机验证，GR III 与 HDF 版本仍需独立验证**：设备端 Passkey、UUID WLAN、凭据、Capture 门控、Bond 自愈已经实现并通过 Native/编译验证；GR IIIx 详细矩阵与去密日志待补充，GR III/GR III HDF/GR IIIx HDF 不应仅凭 GR IIIx 结果升级为已验证。
 2. **GR IV 本次回归尚未执行**：原项目已在 GR IV 与 GR IV HDF 验证完整链路；本次把共享 SMP IO Capability 改为 `KEYBOARD_DISPLAY`，因此首次配对、旧 Bond 重连、清 Bond 重配等必须复测，不能用历史结果替代。
 3. **GR III HDF / GR IIIx HDF 只有实验性支持**：没有独立实机 GATT 证据，不能仅按产品名称假设与非 HDF 版本相同。
-4. **GR II 暂不支持**：只有能力模型占位；没有推测 UUID、Handle、Wi-Fi 或快门实现。
+4. **GR II 已完成实机验证**：Wi-Fi-only 配网、相机 AP 连接、LiveView 与 HTTP 快门链路已在真实相机上验证通过；实现不依赖 BLE，也不包含虚构的 BLE UUID/Handle。
 
 ## 运行行为与待调优点
 
@@ -16,6 +16,7 @@
 5. GR III 首次参数没有已验证的 Security/Frequency/BSSID 特征。当前接受 SSID+Passphrase、Channel 可选，连接成功后回采实际 BSSID/Channel；需实机验证相机在自动 Channel 下的 AP 启动延迟。
 6. Wi-Fi 缓存快速连接首次失败可能是相机 AP 尚未准备好；流程会回退到 BLE 重新读取参数。
 7. Windows PlatformIO monitor 的 `ClearCommError failed` 属于历史串口监视/重连问题，不等同于固件崩溃。
+8. GR II 的 SSID/密码是相机专属值，通过 StickS3 临时热点上的本地网页写入 NVS。为避免 ESP32-S3 在 AP+STA 全信道扫描时阻塞网页或切换 AP 信道，固件在启动 SoftAP 前以 STA 模式完成一次扫描并缓存结果；相机 AP 仍必须由用户在机身上手动开启。
 
 ## 安全不变量
 
@@ -23,6 +24,7 @@
 - GR III 只允许通过 UUID 访问 WLAN；不得新增“先写 GR IV Handle 再回退”的代码。
 - GR III 只有 authenticated encryption + fresh `CAPTURE` 才能写 Network Type `0x01`。
 - 普通日志、错误与 GATT dump 不得包含完整 Passphrase、Passkey 或 NVS 明文凭据。
+- GR II 不得调用官方 `/v1/device/finish` 作为普通 WLAN handoff，因为该接口会关闭相机。
 - 修复连接速度问题不能以高频骚扰休眠相机或跳过 Operation Mode 为代价。
 
 ## TODO_UNVERIFIED
@@ -31,5 +33,6 @@
 - `0x213` / `0x215` / `0x216` 在不同代际和固件上的精确定义。
 - GR III `PLAYBACK` / `OTHER` 是否可安全开 WLAN；当前一律拒绝。
 - 相机端删除配对后，各代际是否都能按当前阈值自动清除旧 Bond 并重新配对。
+- GR II 已确认支持可用；实机记录仍需补充相机固件版本、稳定 FPS、MJPEG 响应格式，以及是否实际进入过 `shoot/start` + `shoot/finish` fallback。
 
 实机问题先按 `logs/issue_template.md` 保存机型、相机固件、StickS3 commit 和去密后的关键日志；不得把单一机型结果扩展为其他机型或 HDF 版本的“已实机验证”。

@@ -8,7 +8,7 @@
 - GR IIIx：旧 GR3 功能分支曾由用户确认通过；本次双协议重构分支仍需重新执行完整矩阵。
 - GR III：当前分支已实现但仍需 GR III 机身独立验证；配对顺序参考 `mic-kul` 的 BlueZ/真机分析。
 - GR III HDF / GR IIIx HDF：无独立实机证据，只能视为实验性支持。
-- GR II：未实现协议，仅有无 BLE、ManualOnly/ManualConfiguration 的扩展占位。
+- GR II：已通过真实相机验证。相机没有 BLE，不进入本文任何发现、配对或 GATT 路径；凭据通过 StickS3 本地配网页面写入 NVS，再使用 ManualOnly/ManualConfiguration 连接手动开启的 AP，并通过官方 GR Remote HTTP 接口工作。
 
 ## 运行时协议识别
 

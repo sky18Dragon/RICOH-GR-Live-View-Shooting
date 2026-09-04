@@ -13,7 +13,10 @@ struct UiSnapshot {
     bool cameraSleepLike = false;
     bool resettingPairing = false;
     bool pairingGuideActive = false;
+    bool pairingGuideGr2Selected = false;
     bool pairingGuideGr4Selected = false;
+    bool wifiProvisioningActive = false;
+    bool wifiProvisioningPreparing = false;
     bool hasFrame = false;
 
     float fps = 0.0f;
@@ -24,6 +27,9 @@ struct UiSnapshot {
     bool deviceCharging = false;
 
     const char* cameraModel = nullptr;
+    const char* provisioningSsid = nullptr;
+    const char* provisioningPassword = nullptr;
+    const char* provisioningUrl = nullptr;
     const char* errorTitle = nullptr;
     const char* errorDetail = nullptr;
 };

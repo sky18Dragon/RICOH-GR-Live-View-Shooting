@@ -32,9 +32,18 @@ public:
         // Inside the guide both mean exactly one model-selection step. A long
         // B press emits resetPairing and is deliberately consumed as no-op.
         if (events.buttonBClicked || events.buttonBDoubleClicked) {
-            _selection = _selection == RicohProtocolGeneration::Gr3Family
-                             ? RicohProtocolGeneration::Gr4Family
-                             : RicohProtocolGeneration::Gr3Family;
+            switch (_selection) {
+                case RicohProtocolGeneration::Gr2Family:
+                    _selection = RicohProtocolGeneration::Gr3Family;
+                    break;
+                case RicohProtocolGeneration::Gr3Family:
+                    _selection = RicohProtocolGeneration::Gr4Family;
+                    break;
+                case RicohProtocolGeneration::Gr4Family:
+                case RicohProtocolGeneration::Unknown:
+                    _selection = RicohProtocolGeneration::Gr2Family;
+                    break;
+            }
             return PairingGuideAction::SelectionChanged;
         }
 

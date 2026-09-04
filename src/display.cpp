@@ -155,6 +155,7 @@ void DisplayUi::clear(uint16_t color) {
 
 uint32_t DisplayUi::renderIntervalMs(rvf::UiScene scene) const {
     if (scene == rvf::UiScene::CameraSleep) return 1000U / rvf::UiTheme::kSleepAnimationFps;
+    if (scene == rvf::UiScene::WifiProvisioning) return 500U;
     if (scene == rvf::UiScene::Error) return 1000U;
     return 1000U / rvf::UiTheme::kRemoteAnimationFps;
 }
@@ -192,6 +193,9 @@ void DisplayUi::render(const rvf::UiViewModel& view) {
             break;
         case rvf::UiScene::PairingGuide:
             drawPairingGuide(view);
+            break;
+        case rvf::UiScene::WifiProvisioning:
+            drawWifiProvisioning(view);
             break;
         case rvf::UiScene::Pairing:
         case rvf::UiScene::Connecting:
@@ -248,9 +252,11 @@ void DisplayUi::drawPairingGuide(const rvf::UiViewModel& view) {
 
     constexpr int16_t optionX = 12;
     constexpr int16_t optionWidth = 111;
-    constexpr int16_t optionHeight = 34;
-    constexpr int16_t gr3Y = 76;
-    constexpr int16_t gr4Y = 120;
+    constexpr int16_t optionHeight = 28;
+    constexpr int16_t gr2Y = 70;
+    constexpr int16_t gr3Y = 105;
+    constexpr int16_t gr4Y = 140;
+    const bool gr2Selected = view.pairingGuideGr2Selected;
     const bool gr4Selected = view.pairingGuideGr4Selected;
 
     const auto drawOption = [this, optionX, optionWidth, optionHeight](
@@ -263,10 +269,33 @@ void DisplayUi::drawPairingGuide(const rvf::UiViewModel& view) {
         drawCenteredText(label, y + 13, selected ? rvf::UiTheme::kGreen : rvf::UiTheme::kWhite);
     };
 
-    drawOption("GR III", gr3Y, !gr4Selected);
+    drawOption("GR II", gr2Y, gr2Selected);
+    drawOption("GR III", gr3Y, !gr2Selected && !gr4Selected);
     drawOption("GR IV", gr4Y, gr4Selected);
-    drawCenteredText("A: CONFIRM", 183, rvf::UiTheme::kWhite);
-    drawCenteredText("Power on camera first", 207, rvf::UiTheme::kGray);
+    drawCenteredText("A: CONFIRM", 181, rvf::UiTheme::kWhite);
+    drawCenteredText(gr2Selected ? "Enable camera WiFi first" : "Power on camera first",
+                     207,
+                     rvf::UiTheme::kGray);
+}
+
+void DisplayUi::drawWifiProvisioning(const rvf::UiViewModel& view) {
+    drawCenteredText("GR II WIFI SETUP", 28, rvf::UiTheme::kWhite);
+    if (view.wifiProvisioningPreparing) {
+        drawCenteredText("SCANNING CAMERA WIFI", 88, rvf::UiTheme::kGreen);
+        drawCenteredText("PLEASE WAIT...", 122, rvf::UiTheme::kGray);
+        drawCenteredText("NO BLUETOOTH", 184, rvf::UiTheme::kDarkGray);
+        return;
+    }
+    drawCenteredText("1. PHONE JOIN", 61, rvf::UiTheme::kGray);
+    drawCenteredText(safeText(view.provisioningSsid, "GR-II-Setup"), 83, rvf::UiTheme::kGreen);
+    char passwordLine[40] = {0};
+    snprintf(passwordLine, sizeof(passwordLine), "PASSWORD: %s",
+             safeText(view.provisioningPassword, "SEE SCREEN"));
+    drawCenteredText(passwordLine, 112, rvf::UiTheme::kGray);
+    drawCenteredText("2. OPEN IN BROWSER", 151, rvf::UiTheme::kGray);
+    drawCenteredText(safeText(view.provisioningUrl, "http://192.168.4.1"), 174,
+                     rvf::UiTheme::kGreen);
+    drawCenteredText("HOLD B: CANCEL", 211, rvf::UiTheme::kDarkGray);
 }
 
 void DisplayUi::drawConnecting(const rvf::UiViewModel& view) {

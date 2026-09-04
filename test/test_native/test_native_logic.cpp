@@ -18,6 +18,8 @@ void tearDown(void) {}
 #include "camera_identity.h"
 #include "camera_profile_schema.h"
 #include "camera_protocol_profile.h"
+#include "gr2_provisioning_logic.h"
+#include "gr2_shutter_policy.h"
 #include "ricoh/RicohBleProtocolRouter.h"
 #include "camera_sleep_policy.h"
 #include "image_fit.h"
@@ -800,9 +802,44 @@ void testPairingGuideOverridesConnectionScene() {
   rvf::UiSnapshot snapshot;
   snapshot.appState = rvf::AppState::BleScan;
   snapshot.pairingGuideActive = true;
+  snapshot.pairingGuideGr2Selected = true;
   TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiScene::PairingGuide),
                         static_cast<int>(rvf::UiCoordinator::selectScene(
                             snapshot, rvf::UiOrientation::Landscape)));
+
+  rvf::UiCoordinator coordinator;
+  coordinator.begin(0);
+  rvf::ButtonEvents input;
+  coordinator.update(snapshot, input, rvf::UiOrientation::Portrait, 1);
+  TEST_ASSERT_TRUE(coordinator.viewModel().pairingGuideGr2Selected);
+  TEST_ASSERT_FALSE(coordinator.viewModel().pairingGuideGr4Selected);
+}
+
+void testWifiProvisioningOverridesPairingAndPropagatesPortalDetails() {
+  rvf::UiSnapshot snapshot;
+  snapshot.appState = rvf::AppState::WifiCredentialsReady;
+  snapshot.pairingGuideActive = true;
+  snapshot.wifiProvisioningActive = true;
+  snapshot.provisioningSsid = "GR-II-Setup-1234";
+  snapshot.provisioningPassword = "GR288888";
+  snapshot.provisioningUrl = "http://192.168.4.1";
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiScene::WifiProvisioning),
+                        static_cast<int>(rvf::UiCoordinator::selectScene(
+                            snapshot, rvf::UiOrientation::Landscape)));
+
+  rvf::UiCoordinator coordinator;
+  rvf::ButtonEvents input;
+  coordinator.begin(0);
+  coordinator.update(snapshot, input, rvf::UiOrientation::Landscape, 1);
+  TEST_ASSERT_EQUAL_STRING("GR-II-Setup-1234", coordinator.viewModel().provisioningSsid);
+  TEST_ASSERT_EQUAL_STRING("GR288888", coordinator.viewModel().provisioningPassword);
+  TEST_ASSERT_EQUAL_STRING("http://192.168.4.1", coordinator.viewModel().provisioningUrl);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiOrientation::Portrait),
+                        static_cast<int>(coordinator.viewModel().orientation));
+
+  snapshot.wifiProvisioningPreparing = true;
+  coordinator.update(snapshot, input, rvf::UiOrientation::Portrait, 2);
+  TEST_ASSERT_TRUE(coordinator.viewModel().wifiProvisioningPreparing);
 }
 
 void testPairingGuideUsesBToSelectAndAToConfirm() {
@@ -817,6 +854,16 @@ void testPairingGuideUsesBToSelectAndAToConfirm() {
   TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::PairingGuideAction::SelectionChanged),
                         static_cast<int>(guide.handle(select)));
   TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohProtocolGeneration::Gr4Family),
+                        static_cast<int>(guide.selection()));
+
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::PairingGuideAction::SelectionChanged),
+                        static_cast<int>(guide.handle(select)));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohProtocolGeneration::Gr2Family),
+                        static_cast<int>(guide.selection()));
+
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::PairingGuideAction::SelectionChanged),
+                        static_cast<int>(guide.handle(select)));
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohProtocolGeneration::Gr3Family),
                         static_cast<int>(guide.selection()));
 
   rvf::ButtonEvents confirm;
@@ -937,13 +984,19 @@ void testAnimationElapsedIsMillisWrapSafe() {
 }
 
 void testButtonBReportsContinuousProgress() {
-  rvf::ButtonInput input(3000);
+  rvf::ButtonInput input(3000, 350, 450);
   input.reset();
-  input.update(false, true, false, 100);
+  const rvf::ButtonEvents pressed = input.update(false, true, false, 100);
+  TEST_ASSERT_FALSE(pressed.resetHoldActive);
+  const rvf::ButtonEvents beforeDelay = input.update(false, true, false, 549);
+  TEST_ASSERT_FALSE(beforeDelay.resetHoldActive);
+  const rvf::ButtonEvents atDelay = input.update(false, true, false, 550);
+  TEST_ASSERT_TRUE(atDelay.resetHoldActive);
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, atDelay.resetHoldProgress);
   const rvf::ButtonEvents halfway = input.update(false, true, false, 1600);
   TEST_ASSERT_TRUE(halfway.resetHoldActive);
   TEST_ASSERT_EQUAL_UINT32(1500, halfway.resetHoldMs);
-  TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.5f, halfway.resetHoldProgress);
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 1050.0f / 2550.0f, halfway.resetHoldProgress);
   TEST_ASSERT_FALSE(halfway.resetPairing);
 }
 
@@ -964,12 +1017,14 @@ void testButtonBSingleClickTogglesMirrorAfterDoubleClickWindow() {
 
 void testButtonBDoubleClickTogglesLiveViewLockWithoutMirror() {
   rvf::ButtonInput input(3000, 350);
-  input.update(false, true, false, 100);
+  const rvf::ButtonEvents firstPress = input.update(false, true, false, 100);
+  TEST_ASSERT_FALSE(firstPress.resetHoldActive);
   const rvf::ButtonEvents firstRelease = input.update(false, false, false, 160);
   TEST_ASSERT_FALSE(firstRelease.toggleDisplayMirror);
   TEST_ASSERT_FALSE(firstRelease.toggleLiveViewLock);
 
-  input.update(false, true, false, 260);
+  const rvf::ButtonEvents secondPress = input.update(false, true, false, 260);
+  TEST_ASSERT_FALSE(secondPress.resetHoldActive);
   const rvf::ButtonEvents secondRelease = input.update(false, false, false, 320);
   TEST_ASSERT_TRUE(secondRelease.buttonBDoubleClicked);
   TEST_ASSERT_FALSE(secondRelease.buttonBClicked);
@@ -1228,6 +1283,9 @@ void testUnknownAndGr2ProfilesBlockBleSideEffects() {
                         static_cast<int>(gr2.wifiActivationMethod));
   TEST_ASSERT_EQUAL_INT(static_cast<int>(WifiCredentialMethod::ManualConfiguration),
                         static_cast<int>(gr2.wifiCredentialMethod));
+  TEST_ASSERT_FALSE(gr2.capabilities.hasBle);
+  TEST_ASSERT_TRUE(gr2.capabilities.supportsHttpLiveView);
+  TEST_ASSERT_TRUE(gr2.capabilities.supportsHttpShutter);
   TEST_ASSERT_FALSE(protocolAllowsBleSideEffect(gr2, BleSideEffect::WifiActivation));
   TEST_ASSERT_FALSE(protocolAllowsBleSideEffect(gr2, BleSideEffect::WifiDeactivation));
 }
@@ -1266,10 +1324,122 @@ void testHttpShutterIsOnlyClaimedWhereItWasVerified() {
                        .capabilities.supportsHttpShutter);
   TEST_ASSERT_FALSE(cameraProtocolProfile(RicohProtocolGeneration::Gr4Family)
                         .capabilities.supportsHttpShutter);
-  TEST_ASSERT_FALSE(cameraProtocolProfile(RicohProtocolGeneration::Gr2Family)
-                        .capabilities.supportsHttpShutter);
+  // GR II's official GR Remote uses the camera/shoot HTTP endpoint family.
+  TEST_ASSERT_TRUE(cameraProtocolProfile(RicohProtocolGeneration::Gr2Family)
+                       .capabilities.supportsHttpShutter);
   TEST_ASSERT_FALSE(cameraProtocolProfile(RicohProtocolGeneration::Unknown)
                         .capabilities.supportsHttpShutter);
+}
+
+void testGr2ShutterUsesOfficialRemotePaths() {
+  TEST_ASSERT_EQUAL_STRING("/v1/camera/shoot?af=camera", GR2_SHUTTER_ONESHOT_PATH);
+  TEST_ASSERT_EQUAL_STRING("/v1/camera/shoot/start?af=camera", GR2_SHUTTER_START_PATH);
+  TEST_ASSERT_EQUAL_STRING("/v1/camera/shoot/finish", GR2_SHUTTER_FINISH_PATH);
+}
+
+void testGr2ShutterResponseSelectsOneShotOrFallback() {
+  Gr2InitialShutterDecision decision =
+      evaluateGr2InitialShutterResponse("{\"errMsg\":\"OK\"}");
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(Gr2InitialShutterAction::Complete),
+                        static_cast<int>(decision.action));
+  TEST_ASSERT_TRUE(decision.errorMessage.empty());
+
+  decision = evaluateGr2InitialShutterResponse("{\"errMsg\":\"Precondition Failed\"}");
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(Gr2InitialShutterAction::PressAndRelease),
+                        static_cast<int>(decision.action));
+  TEST_ASSERT_TRUE(decision.errorMessage.empty());
+
+  // Legacy firmware may complete with an empty response body.
+  decision = evaluateGr2InitialShutterResponse("");
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(Gr2InitialShutterAction::Complete),
+                        static_cast<int>(decision.action));
+}
+
+void testGr2ShutterResponseRejectsCameraErrors() {
+  const Gr2InitialShutterDecision decision =
+      evaluateGr2InitialShutterResponse("{ \"errMsg\" : \"Camera Busy\" }");
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(Gr2InitialShutterAction::Fail),
+                        static_cast<int>(decision.action));
+  TEST_ASSERT_EQUAL_STRING("GR II shoot failed: Camera Busy", decision.errorMessage.c_str());
+
+  std::string phaseError;
+  TEST_ASSERT_TRUE(gr2ShutterPhaseSucceeded("{\"errMsg\":\"OK\"}", "start", phaseError));
+  TEST_ASSERT_TRUE(phaseError.empty());
+  TEST_ASSERT_TRUE(gr2ShutterPhaseSucceeded("", "finish", phaseError));
+  TEST_ASSERT_FALSE(gr2ShutterPhaseSucceeded(
+      "{\"errMsg\":\"Invalid State\"}", "finish", phaseError));
+  TEST_ASSERT_EQUAL_STRING("GR II shoot finish failed: Invalid State", phaseError.c_str());
+}
+
+void testGr2ProvisioningFormValidationAndManualOverride() {
+  Gr2ProvisioningValidation validation = validateGr2ProvisioningForm(
+      {"RICOH_SELECTED", "", "12345678", "GR-II-Setup-1234"});
+  TEST_ASSERT_TRUE(validation.valid);
+  TEST_ASSERT_EQUAL_STRING("RICOH_SELECTED", validation.ssid.c_str());
+  TEST_ASSERT_EQUAL_STRING("12345678", validation.passphrase.c_str());
+
+  validation = validateGr2ProvisioningForm(
+      {"RICOH_SELECTED", "  RICOH_MANUAL  ", "", "GR-II-Setup-1234"});
+  TEST_ASSERT_TRUE(validation.valid);
+  TEST_ASSERT_EQUAL_STRING("RICOH_MANUAL", validation.ssid.c_str());
+  TEST_ASSERT_TRUE(validation.passphrase.empty());
+
+  TEST_ASSERT_FALSE(validateGr2ProvisioningForm(
+      {"", "", "12345678", "GR-II-Setup-1234"}).valid);
+  TEST_ASSERT_FALSE(validateGr2ProvisioningForm(
+      {"GR-II-Setup-1234", "", "12345678", "GR-II-Setup-1234"}).valid);
+  TEST_ASSERT_FALSE(validateGr2ProvisioningForm(
+      {"RICOH_CAMERA", "", "1234567", "GR-II-Setup-1234"}).valid);
+  TEST_ASSERT_FALSE(validateGr2ProvisioningForm(
+      {"RICOH_CAMERA", "", std::string(64, 'x'), "GR-II-Setup-1234"}).valid);
+  TEST_ASSERT_TRUE(validateGr2ProvisioningForm(
+      {std::string(32, 'S'), "", std::string(63, 'x'), "GR-II-Setup-1234"}).valid);
+  TEST_ASSERT_FALSE(validateGr2ProvisioningForm(
+      {std::string(33, 'S'), "", "12345678", "GR-II-Setup-1234"}).valid);
+}
+
+void testGr2ScanCacheRendersRicohFirstAndEscapesHtml() {
+  const Gr2NetworkOptions options = renderGr2NetworkOptions(
+      {{"Cafe&Guest", -50},
+       {"GR-II-Setup-1234", -10},
+       {"RICOH_<123>'\"", -40},
+       {"", -20}},
+      "GR-II-Setup-1234",
+      true);
+
+  TEST_ASSERT_TRUE(options.ricohFound);
+  TEST_ASSERT_EQUAL_UINT32(2, options.optionCount);
+  const size_t ricohPosition = options.html.find("★ RICOH_&lt;123&gt;&#39;&quot;");
+  const size_t cafePosition = options.html.find("Cafe&amp;Guest");
+  TEST_ASSERT_NOT_EQUAL(std::string::npos, ricohPosition);
+  TEST_ASSERT_NOT_EQUAL(std::string::npos, cafePosition);
+  TEST_ASSERT_TRUE(ricohPosition < cafePosition);
+  TEST_ASSERT_EQUAL(std::string::npos, options.html.find("GR-II-Setup-1234"));
+}
+
+void testGr2ScanCacheShowsEmptyAndNonRicohWarnings() {
+  Gr2NetworkOptions options = renderGr2NetworkOptions({}, "GR-II-Setup-1234", false);
+  TEST_ASSERT_FALSE(options.ricohFound);
+  TEST_ASSERT_EQUAL_UINT32(0, options.optionCount);
+  TEST_ASSERT_NOT_EQUAL(std::string::npos, options.html.find("未找到网络"));
+
+  options = renderGr2NetworkOptions({{"Guest", -65}}, "GR-II-Setup-1234", true);
+  TEST_ASSERT_FALSE(options.ricohFound);
+  TEST_ASSERT_EQUAL_UINT32(1, options.optionCount);
+  TEST_ASSERT_NOT_EQUAL(std::string::npos, options.html.find("未识别到 RICOH_ 热点"));
+}
+
+void testGr2CredentialHandoffWaitsForResponseFlushAndHandlesMillisWrap() {
+  TEST_ASSERT_FALSE(gr2CredentialsReadyForHandoff(false, true, 1000, 2200, 1200));
+  TEST_ASSERT_FALSE(gr2CredentialsReadyForHandoff(true, false, 1000, 2200, 1200));
+  TEST_ASSERT_FALSE(gr2CredentialsReadyForHandoff(true, true, 1000, 2199, 1200));
+  TEST_ASSERT_TRUE(gr2CredentialsReadyForHandoff(true, true, 1000, 2200, 1200));
+
+  constexpr uint32_t submittedAt = 0xFFFFFF00U;
+  TEST_ASSERT_FALSE(gr2CredentialsReadyForHandoff(
+      true, true, submittedAt, 0x00000300U, 1100));
+  TEST_ASSERT_TRUE(gr2CredentialsReadyForHandoff(
+      true, true, submittedAt, 0x00000350U, 1100));
 }
 
 void testBlePreviewParkingIsDisabledForGr3AndGr4() {
@@ -1490,6 +1660,13 @@ int main() {
   RUN_TEST(testGr3AndGr4AllowProfileScopedWifiDeactivation);
   RUN_TEST(testOperationModeSafetyIsGenerationSpecific);
   RUN_TEST(testHttpShutterIsOnlyClaimedWhereItWasVerified);
+  RUN_TEST(testGr2ShutterUsesOfficialRemotePaths);
+  RUN_TEST(testGr2ShutterResponseSelectsOneShotOrFallback);
+  RUN_TEST(testGr2ShutterResponseRejectsCameraErrors);
+  RUN_TEST(testGr2ProvisioningFormValidationAndManualOverride);
+  RUN_TEST(testGr2ScanCacheRendersRicohFirstAndEscapesHtml);
+  RUN_TEST(testGr2ScanCacheShowsEmptyAndNonRicohWarnings);
+  RUN_TEST(testGr2CredentialHandoffWaitsForResponseFlushAndHandlesMillisWrap);
   RUN_TEST(testBlePreviewParkingIsDisabledForGr3AndGr4);
   RUN_TEST(testGr3CredentialShapeAllowsOptionalChannel);
   RUN_TEST(testOldGr4ProfileMetadataMigratesWithoutRepairing);
@@ -1531,6 +1708,7 @@ int main() {
   RUN_TEST(testConnectingDotsOnlyMergeAfterBleConnects);
   RUN_TEST(testUiScenePriority);
   RUN_TEST(testPairingGuideOverridesConnectionScene);
+  RUN_TEST(testWifiProvisioningOverridesPairingAndPropagatesPortalDetails);
   RUN_TEST(testPairingGuideUsesBToSelectAndAToConfirm);
   RUN_TEST(testPairingGuideConsumesLongBWithoutResettingOrSelecting);
   RUN_TEST(testPairingSelectionRejectsTheOtherProtocolGeneration);

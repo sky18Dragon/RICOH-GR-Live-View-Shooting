@@ -24,7 +24,12 @@ struct UiViewModel {
     bool shutterFailed = false;
     bool resetSplitActive = false;
     bool bleConnected = false;
+    bool pairingGuideGr2Selected = false;
     bool pairingGuideGr4Selected = false;
+    bool wifiProvisioningPreparing = false;
+    const char* provisioningSsid = nullptr;
+    const char* provisioningPassword = nullptr;
+    const char* provisioningUrl = nullptr;
     bool shouldRenderLivePreview = false;
     bool hasFrame = false;
     int8_t deviceBatteryPercent = -1;

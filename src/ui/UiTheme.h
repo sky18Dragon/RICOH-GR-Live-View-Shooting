@@ -57,6 +57,7 @@ constexpr uint8_t kResetProgressWidthPct = 80;
 constexpr uint16_t kResetProgressHeight = 4;
 constexpr uint16_t kResetProgressBottom = 20;
 constexpr uint32_t kResetHoldMs = 3000;
+constexpr uint32_t kResetHoldVisualDelayMs = 450;
 constexpr uint32_t kResetSplitMs = 300;
 constexpr int16_t kResetSplitDistance = 30;
 constexpr uint32_t kButtonBDoubleClickMs = 350;
