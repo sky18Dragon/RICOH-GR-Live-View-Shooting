@@ -30,9 +30,11 @@ struct ButtonEvents {
 class ButtonInput {
 public:
     explicit ButtonInput(uint32_t resetHoldThresholdMs = UiTheme::kResetHoldMs,
-                         uint32_t doubleClickWindowMs = UiTheme::kButtonBDoubleClickMs)
+                         uint32_t doubleClickWindowMs = UiTheme::kButtonBDoubleClickMs,
+                         uint32_t resetHoldVisualDelayMs = UiTheme::kResetHoldVisualDelayMs)
         : _resetHoldThresholdMs(resetHoldThresholdMs),
-          _doubleClickWindowMs(doubleClickWindowMs) {}
+          _doubleClickWindowMs(doubleClickWindowMs),
+          _resetHoldVisualDelayMs(resetHoldVisualDelayMs) {}
 
     void reset();
     ButtonEvents update(bool buttonADown,
@@ -45,6 +47,7 @@ public:
 private:
     uint32_t _resetHoldThresholdMs = UiTheme::kResetHoldMs;
     uint32_t _doubleClickWindowMs = UiTheme::kButtonBDoubleClickMs;
+    uint32_t _resetHoldVisualDelayMs = UiTheme::kResetHoldVisualDelayMs;
     bool _buttonAWasDown = false;
     bool _buttonBWasDown = false;
     bool _resetReported = false;

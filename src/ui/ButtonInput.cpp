@@ -53,13 +53,17 @@ ButtonEvents ButtonInput::update(bool buttonADown,
         }
     }
     if (buttonBDown) {
-        events.resetHoldActive = true;
         events.resetHoldMs = uiElapsedMs(nowMs, _buttonBPressedAtMs);
-        if (_resetHoldThresholdMs == 0) {
+        const uint32_t visualDelayMs = _resetHoldVisualDelayMs < _resetHoldThresholdMs
+                                           ? _resetHoldVisualDelayMs
+                                           : _resetHoldThresholdMs;
+        events.resetHoldActive = events.resetHoldMs >= visualDelayMs;
+        if (events.resetHoldActive && _resetHoldThresholdMs <= visualDelayMs) {
             events.resetHoldProgress = 1.0f;
-        } else {
+        } else if (events.resetHoldActive) {
             events.resetHoldProgress = uiClamp01(
-                static_cast<float>(events.resetHoldMs) / static_cast<float>(_resetHoldThresholdMs));
+                static_cast<float>(events.resetHoldMs - visualDelayMs) /
+                static_cast<float>(_resetHoldThresholdMs - visualDelayMs));
         }
         if (!_resetReported && events.resetHoldMs >= _resetHoldThresholdMs) {
             _resetReported = true;

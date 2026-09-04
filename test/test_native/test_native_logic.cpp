@@ -984,13 +984,19 @@ void testAnimationElapsedIsMillisWrapSafe() {
 }
 
 void testButtonBReportsContinuousProgress() {
-  rvf::ButtonInput input(3000);
+  rvf::ButtonInput input(3000, 350, 450);
   input.reset();
-  input.update(false, true, false, 100);
+  const rvf::ButtonEvents pressed = input.update(false, true, false, 100);
+  TEST_ASSERT_FALSE(pressed.resetHoldActive);
+  const rvf::ButtonEvents beforeDelay = input.update(false, true, false, 549);
+  TEST_ASSERT_FALSE(beforeDelay.resetHoldActive);
+  const rvf::ButtonEvents atDelay = input.update(false, true, false, 550);
+  TEST_ASSERT_TRUE(atDelay.resetHoldActive);
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, atDelay.resetHoldProgress);
   const rvf::ButtonEvents halfway = input.update(false, true, false, 1600);
   TEST_ASSERT_TRUE(halfway.resetHoldActive);
   TEST_ASSERT_EQUAL_UINT32(1500, halfway.resetHoldMs);
-  TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.5f, halfway.resetHoldProgress);
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 1050.0f / 2550.0f, halfway.resetHoldProgress);
   TEST_ASSERT_FALSE(halfway.resetPairing);
 }
 
@@ -1011,12 +1017,14 @@ void testButtonBSingleClickTogglesMirrorAfterDoubleClickWindow() {
 
 void testButtonBDoubleClickTogglesLiveViewLockWithoutMirror() {
   rvf::ButtonInput input(3000, 350);
-  input.update(false, true, false, 100);
+  const rvf::ButtonEvents firstPress = input.update(false, true, false, 100);
+  TEST_ASSERT_FALSE(firstPress.resetHoldActive);
   const rvf::ButtonEvents firstRelease = input.update(false, false, false, 160);
   TEST_ASSERT_FALSE(firstRelease.toggleDisplayMirror);
   TEST_ASSERT_FALSE(firstRelease.toggleLiveViewLock);
 
-  input.update(false, true, false, 260);
+  const rvf::ButtonEvents secondPress = input.update(false, true, false, 260);
+  TEST_ASSERT_FALSE(secondPress.resetHoldActive);
   const rvf::ButtonEvents secondRelease = input.update(false, false, false, 320);
   TEST_ASSERT_TRUE(secondRelease.buttonBDoubleClicked);
   TEST_ASSERT_FALSE(secondRelease.buttonBClicked);
