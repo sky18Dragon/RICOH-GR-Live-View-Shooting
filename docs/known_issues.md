@@ -5,7 +5,7 @@
 1. **GR IIIx 已在本分支固件上实机验证，GR III 与 HDF 版本仍需独立验证**：设备端 Passkey、UUID WLAN、凭据、Capture 门控、Bond 自愈已经实现并通过 Native/编译验证；GR IIIx 详细矩阵与去密日志待补充，GR III/GR III HDF/GR IIIx HDF 不应仅凭 GR IIIx 结果升级为已验证。
 2. **GR IV 本次回归尚未执行**：原项目已在 GR IV 与 GR IV HDF 验证完整链路；本次把共享 SMP IO Capability 改为 `KEYBOARD_DISPLAY`，因此首次配对、旧 Bond 重连、清 Bond 重配等必须复测，不能用历史结果替代。
 3. **GR III HDF / GR IIIx HDF 只有实验性支持**：没有独立实机 GATT 证据，不能仅按产品名称假设与非 HDF 版本相同。
-4. **GR II 已实现但尚未实机验证**：实现依据官方 GR Remote 1.2.1 的 Wi-Fi-only HTTP 行为，不包含任何虚构 BLE UUID/Handle；仍需在不同 GR II 固件上验证 LiveView、单次 AF 快门与 `Precondition Failed` fallback。
+4. **GR II 已完成实机验证**：Wi-Fi-only 配网、相机 AP 连接、LiveView 与 HTTP 快门链路已在真实相机上验证通过；实现不依赖 BLE，也不包含虚构的 BLE UUID/Handle。
 
 ## 运行行为与待调优点
 
@@ -33,6 +33,6 @@
 - `0x213` / `0x215` / `0x216` 在不同代际和固件上的精确定义。
 - GR III `PLAYBACK` / `OTHER` 是否可安全开 WLAN；当前一律拒绝。
 - 相机端删除配对后，各代际是否都能按当前阈值自动清除旧 Bond 并重新配对。
-- GR II 固件版本、稳定 FPS、MJPEG 响应格式与 `shoot/start` + `shoot/finish` fallback 实机结果。
+- GR II 已确认支持可用；实机记录仍需补充相机固件版本、稳定 FPS、MJPEG 响应格式，以及是否实际进入过 `shoot/start` + `shoot/finish` fallback。
 
 实机问题先按 `logs/issue_template.md` 保存机型、相机固件、StickS3 commit 和去密后的关键日志；不得把单一机型结果扩展为其他机型或 HDF 版本的“已实机验证”。

@@ -27,7 +27,7 @@ GR III/IV 使用 BLE 完成机型识别、配对、WLAN 控制与快门，GR II 
 | RICOH GR III HDF / GR IIIx HDF | 实验性支持 | 暂按 GR III Family 处理，缺少独立实机证据 |
 | RICOH GR IV | 已实机验证 | GR IV Legacy 固定 Handle 协议 |
 | RICOH GR IV HDF | 已实机验证 | 与 GR IV 使用同一代协议 |
-| RICOH GR II | 已实现，等待实机验证 | 无蓝牙；手动开启 Wi-Fi，使用官方 GR Remote HTTP 接口 |
+| RICOH GR II | 已实机验证 | 无蓝牙；手动开启 Wi-Fi，使用官方 GR Remote HTTP 接口 |
 
 详细的证据范围和安全约束参见 [项目架构](docs/project_overview.md)、[BLE 协议说明](docs/ricoh_ble_protocol.md) 和 [已知问题](docs/known_issues.md)。
 
@@ -97,6 +97,8 @@ pio device monitor -b 115200
 ## 首次连接
 
 ### GR II（无蓝牙）
+
+GR II 支持已在真实相机上验证通过。
 
 1. 在相机上开启 Wi-Fi；GR II 不支持由 StickS3 远程开启 AP。
 2. 在引导中选择 `GR II` 并确认。StickS3 会先扫描相机 Wi-Fi，再显示一个 `GR-II-Setup-xxxx` 配网热点。

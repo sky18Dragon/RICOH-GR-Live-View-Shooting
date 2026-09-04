@@ -39,7 +39,7 @@ flowchart LR
 | --- | --- | --- | --- | --- | --- |
 | `Gr4Family` | Pairing/Bond | `BleFixedHandle` | `BleFixedHandles` | BLE | 是 |
 | `Gr3Family` | Passkey/Bond | `BleNetworkTypeUuid` | `BleUuidCharacteristics` | BLE | 是 |
-| `Gr2Family` | 无 | `ManualOnly` | 手机网页配网并保存 NVS | HTTP（GR Remote 序列） | 是，待实机验证 |
+| `Gr2Family` | 无 | `ManualOnly` | 手机网页配网并保存 NVS | HTTP（GR Remote 序列） | 是，已实机验证 |
 | `Unknown` | 只读识别 | 禁止 | 禁止 | 禁止 | 不进入 |
 
 NVS Profile schema 为 v4。旧 v3 数据继续读取，保留原 BLE 身份、Bond 和有效 Wi-Fi 缓存；由于旧数据没有代际字段，加载后 Profile 为 Unknown，首次安全重连时重新识别，不强迫有效的 GR IV 用户重新配对。
@@ -61,20 +61,20 @@ NVS Profile schema 为 v4。旧 v3 数据继续读取，保留原 BLE 身份、B
 | RICOH GR III | 实现完成，等待实机验证 | 当前分支 Native/编译通过；仍需 GR III 机身独立实测 |
 | RICOH GR IIIx | 已实机验证 | 本分支固件已在 GR IIIx 相机上完成实机验证；详细矩阵与去密日志待补充 |
 | RICOH GR III HDF / GR IIIx HDF | 实验性支持 | 无独立实机证据 |
-| RICOH GR II | 实现完成，等待实机验证 | 依据官方 GR Remote 1.2.1：`192.168.0.1`、`/v1/liveview`、HTTP AF 快门序列 |
+| RICOH GR II | 已实机验证 | Wi-Fi-only 配网、相机 AP 连接、LiveView 与 HTTP 快门链路已在真实相机上验证通过 |
 
 ## 已验证的构建事实
 
 - PlatformIO 默认固件环境：`m5stack-sticks3`；Native 环境：`native`。
 - 目标框架：Arduino / `espressif32@6.12.0`；NimBLE-Arduino `2.5.0`。
-- 当前代码在 2026-09-02 运行 `pio test -e native` 为 86/86，通过 `pio run -e m5stack-sticks3`。
-- 上述结果只证明纯逻辑与编译，不证明 GR II/III/IV 实机链路。
+- 当前代码在 2026-09-04 运行 `pio test -e native` 为 93/93，通过 `pio run -e m5stack-sticks3`。
+- 自动化结果证明纯逻辑与编译；GR II 的支持状态另有真实相机验证确认。
 
 ## TODO_UNVERIFIED
 
 - 当前分支的 GR III 全链路、GR IIIx 详细记录补充，以及 GR IV/IV HDF 回归矩阵。
 - HDF 版本的 GR III Family GATT 一致性。
-- GR II 不同固件版本的 MJPEG boundary、HTTP JSON 响应与 AF 快门 fallback 实机矩阵。
+- GR II 实机验证记录仍需补充相机固件版本、长期 FPS、MJPEG 响应细节与 AF 快门 fallback 分支证据。
 - 长时间 LiveView FPS、内存碎片和多固件版本兼容性。
 
 涉及相机唤醒的改动必须同时阅读 `docs/power_state_policy.md` 和 `docs/ricoh_ble_protocol.md`。

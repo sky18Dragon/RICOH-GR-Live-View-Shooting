@@ -18,6 +18,8 @@ git diff -- AGENTS.md docs logs
 - `camera_identity.cpp`
 - `camera_profile_schema.cpp`
 - `camera_protocol_profile.cpp`
+- `gr2_provisioning_logic.cpp`
+- `gr2_shutter_policy.cpp`
 - `mjpeg_stream.cpp`
 - `ui/ButtonInput.cpp`
 - `ui/OrientationTracker.cpp`
@@ -35,9 +37,10 @@ platformio run -e m5stack-sticks3
 Native 测试必须覆盖：
 
 - GR III/IV/冲突/Unknown 检测、Unknown 副作用拒绝、GR II ManualOnly、GR3/GR4 Security Profile 常量。
+- GR II 官方 HTTP 快门端点、单次响应与 fallback 决策，以及配网表单边界、扫描缓存排序/转义和凭据延迟接管。
 - 地址类型归一化、六位 Passkey 完成/重置/超时、Locked/BondInvalid 单相机策略、安全恢复与 ATT 认证失败计数、普通错误不删 Bond。
 - Operation Mode 安全决策、GR III 可选 Channel 凭据、NVS v3→GR4 Legacy 升级和 v4 往返。
-- 姿态门控状态机、MJPEG/身份/监督器、状态到 UI 场景映射、优先级、姿态稳定/滞回、动画和 `millis()` 溢出、Button A 单次 Shoot、Button B 进度/取消/单次重置，以及快门 overlay 生命周期。
+- 姿态门控状态机、MJPEG/身份/监督器、状态到 UI 场景映射、优先级、姿态稳定/滞回、动画和 `millis()` 溢出、Button A 单次 Shoot、Button B 单击/双击、延迟显示的重置进度/取消/单次重置，以及快门 overlay 生命周期。
 
 `src/ui/NativeBuildMain.cpp` 只在 `RVF_NATIVE_BUILD && !PIO_UNIT_TESTING` 时提供 smoke `main()`，使 `platformio run -e native` 可验证全部纯逻辑对象的独立链接；Unity 测试和 StickS3 固件均不会使用该入口。
 
@@ -61,6 +64,8 @@ platformio device monitor --port COM6 --baud 115200 --filter time
 未经设备所有者确认不要覆盖设备。每次实机运行记录：相机型号、相机固件、StickS3 固件 commit、是否清空 NVS、结果、耗时和去密后的关键日志。使用 `docs/gr3_family_test_record.md` 记录 GR III Family。
 
 ## GR II 实机矩阵
+
+状态：**已通过真实 GR II 相机验证**。以下矩阵继续作为发布回归基线；本次确认未附相机固件版本、逐项日志和性能数据，后续记录时应补齐这些证据。
 
 1. 相机机身手动开启 Wi-Fi，在引导中选择 GR II；期望 StickS3 先在纯 STA 模式扫描并缓存网络，再以纯 AP 模式启动 `GR-II-Setup-xxxx`、显示 `http://192.168.4.1`，无 BLE 扫描/配对日志。
 2. 手机使用密码 `GR288888` 加入配网热点；确认串口出现 `connected phones=1` 且不输出密码，Android/iOS 能立即打开页面；HTTP 请求处理期间不得调用 `scanNetworks`，RICOH 网络应优先显示，缺失时可手动输入 SSID。

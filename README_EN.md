@@ -27,7 +27,7 @@ GR III/IV use BLE for identification, pairing, WLAN control, and shutter. GR II 
 | RICOH GR III HDF / GR IIIx HDF | Experimental | Currently treated as GR III Family; no independent hardware evidence |
 | RICOH GR IV | Hardware verified | GR IV Legacy fixed-handle protocol |
 | RICOH GR IV HDF | Hardware verified | Uses the same generation protocol as the GR IV |
-| RICOH GR II | Implemented; hardware verification pending | No Bluetooth; manually enabled Wi-Fi and official GR Remote HTTP API |
+| RICOH GR II | Hardware verified | No Bluetooth; manually enabled Wi-Fi and official GR Remote HTTP API |
 
 See the [project architecture](docs/project_overview.md), [BLE protocol notes](docs/ricoh_ble_protocol.md), and [known issues](docs/known_issues.md) for evidence boundaries and safety rules.
 
@@ -97,6 +97,8 @@ If automatic port detection fails, append `--upload-port <port>`.
 ## First-time Connection
 
 ### GR II (No Bluetooth)
+
+GR II support has been verified on real camera hardware.
 
 1. Enable Wi-Fi on the camera body; StickS3 cannot turn on the GR II access point remotely.
 2. Select `GR II` in the guide. StickS3 scans for the camera Wi-Fi first, then displays a `GR-II-Setup-xxxx` setup network.

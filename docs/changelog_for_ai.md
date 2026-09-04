@@ -2,6 +2,12 @@
 
 本文件记录对后续 AI/Codex 有帮助的项目级事实变化。代码提交日志仍以 Git 为准。
 
+## 2026-09-04 — GR II 支持完成实机验证
+
+- 用户确认当前 `codex/feat-gr-ii-support` 分支的 RICOH GR II 支持已在真实相机上验证通过。
+- 已验证支持范围包括 Wi-Fi-only 手机配网、连接相机 AP、LiveView 和 HTTP 快门链路；GR II 不使用 BLE。
+- 支持状态升级为“已实机验证”。相机固件版本、长期 FPS、MJPEG 响应细节和是否进入过快门 fallback 分支仍需在正式实机记录中补充，不能据此推断所有 GR II 固件版本均已回归。
+
 ## 2026-07-24 — GR IIIx 本分支固件实机验证
 
 - 用户确认当前 `codex/feat-gr3-family-support` 分支固件已通过 RICOH GR IIIx 相机实机验证。
