@@ -10,13 +10,13 @@
 <h1 align="center">RICOH GR Live View Shooting</h1>
 
 <p align="center">
-  A BLE remote shutter and wireless live-view firmware for RICOH GR cameras, running on the M5Stack StickS3.
+  A remote shutter and wireless live-view firmware for RICOH GR cameras, running on the M5Stack StickS3.
 </p>
 
-The firmware uses BLE for model identification, pairing, reconnect, camera-state reads, WLAN control, autofocus, and capture. Camera Wi-Fi and HTTP MJPEG provide LiveView. In portrait it works as a low-power BLE shutter; in landscape it starts LiveView automatically. Returning to portrait closes LiveView and turns off the camera access point.
+GR III/IV use BLE for identification, pairing, WLAN control, and shutter. GR II follows the official GR Remote design and uses only manually enabled Wi-Fi, HTTP shutter commands, and MJPEG LiveView.
 
 > [!IMPORTANT]
-> Select the correct camera generation in the StickS3 pairing guide before first use. Select **GR III** for the GR III, GR IIIx, and their HDF variants. Select **GR IV** for the GR IV and GR IV HDF.
+> Select the correct camera generation in the StickS3 guide before first use. Select **GR II** for GR II, **GR III** for the GR III/IIIx families, and **GR IV** for the GR IV family.
 
 ## Support Status
 
@@ -27,13 +27,13 @@ The firmware uses BLE for model identification, pairing, reconnect, camera-state
 | RICOH GR III HDF / GR IIIx HDF | Experimental | Currently treated as GR III Family; no independent hardware evidence |
 | RICOH GR IV | Hardware verified | GR IV Legacy fixed-handle protocol |
 | RICOH GR IV HDF | Hardware verified | Uses the same generation protocol as the GR IV |
-| RICOH GR II | Not supported | Capability placeholder only; no usable transport implementation |
+| RICOH GR II | Implemented; hardware verification pending | No Bluetooth; manually enabled Wi-Fi and official GR Remote HTTP API |
 
 See the [project architecture](docs/project_overview.md), [BLE protocol notes](docs/ricoh_ble_protocol.md), and [known issues](docs/known_issues.md) for evidence boundaries and safety rules.
 
 ## Features
 
-- First-time model guide with isolated security parameters and communication paths for GR III Family and GR IV Family.
+- First-time model guide with an isolated GR II Wi-Fi-only path and GR III/IV BLE paths.
 - Persistent camera BLE identity, bond, protocol profile, and Wi-Fi parameters, with direct-address reconnect on later boots.
 - One Button A press sends one autofocus-and-capture operation; the GR III no longer needs a second press.
 - Portrait keeps BLE shutter control available and turns the camera AP off; landscape re-enables the AP, joins Wi-Fi, and starts LiveView.
@@ -67,7 +67,10 @@ No programming tools or source-code download are required. Prepare a StickS3, a 
 4. Open the firmware details and click the Burn button shown on the page.
 5. Connect the StickS3 with a USB-C data cable. When the browser requests serial permission, select the corresponding **USB JTAG/serial debug unit** or StickS3 serial port and allow access.
 6. Follow the on-screen instructions to start flashing. Do not unplug the cable or close the page until M5Burner reports success and the StickS3 restarts.
-7. On first boot, select the camera generation: Button B selects GR III/GR IV, and Button A confirms.
+7. On first boot, select the camera generation: Button B selects GR II/GR III/GR IV, and Button A confirms.
+
+> [!NOTE]
+> GR II credentials are unique to each camera. The firmware does not embed them; selecting GR II starts a phone-based setup portal on StickS3.
 
 ![Search for and select the RICOH GR Live View firmware in M5Burner](docs/images/M5Burner_Search_GR.png)
 
@@ -79,6 +82,8 @@ No programming tools or source-code download are required. Prepare a StickS3, a 
 
 ### Build from Source
 
+No GR II Wi-Fi configuration file is required. Build and upload normally:
+
 ```bash
 # Build and upload to StickS3
 pio run -e m5stack-sticks3 -t upload
@@ -89,11 +94,24 @@ pio device monitor -b 115200
 
 If automatic port detection fails, append `--upload-port <port>`.
 
-## First-time Pairing
+## First-time Connection
+
+### GR II (No Bluetooth)
+
+1. Enable Wi-Fi on the camera body; StickS3 cannot turn on the GR II access point remotely.
+2. Select `GR II` in the guide. StickS3 scans for the camera Wi-Fi first, then displays a `GR-II-Setup-xxxx` setup network.
+3. Join that network from a phone using password `GR288888`, then open `http://192.168.4.1`.
+4. Select the camera's `RICOH_*` network, enter the Wi-Fi password shown by the camera, and submit. If the camera is missing from the list, enter its SSID manually.
+5. StickS3 saves the credentials to NVS, closes the setup network, and joins the camera without any BLE scan or pairing. Hold Button B to clear the profile and configure it again.
+6. Following the [official GR Remote](https://www.ricoh-imaging.co.jp/english/products/gr_remote/index.html), LiveView uses `/v1/liveview`. Button A uses `/v1/camera/shoot?af=camera`, with the official `shoot/start` + `shoot/finish` fallback.
+
+GR II keeps its HTTP stream alive in portrait so the Wi-Fi shutter remains available, while skipping JPEG decode and drawing. The firmware never sends the official `/v1/device/finish` command during handoff because that command powers the camera off.
+
+### GR III / GR IV Pairing
 
 1. Turn on the camera and open its Bluetooth pairing screen.
 2. With no saved camera, the StickS3 opens the model-selection guide.
-3. Press **Button B** to switch between `GR III` and `GR IV`; press **Button A** to confirm.
+3. Press **Button B** to switch among `GR II`, `GR III`, and `GR IV`; press **Button A** to confirm.
 4. The firmware scans for and accepts only a camera matching the selected generation. A generation mismatch cannot perform WLAN, power, or shutter writes.
 5. After pairing, camera identity, protocol profile, bond, and usable Wi-Fi parameters are stored in NVS.
 
@@ -118,7 +136,7 @@ GR IV Family retains its Legacy security configuration and fixed passkey `123456
 | Button | Context | Action |
 | :--- | :--- | :--- |
 | Button A | Pairing guide | Confirm the selected camera generation |
-| Button B | Pairing guide | Switch between GR III and GR IV |
+| Button B | Pairing guide | Switch among GR II, GR III, and GR IV |
 | Button A | Camera ready | Trigger one AF + shutter command on press; holding does not repeat it |
 | Button A | Camera sleep guard | Request one safe manual reconnect without taking a picture |
 | Button B single-click | Normal UI | Toggle and persist LiveView image mirroring |
@@ -165,8 +183,15 @@ GR III and GR IIIx are one `GR3_FAMILY` in the current implementation and do not
 flowchart TD
     A[StickS3 starts] --> B{Saved camera?}
     B -->|No| C[Model guide: B selects / A confirms]
-    B -->|Yes| D[Fast reconnect by saved BLE identity]
-    C --> E[Scan, identify protocol, and pair securely]
+    B -->|Yes| Q{GR II?}
+    C --> Q
+    Q -->|Yes| P{GR II WLAN saved?}
+    P -->|No| S[Phone joins StickS3 setup AP and submits credentials]
+    P -->|Yes| R[Join the manually enabled GR II AP]
+    S --> R
+    Q -->|No, saved| D[Fast reconnect by saved BLE identity]
+    Q -->|No, first use| E[Scan, identify protocol, and pair securely]
+    R --> M[Start HTTP MJPEG LiveView]
     D --> F[Read Power / Operation Mode]
     E --> F
     F --> G{Camera state allows WLAN?}
@@ -175,7 +200,7 @@ flowchart TD
     I --> J{Landscape or LiveView Lock?}
     J -->|No| K[Camera AP off / BLE shutter ready]
     J -->|Yes| L[Enable AP and join camera Wi-Fi]
-    L --> M[Start HTTP MJPEG LiveView]
+    L --> M
     M -->|Portrait and unlocked| N[HTTP Finish / Wi-Fi disconnect / BLE WLAN OFF]
     N --> K
     K -->|Landscape| L
@@ -193,10 +218,10 @@ pio run -e m5stack-sticks3
 
 Current commit baseline:
 
-- Native: 85 / 85 passed.
+- Native: 86 / 86 passed.
 - StickS3: release build succeeded.
-- RAM: 65,468 / 327,680 bytes (20.0%).
-- Flash: 1,401,749 / 3,342,336 bytes (41.9%).
+- RAM: 66,444 / 327,680 bytes (20.3%).
+- Flash: 1,455,789 / 3,342,336 bytes (43.6%).
 
 Automated coverage includes protocol detection, security profiles, pairing recovery, NVS migration, orientation transitions, button isolation, AP lifecycle, BLE shutter behavior, MJPEG parsing, UI, and runtime watchdogs. Automated tests do not replace hardware regression across camera bodies and firmware versions.
 

@@ -37,6 +37,7 @@ private:
     void clear(uint16_t color = 0x0000);
     void drawBoot(const rvf::UiViewModel& view);
     void drawPairingGuide(const rvf::UiViewModel& view);
+    void drawWifiProvisioning(const rvf::UiViewModel& view);
     void drawConnecting(const rvf::UiViewModel& view);
     void drawRemote(const rvf::UiViewModel& view);
     void drawReset(const rvf::UiViewModel& view);

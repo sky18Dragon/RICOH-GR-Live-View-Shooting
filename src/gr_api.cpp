@@ -1,11 +1,13 @@
 #include "gr_api.h"
 
 #include "config.h"
+#include "gr2_shutter_policy.h"
 
 namespace {
 constexpr uint32_t kDefaultConnectTimeoutMs = 5000;
 constexpr uint32_t kHeaderMaxBytes = 2048;
 constexpr uint32_t kPropsBodyMaxBytes = 16 * 1024;
+constexpr uint32_t kCommandBodyMaxBytes = 4096;
 
 String lowerCopy(String value) {
   value.toLowerCase();
@@ -185,6 +187,120 @@ bool GrApi::shoot(uint32_t timeoutMs) {
     return false;
   }
 
+  _lastError = "";
+  return true;
+}
+
+bool GrApi::shootGr2(uint32_t timeoutMs) {
+  String body;
+  if (!postGr2Command(GR2_SHUTTER_ONESHOT_PATH, timeoutMs, body)) {
+    return false;
+  }
+
+  // GR Remote treats errMsg=OK as the completed one-shot path. Some GR II
+  // states instead return HTTP 200 with "Precondition Failed" in the JSON and
+  // require the explicit press/release pair used by older firmware.
+  const Gr2InitialShutterDecision decision = evaluateGr2InitialShutterResponse(body.c_str());
+  if (decision.action == Gr2InitialShutterAction::Complete) {
+    _lastError = "";
+    return true;
+  }
+  if (decision.action == Gr2InitialShutterAction::Fail) {
+    setError(decision.errorMessage.c_str());
+    return false;
+  }
+
+  if (!postGr2Command(GR2_SHUTTER_START_PATH, timeoutMs, body)) {
+    return false;
+  }
+  std::string phaseError;
+  if (!gr2ShutterPhaseSucceeded(body.c_str(), "start", phaseError)) {
+    setError(phaseError.c_str());
+    return false;
+  }
+  delay(80);
+  if (!postGr2Command(GR2_SHUTTER_FINISH_PATH, timeoutMs, body)) {
+    return false;
+  }
+  if (!gr2ShutterPhaseSucceeded(body.c_str(), "finish", phaseError)) {
+    setError(phaseError.c_str());
+    return false;
+  }
+
+  _lastError = "";
+  return true;
+}
+
+bool GrApi::postGr2Command(const char* path, uint32_t timeoutMs, String& responseBody) {
+  responseBody = "";
+  if (path == nullptr || path[0] != '/') {
+    setError("Invalid GR II command path");
+    return false;
+  }
+
+  WiFiClient client;
+  if (!connectClient(client, timeoutMs)) {
+    return false;
+  }
+
+  const String host = _host.length() ? _host : String(GR_HOST);
+  client.print(String("POST ") + path + " HTTP/1.1\r\nHost: " + host +
+               "\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+
+  String headers;
+  if (!readHttpHeaders(client, timeoutMs, headers)) {
+    client.stop();
+    setError(String("Timed out reading ") + path + " response");
+    return false;
+  }
+
+  const int status = parseHttpStatus(headers);
+  if (status < 200 || status >= 300) {
+    client.stop();
+    setError(String("POST ") + path + " HTTP " + status);
+    return false;
+  }
+
+  const int contentLength = parseContentLength(headers);
+  if (contentLength > static_cast<int>(kCommandBodyMaxBytes)) {
+    client.stop();
+    setError(String("POST ") + path + " response too large");
+    return false;
+  }
+  if (contentLength == 0) {
+    client.stop();
+    _lastError = "";
+    return true;
+  }
+  if (contentLength > 0) {
+    responseBody.reserve(contentLength + 1);
+  }
+
+  const uint32_t startedAt = millis();
+  while (client.connected() || client.available()) {
+    while (client.available()) {
+      responseBody += static_cast<char>(client.read());
+      if (responseBody.length() > kCommandBodyMaxBytes) {
+        client.stop();
+        setError(String("POST ") + path + " response too large");
+        return false;
+      }
+      if (contentLength >= 0 && responseBody.length() >= contentLength) {
+        client.stop();
+        _lastError = "";
+        return true;
+      }
+    }
+    if (millis() - startedAt > timeoutMs) {
+      client.stop();
+      setError(String("Timed out reading ") + path + " body");
+      return false;
+    }
+    yield();
+    delay(1);
+  }
+
+  client.stop();
   _lastError = "";
   return true;
 }

@@ -60,6 +60,19 @@ platformio device monitor --port COM6 --baud 115200 --filter time
 
 未经设备所有者确认不要覆盖设备。每次实机运行记录：相机型号、相机固件、StickS3 固件 commit、是否清空 NVS、结果、耗时和去密后的关键日志。使用 `docs/gr3_family_test_record.md` 记录 GR III Family。
 
+## GR II 实机矩阵
+
+1. 相机机身手动开启 Wi-Fi，在引导中选择 GR II；期望 StickS3 先在纯 STA 模式扫描并缓存网络，再以纯 AP 模式启动 `GR-II-Setup-xxxx`、显示 `http://192.168.4.1`，无 BLE 扫描/配对日志。
+2. 手机使用密码 `GR288888` 加入配网热点；确认串口出现 `connected phones=1` 且不输出密码，Android/iOS 能立即打开页面；HTTP 请求处理期间不得调用 `scanNetworks`，RICOH 网络应优先显示，缺失时可手动输入 SSID。
+3. 提交后确认 HTTP 成功页有机会完成加载，随后配网热点关闭、手机断开；凭据写入 NVS，StickS3 连接 `RICOH_*` AP，串口不输出密码。
+4. 请求 `GET /v1/liveview`；记录 HTTP 状态、MJPEG boundary、分辨率、稳定 FPS 和 stall。
+5. 横持显示实时取景；竖持至少 30 秒不绘制 JPEG，但流与 Button A HTTP 快门保持可用。
+6. Button A 短按和长按各 10 次；每次只生成一张照片。
+7. 记录普通 `/v1/camera/shoot?af=camera` 响应；若返回 `Precondition Failed`，确认 `shoot/start` + `shoot/finish` fallback 成功且不会留下按键锁定状态。
+8. 关闭相机 AP、再手动重开；期望看门狗仅恢复 Wi-Fi/HTTP，不初始化 BLE stack 或发送 GATT 写入。
+9. 重启 StickS3，确认直接复用 NVS 凭据；长按 B 清除 Profile 后重新选择 GR II，确认重新进入配网页面、不初始化 BLE，也不调用 `/v1/device/finish`。
+10. 在 GR II 固件 v1.10 与可取得的最新版分别执行上述矩阵。
+
 ## GR IV / GR IV HDF 回归矩阵
 
 1. **首次配对**

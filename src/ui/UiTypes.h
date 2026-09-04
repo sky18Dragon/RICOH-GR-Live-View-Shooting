@@ -12,6 +12,7 @@ enum class UiOrientation : uint8_t {
 enum class UiScene : uint8_t {
     Boot,
     PairingGuide,
+    WifiProvisioning,
     Pairing,
     Connecting,
     RemoteReady,
@@ -34,6 +35,7 @@ inline const char* uiSceneName(UiScene scene) {
     switch (scene) {
         case UiScene::Boot: return "Boot";
         case UiScene::PairingGuide: return "PairingGuide";
+        case UiScene::WifiProvisioning: return "WifiProvisioning";
         case UiScene::Pairing: return "Pairing";
         case UiScene::Connecting: return "Connecting";
         case UiScene::RemoteReady: return "RemoteReady";

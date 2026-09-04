@@ -10,13 +10,13 @@
 <h1 align="center">RICOH GR Live View Shooting</h1>
 
 <p align="center">
-  运行在 M5Stack StickS3 上的 RICOH GR 蓝牙遥控快门与无线实时取景固件。
+  运行在 M5Stack StickS3 上的 RICOH GR 遥控快门与无线实时取景固件。
 </p>
 
-固件使用 BLE 完成机型识别、配对、重连、相机状态读取、WLAN 控制以及对焦拍摄；使用相机 Wi-Fi 和 HTTP MJPEG 提供 LiveView。竖持时作为低功耗蓝牙快门，横持时自动进入实时取景，切回竖持会退出 LiveView 并关闭相机 AP。
+GR III/IV 使用 BLE 完成机型识别、配对、WLAN 控制与快门，GR II 则按官方 GR Remote 的方式仅使用手动开启的 Wi-Fi、HTTP 快门和 MJPEG LiveView。
 
 > [!IMPORTANT]
-> 首次使用必须在 StickS3 配对引导中选择正确的相机代际。GR III、GR IIIx 及其 HDF 版本选择 **GR III**；GR IV 与 GR IV HDF 选择 **GR IV**。
+> 首次使用必须在 StickS3 引导中选择正确的相机代际。GR II 选择 **GR II**；GR III、GR IIIx 及其 HDF 版本选择 **GR III**；GR IV 与 GR IV HDF 选择 **GR IV**。
 
 ## 支持状态
 
@@ -27,13 +27,13 @@
 | RICOH GR III HDF / GR IIIx HDF | 实验性支持 | 暂按 GR III Family 处理，缺少独立实机证据 |
 | RICOH GR IV | 已实机验证 | GR IV Legacy 固定 Handle 协议 |
 | RICOH GR IV HDF | 已实机验证 | 与 GR IV 使用同一代协议 |
-| RICOH GR II | 暂不支持 | 仅保留能力模型，没有可用通信实现 |
+| RICOH GR II | 已实现，等待实机验证 | 无蓝牙；手动开启 Wi-Fi，使用官方 GR Remote HTTP 接口 |
 
 详细的证据范围和安全约束参见 [项目架构](docs/project_overview.md)、[BLE 协议说明](docs/ricoh_ble_protocol.md) 和 [已知问题](docs/known_issues.md)。
 
 ## 主要功能
 
-- 首次配对机型引导，GR III Family 与 GR IV Family 使用完全隔离的安全参数和通信路径。
+- 首次机型引导，GR II Wi-Fi-only 与 GR III/IV BLE 路径完全隔离。
 - 保存相机 BLE 身份、Bond、协议 Profile 和 Wi-Fi 参数，后续优先按地址快速重连。
 - Button A 一次按下只触发一次自动对焦并拍摄，GR III 不再需要按第二次。
 - 竖持保持 BLE 快门可用并关闭相机 AP；横持重新开启 AP、连接 Wi-Fi 并启动 LiveView。
@@ -67,7 +67,10 @@
 4. 点击固件卡片进入详情页，再点击页面中的“烧录”按钮。
 5. 使用 USB-C 数据线连接 StickS3。浏览器询问串口权限时，选择对应的 **USB JTAG/serial debug unit** 或 StickS3 串口并允许连接。
 6. 按页面提示开始烧录。烧录期间不要拔线或关闭网页，等待页面提示成功并让 StickS3 自动重启。
-7. 首次启动会进入相机机型选择页面：Button B 选择 GR III/GR IV，Button A 确认。
+7. 首次启动会进入相机机型选择页面：Button B 选择 GR II/GR III/GR IV，Button A 确认。
+
+> [!NOTE]
+> GR II 的 SSID 和密码因相机而异。固件不会预置凭据；选择 GR II 后，StickS3 会启动手机配网页面。
 
 ![在 M5Burner 中搜索并选择理光 GR 实时取景拍摄固件](docs/images/M5Burner_Search_GR.png)
 
@@ -79,6 +82,8 @@
 
 ### 从源码编译
 
+源码构建不需要填写 GR II Wi-Fi 配置文件：
+
 ```bash
 # 编译并烧录 StickS3
 pio run -e m5stack-sticks3 -t upload
@@ -89,11 +94,24 @@ pio device monitor -b 115200
 
 自动识别串口失败时，追加 `--upload-port <串口>`。
 
-## 首次配对
+## 首次连接
+
+### GR II（无蓝牙）
+
+1. 在相机上开启 Wi-Fi；GR II 不支持由 StickS3 远程开启 AP。
+2. 在引导中选择 `GR II` 并确认。StickS3 会先扫描相机 Wi-Fi，再显示一个 `GR-II-Setup-xxxx` 配网热点。
+3. 手机使用密码 `GR288888` 连接该热点，然后访问 `http://192.168.4.1`。
+4. 在网页中选择相机的 `RICOH_*` 热点，输入相机显示的 Wi-Fi 密码并提交；若列表中没有相机，也可以手动输入 SSID。
+5. StickS3 将凭据保存到 NVS、关闭配网热点并连接相机；整个过程不执行 BLE 扫描或配对。长按 Button B 清除 Profile 后可以重新配网。
+6. 固件参考[官方 GR Remote](https://www.ricoh-imaging.co.jp/english/products/gr_remote/index.html)使用 `/v1/liveview`，Button A 通过 `/v1/camera/shoot?af=camera` 拍摄；需要时自动回退到 `shoot/start` + `shoot/finish`。
+
+GR II 为保持 Wi-Fi 快门可用，会在竖持时继续维持 HTTP 流，但跳过 JPEG 解码与绘制。退出或重置时不会调用官方 `/v1/device/finish`，因为该接口会关闭相机。
+
+### GR III / GR IV 配对
 
 1. 打开相机，在相机菜单中进入蓝牙配对状态。
 2. 没有已保存相机时，StickS3 显示机型选择页面。
-3. 按 **Button B** 在 `GR III` 和 `GR IV` 之间切换，按 **Button A** 确认。
+3. 按 **Button B** 在 `GR II`、`GR III` 和 `GR IV` 之间切换，按 **Button A** 确认。
 4. 固件只扫描并接受与所选代际一致的相机；代际识别不匹配时不会执行 WLAN、电源或快门写入。
 5. 配对成功后，相机身份、协议 Profile、Bond 和可用 Wi-Fi 参数会保存到 NVS。
 
@@ -118,7 +136,7 @@ GR IV Family 保留原有 Legacy 安全配置和固定 Passkey `123456`。固件
 | 按键 | 场景 | 行为 |
 | :--- | :--- | :--- |
 | Button A | 配对引导 | 确认选中的相机代际 |
-| Button B | 配对引导 | 在 GR III / GR IV 之间切换 |
+| Button B | 配对引导 | 在 GR II / GR III / GR IV 之间切换 |
 | Button A | 相机可拍摄 | 按下时触发一次 AF + 快门；持续按住不会重复发送 |
 | Button A | 相机休眠保护 | 请求一次安全的手动重连，不触发拍摄 |
 | Button B 单击 | 正常界面 | 切换并保存 LiveView 画面镜像 |
@@ -165,8 +183,15 @@ GR III 和 GR IIIx 在当前代码中属于同一个 `GR3_FAMILY`，没有拆分
 flowchart TD
     A[StickS3 启动] --> B{已保存相机?}
     B -->|否| C[机型引导: B 选择 / A 确认]
-    B -->|是| D[按保存的 BLE 身份快速重连]
-    C --> E[扫描、识别协议并安全配对]
+    B -->|是| Q{GR II?}
+    C --> Q
+    Q -->|是| P{已有 GR II WLAN 凭据?}
+    P -->|否| S[手机连接 StickS3 配网热点并提交]
+    P -->|是| R[连接用户手动开启的 GR II AP]
+    S --> R
+    Q -->|否且已保存| D[按保存的 BLE 身份快速重连]
+    Q -->|否且首次| E[扫描、识别协议并安全配对]
+    R --> M[启动 HTTP MJPEG LiveView]
     D --> F[读取 Power / Operation Mode]
     E --> F
     F --> G{相机状态允许 WLAN?}
@@ -175,7 +200,7 @@ flowchart TD
     I --> J{横持或 LiveView Lock?}
     J -->|否| K[关闭相机 AP / 保持 BLE 快门]
     J -->|是| L[开启 AP并连接相机 Wi-Fi]
-    L --> M[启动 HTTP MJPEG LiveView]
+    L --> M
     M -->|转回竖持且未锁定| N[HTTP Finish / 断开 Wi-Fi / BLE WLAN OFF]
     N --> K
     K -->|转为横持| L
@@ -193,10 +218,10 @@ pio run -e m5stack-sticks3
 
 当前提交基线：
 
-- Native：85 / 85 通过。
+- Native：86 / 86 通过。
 - StickS3：构建成功。
-- RAM：65,468 / 327,680 bytes（20.0%）。
-- Flash：1,401,749 / 3,342,336 bytes（41.9%）。
+- RAM：66,444 / 327,680 bytes（20.3%）。
+- Flash：1,455,789 / 3,342,336 bytes（43.6%）。
 
 自动化测试覆盖协议识别、安全 Profile、配对恢复、NVS 迁移、姿态切换、按钮隔离、AP 生命周期、BLE 快门、MJPEG 解析、UI 和运行看门狗。自动测试不能替代各相机型号和固件版本的实机回归。
 

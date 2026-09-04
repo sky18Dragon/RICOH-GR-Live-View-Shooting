@@ -2,6 +2,18 @@
 
 #include <Arduino.h>
 
+#ifndef GR2_PROVISIONING_AP_PREFIX
+#define GR2_PROVISIONING_AP_PREFIX "GR-II-Setup-"
+#endif
+
+#ifndef GR2_PROVISIONING_AP_PASSWORD
+#define GR2_PROVISIONING_AP_PASSWORD "GR288888"
+#endif
+
+#ifndef GR2_PROVISIONING_URL_HOST
+#define GR2_PROVISIONING_URL_HOST "192.168.4.1"
+#endif
+
 #ifndef GR_HOST
 #define GR_HOST "192.168.0.1"
 #endif

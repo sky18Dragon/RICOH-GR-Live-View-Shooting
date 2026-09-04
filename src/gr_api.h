@@ -16,6 +16,10 @@ public:
   // POST /v1/camera/shoot. The camera exposes the shutter over Wi-Fi as well
   // as BLE, which is what lets the BLE link be released while streaming.
   bool shoot(uint32_t timeoutMs);
+  // GR II follows the official GR Remote sequence: try the one-shot endpoint
+  // with camera autofocus, then fall back to start + finish when the camera
+  // reports the legacy precondition response.
+  bool shootGr2(uint32_t timeoutMs);
   // Ask the camera to shut down its WLAN AP. A dropped connection after the
   // request is expected because the endpoint tears down its own transport.
   bool finishWlan(uint32_t timeoutMs);
@@ -30,6 +34,7 @@ private:
   bool readHttpHeaders(WiFiClient& client, uint32_t timeoutMs, String& headers);
   int parseHttpStatus(const String& headers) const;
   int parseContentLength(const String& headers) const;
+  bool postGr2Command(const char* path, uint32_t timeoutMs, String& responseBody);
   void parsePropsJson(const String& json, CameraProps& props) const;
   void setError(const String& message);
 

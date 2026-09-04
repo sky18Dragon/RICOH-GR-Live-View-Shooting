@@ -11,16 +11,22 @@ String getStringIfPresent(Preferences& prefs, const char* key) {
   return prefs.isKey(key) ? prefs.getString(key, "") : String();
 }
 
+void removeIfPresent(Preferences& prefs, const char* key) {
+  if (prefs.isKey(key)) {
+    (void)prefs.remove(key);
+  }
+}
+
 void clearWifiCredentialKeys(Preferences& prefs) {
-  prefs.remove("wifi_valid");
-  prefs.remove("wifi_ble_addr");
-  prefs.remove("wifi_ssid");
-  prefs.remove("wifi_pass");
-  prefs.remove("wifi_bssid");
-  prefs.remove("wifi_freq");
-  prefs.remove("wifi_ch");
-  prefs.remove("wifi_src");
-  prefs.remove("wifi_cred_ok");
+  removeIfPresent(prefs, "wifi_valid");
+  removeIfPresent(prefs, "wifi_ble_addr");
+  removeIfPresent(prefs, "wifi_ssid");
+  removeIfPresent(prefs, "wifi_pass");
+  removeIfPresent(prefs, "wifi_bssid");
+  removeIfPresent(prefs, "wifi_freq");
+  removeIfPresent(prefs, "wifi_ch");
+  removeIfPresent(prefs, "wifi_src");
+  removeIfPresent(prefs, "wifi_cred_ok");
 }
 
 bool sameBleAddress(const String& left, const String& right) {
@@ -227,20 +233,20 @@ bool CameraProfileStore::save(const CameraProfile& profile) {
     _prefs.putUInt("cam_gen", storedMetadata.protocolGenerationValue);
     _prefs.putUInt("proto_gen", storedMetadata.protocolGenerationValue);
   } else {
-    _prefs.remove("cam_gen");
-    _prefs.remove("proto_gen");
+    removeIfPresent(_prefs, "cam_gen");
+    removeIfPresent(_prefs, "proto_gen");
   }
   if (storedMetadata.securityProfilePresent) {
     _prefs.putUInt("sec_profile", storedMetadata.securityProfileValue);
   } else {
-    _prefs.remove("sec_profile");
+    removeIfPresent(_prefs, "sec_profile");
   }
   _prefs.putBool("ble_auth", storedMetadata.bleAuthenticatedValue);
   _prefs.putUInt("cap_ver", storedMetadata.capabilityVersionValue);
   if (storedMetadata.wifiSourcePresent) {
     _prefs.putUInt("wifi_src", storedMetadata.wifiSourceValue);
   } else {
-    _prefs.remove("wifi_src");
+    removeIfPresent(_prefs, "wifi_src");
   }
   _prefs.putBool("wifi_cred_ok", storedMetadata.wifiCredentialValidityValue);
   _prefs.putString("cam_name", profile.cameraName);
@@ -248,7 +254,7 @@ bool CameraProfileStore::save(const CameraProfile& profile) {
   if (profile.bleAddress.length() > 0 && profile.bleAddressTypeKnown) {
     _prefs.putUInt("ble_addr_type", profile.bleAddressType);
   } else {
-    _prefs.remove("ble_addr_type");
+    removeIfPresent(_prefs, "ble_addr_type");
   }
   _prefs.putBool("ble_bonded", profile.bleAddress.length() > 0 && profile.bleBonded);
   if (profile.peerIdentityKnown && profile.peerIdentityAddress.length() > 0) {
@@ -256,16 +262,16 @@ bool CameraProfileStore::save(const CameraProfile& profile) {
     _prefs.putUInt("peer_id_type", profile.peerIdentityAddressType);
     _prefs.putBool("peer_id_known", true);
   } else {
-    _prefs.remove("peer_id_addr");
-    _prefs.remove("peer_id_type");
+    removeIfPresent(_prefs, "peer_id_addr");
+    removeIfPresent(_prefs, "peer_id_type");
     _prefs.putBool("peer_id_known", false);
   }
   if (profile.lastSeenOtaAddress.length() > 0) {
     _prefs.putString("last_ota_addr", profile.lastSeenOtaAddress);
     _prefs.putUInt("last_ota_type", profile.lastSeenOtaAddressType);
   } else {
-    _prefs.remove("last_ota_addr");
-    _prefs.remove("last_ota_type");
+    removeIfPresent(_prefs, "last_ota_addr");
+    removeIfPresent(_prefs, "last_ota_type");
   }
   _prefs.putString("cam_ip", profile.wifi.cameraIp);
   if (profile.bleAddress.length() > 0 &&
@@ -318,21 +324,21 @@ bool CameraProfileStore::clearBlePairing() {
     return false;
   }
 
-  _prefs.remove("cam_name");
-  _prefs.remove("ble_addr");
-  _prefs.remove("ble_addr_type");
-  _prefs.remove("ble_bonded");
-  _prefs.remove("ble_auth");
-  _prefs.remove("cam_gen");
-  _prefs.remove("proto_gen");
-  _prefs.remove("sec_profile");
-  _prefs.remove("peer_id_addr");
-  _prefs.remove("peer_id_type");
-  _prefs.remove("peer_id_known");
-  _prefs.remove("last_ota_addr");
-  _prefs.remove("last_ota_type");
-  _prefs.remove("cap_ver");
-  _prefs.remove(kAtomicProfileKey);
+  removeIfPresent(_prefs, "cam_name");
+  removeIfPresent(_prefs, "ble_addr");
+  removeIfPresent(_prefs, "ble_addr_type");
+  removeIfPresent(_prefs, "ble_bonded");
+  removeIfPresent(_prefs, "ble_auth");
+  removeIfPresent(_prefs, "cam_gen");
+  removeIfPresent(_prefs, "proto_gen");
+  removeIfPresent(_prefs, "sec_profile");
+  removeIfPresent(_prefs, "peer_id_addr");
+  removeIfPresent(_prefs, "peer_id_type");
+  removeIfPresent(_prefs, "peer_id_known");
+  removeIfPresent(_prefs, "last_ota_addr");
+  removeIfPresent(_prefs, "last_ota_type");
+  removeIfPresent(_prefs, "cap_ver");
+  removeIfPresent(_prefs, kAtomicProfileKey);
   clearWifiCredentialKeys(_prefs);
   return true;
 }
@@ -347,7 +353,7 @@ bool CameraProfileStore::saveBleIdentity(const String& cameraName, const String&
   if (bleAddress.length() > 0) {
     const String previousWifiBle = getStringIfPresent(_prefs, "wifi_ble_addr");
     _prefs.putString("ble_addr", bleAddress);
-    _prefs.remove("ble_addr_type");
+    removeIfPresent(_prefs, "ble_addr_type");
     _prefs.putBool("ble_bonded", false);
     if (previousWifiBle.length() > 0 && !sameBleAddress(previousWifiBle, bleAddress)) {
       clearWifiCredentialKeys(_prefs);
