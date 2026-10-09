@@ -98,7 +98,8 @@ void Gr2ProvisioningPortal::stop() {
   }
   WiFi.scanDelete();
   WiFi.mode(WIFI_STA);
-  WiFi.setAutoReconnect(true);
+  // The application state machine owns all station reconnect attempts.
+  WiFi.setAutoReconnect(false);
   _pending = Gr2ProvisionedWifi{};
   _accessPointPassword = "";
   _networkOptions = "";

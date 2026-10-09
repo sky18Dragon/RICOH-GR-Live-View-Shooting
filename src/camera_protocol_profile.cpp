@@ -275,7 +275,9 @@ bool operationModeAllowsWifi(const CameraProtocolProfile& profile,
 }
 
 bool validGr3WifiChannel(uint8_t channel) {
-  return channel <= 11;
+  // Channel 0 means no hint. Accept the full 2.4 GHz channel range returned by
+  // the camera; the ESP32 country configuration remains the final authority.
+  return channel <= 13;
 }
 
 bool validGr3WifiCredentials(const char* ssid, const char* passphrase, uint8_t channel) {

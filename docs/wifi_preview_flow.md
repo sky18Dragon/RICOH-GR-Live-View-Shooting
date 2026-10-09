@@ -58,16 +58,29 @@ loop()
 
 从 `src/gr_wifi.cpp` 和 `src/main.cpp` 确认：
 
-- `WiFi.mode(WIFI_STA)`。
+- `WiFi.persistent(false)` 后进入 `WiFi.mode(WIFI_STA)`；驱动侧 STA 配置只保留在 RAM，
+  避免相机 AP 重启后复用上一轮 WLAN 会话的安全上下文。
 - `WiFi.setSleep(true)`，注释说明 BLE + Wi-Fi 共存需要 modem sleep。
-- `WiFi.setAutoReconnect(true)`。
-- 支持 SSID/password、BSSID、channel hint。
+- `WiFi.setAutoReconnect(false)`；连接重试、退避和相机 WLAN 生命周期由应用状态机统一控制。
+- GR III/IV 由 BLE 明确开启的新 WLAN 会话直接使用 SSID-only；缓存 BSSID/channel
+  只用于诊断和成功后的回采，不作为关联约束。GR II 手动开启 AP 的兼容路径仍支持
+  `BSSID+channel → channel-only → SSID-only` 逐级放松缓存约束。
+- 收到 `INVALID_PMKID(49)` 时清理 RAM-only STA 安全上下文，并在原连接总预算内立即
+  重试一次；不会把它误判为密码错误，也不会无限重试。
+- 收到 `NO_AP_FOUND(201)` 时不再空等到总预算结束，而是在同一预算内立即重新扫描，
+  最多两次；相机 AP 慢启动时，后续扫描可以直接衔接 PMKID 清理与关联。
+- 注册 STA connected/GOT_IP/disconnected/lost-IP 事件，失败日志包含 reason code、
+  reason name、断线 RSSI、关联耗时和 DHCP 耗时。
 - `ConnectGuard` 可在连接轮询中检查 BLE 是否仍连接，失败时提前断开 Wi-Fi。
 - 缓存连接在 WLAN-on 应答后立即开始，无固定等待：`WIFI_CACHED_CONNECT_GRACE_MS=0`。
-- 缓存连接总预算：`WIFI_CACHED_CONNECT_TIMEOUT_MS=1900`。
-- 使用信道提示连接超时：`WIFI_CHANNEL_HINT_CONNECT_TIMEOUT_MS=6000`。
+- GR III/IV 缓存连接总预算：`WIFI_CACHED_CONNECT_TIMEOUT_MS=11000`。冷启动 AP 约 4 秒，
+  连续 WLAN-off/on 姿态循环约 8 秒后才可关联；该预算还覆盖同一次 SSID-only 调用内的
+  一次 PMKID 清理重试，避免正常恢复落入 fresh BLE 参数读取和重复 NVS 写入。
+- BSSID 与信道提示阶段各最多 3000 ms，阶段间退避 400 ms，退避计入总预算。
 - 总连接超时：`WIFI_CONNECT_TIMEOUT_MS=15000`。
 - 缓存连接成功后延迟刷新 BLE Wi-Fi 参数：`WIFI_CACHE_REFRESH_DELAY_MS=5000`。
+  BLE 返回的 BSSID/channel 仅为非绑定提示；SSID/密码未变化时保留连接实测值，实际
+  BSSID/channel 也未变化时跳过 NVS 写入。
 
 ## MJPEG/JPEG/显示
 

@@ -20,6 +20,7 @@
 #include "gr_wifi.h"
 #include "jpeg_decoder.h"
 #include "mjpeg_stream.h"
+#include "wifi_connection_policy.h"
 #include "ricoh_ble_client.h"
 #include "services/BleCameraService.h"
 #include "services/CameraPowerPolicy.h"
@@ -521,17 +522,11 @@ bool hasUsableCachedWifiCredentials() {
 }
 
 bool wifiCredentialsMatchProfile(const RicohBleWifiCredentials& credentials) {
-  if (credentials.ssid != cameraProfile.wifi.ssid ||
-      credentials.passphrase != cameraProfile.wifi.passphrase) {
-    return false;
-  }
-  if (credentials.bssid.length() > 0 && credentials.bssid != cameraProfile.wifi.bssid) {
-    return false;
-  }
-  if (credentials.channel != 0 && cameraProfile.wifi.channel != 0 && credentials.channel != cameraProfile.wifi.channel) {
-    return false;
-  }
-  return true;
+  // BSSID/channel from BLE are non-binding hints for GR III/IV and can be
+  // absent or stale while the connected AP provides authoritative values.
+  // Only stable credentials should decide whether the cache needs replacing.
+  return credentials.ssid == cameraProfile.wifi.ssid &&
+         credentials.passphrase == cameraProfile.wifi.passphrase;
 }
 
 void saveWifiCredentialCache(const char* source) {
@@ -571,8 +566,10 @@ void saveConnectedWifiBssidToCache(const char* source) {
   }
 
   const String connectedBssid = grWifi.bssidString();
+  bool bssidChanged = false;
   if (connectedBssid.length() > 0 && connectedBssid != String("00:00:00:00:00:00")) {
     if (cameraProfile.wifi.bssid != connectedBssid) {
+      bssidChanged = true;
       Serial.printf("WiFi cache: learned BSSID '%s' from connection (%s)\n",
                     connectedBssid.c_str(),
                     source != nullptr ? source : "connected");
@@ -580,11 +577,20 @@ void saveConnectedWifiBssidToCache(const char* source) {
     cameraProfile.wifi.bssid = connectedBssid;
   }
   const uint8_t connectedChannel = grWifi.channel();
+  bool channelChanged = false;
   if (connectedChannel >= 1 && connectedChannel <= 14) {
+    const uint16_t connectedFrequency = connectedChannel == 14
+                                          ? 2484
+                                          : static_cast<uint16_t>(2407 + connectedChannel * 5);
+    channelChanged = cameraProfile.wifi.channel != connectedChannel ||
+                     cameraProfile.wifi.frequencyMhz != connectedFrequency;
     cameraProfile.wifi.channel = connectedChannel;
-    cameraProfile.wifi.frequencyMhz = connectedChannel == 14
-                                        ? 2484
-                                        : static_cast<uint16_t>(2407 + connectedChannel * 5);
+    cameraProfile.wifi.frequencyMhz = connectedFrequency;
+  }
+  if (!wifiCacheNeedsPersistence(cameraProfile.wifi.cached, bssidChanged, channelChanged)) {
+    Serial.printf("WiFi cache: unchanged after %s; NVS write skipped\n",
+                  source != nullptr ? source : "connected");
+    return;
   }
   saveWifiCredentialCache(source != nullptr ? source : "connected");
 }
@@ -642,9 +648,11 @@ void refreshWifiCacheIfDue() {
     return;
   }
 
-  if (!wifiCredentialsMatchProfile(fresh)) {
-    Serial.println("WiFi cache: BLE fresh params differ from cached/runtime params; updating cache for next boot");
+  if (wifiCredentialsMatchProfile(fresh)) {
+    Serial.println("WiFi cache: deferred refresh stable credentials unchanged; keeping connected BSSID/channel");
+    return;
   }
+  Serial.println("WiFi cache: BLE stable credentials changed; updating cache for next boot");
   applyBleWifiCredentials(fresh, "deferred BLE refresh", false);
   saveConnectedWifiBssidToCache("deferred BLE refresh");
 }
@@ -1522,64 +1530,144 @@ bool wifiStillConnectedForController() {
   return grWifi.isConnected();
 }
 
-bool connectWifiFromProfile(bool forceStatus, bool requireBleAnchor = false, uint32_t totalTimeoutMs = WIFI_CONNECT_TIMEOUT_MS, bool allowFullScanFallback = true) {
+bool connectWifiFromProfile(bool forceStatus,
+                            bool requireBleAnchor = false,
+                            uint32_t totalTimeoutMs = WIFI_CONNECT_TIMEOUT_MS,
+                            bool allowFullScanFallback = true,
+                            bool ssidOnly = false) {
+  String connectionBssid = cameraProfile.wifi.bssid;
+  uint8_t cachedChannel = cameraProfile.wifi.channel;
+  uint16_t cachedFrequencyMhz = cameraProfile.wifi.frequencyMhz;
+#if defined(RICOH_WIFI_TEST_CORRUPT_CACHE_HINTS) && RICOH_WIFI_TEST_CORRUPT_CACHE_HINTS
+  // Keep fault injection connection-local. Mutating cameraProfile here would
+  // allow an unrelated full-profile save (for example after BLE reconnect) to
+  // persist the test value even though the injector itself never writes NVS.
+  static bool injectedCacheHintsThisBoot = false;
+  if (!injectedCacheHintsThisBoot &&
+      cameraProfile.protocolGeneration == RicohProtocolGeneration::Gr4Family &&
+      cameraProfile.wifi.cached &&
+      cameraProfile.wifi.credentialsValid) {
+    Serial.printf("TEST ONLY: corrupting connection-local WiFi cache hints mode=%d original_bssid='%s' original_channel=%u\n",
+                  RICOH_WIFI_TEST_CORRUPT_CACHE_HINTS,
+                  connectionBssid.c_str(),
+                  static_cast<unsigned>(cachedChannel));
+#if RICOH_WIFI_TEST_CORRUPT_CACHE_HINTS == 1 || RICOH_WIFI_TEST_CORRUPT_CACHE_HINTS == 2
+    connectionBssid = "02:00:00:00:00:01";
+#endif
+#if RICOH_WIFI_TEST_CORRUPT_CACHE_HINTS == 1 || RICOH_WIFI_TEST_CORRUPT_CACHE_HINTS == 3
+    cachedChannel = 1;
+    cachedFrequencyMhz = 2412;
+#endif
+    injectedCacheHintsThisBoot = true;
+    Serial.printf("TEST ONLY: connection-local WiFi cache hints now bssid='%s' channel=%u; profile/NVS unchanged\n",
+                  connectionBssid.c_str(),
+                  static_cast<unsigned>(cachedChannel));
+  }
+#endif
+
   wifiPreview.setEndpoint(cameraProfile.wifi.cameraIp.c_str(), GR_PORT);
   showStatusIfChanged("Connecting WiFi", cameraProfile.wifi.ssid, cameraProfile.wifi.cameraIp, "", forceStatus);
   Serial.printf("WiFi: connecting ssid='%s' bssid='%s' channel=%u freq=%u\n",
                 cameraProfile.wifi.ssid.c_str(),
-                cameraProfile.wifi.bssid.c_str(),
-                static_cast<unsigned>(cameraProfile.wifi.channel),
-                static_cast<unsigned>(cameraProfile.wifi.frequencyMhz));
+                connectionBssid.c_str(),
+                static_cast<unsigned>(cachedChannel),
+                static_cast<unsigned>(cachedFrequencyMhz));
 
-  bool connected = false;
-  const uint8_t channel = cameraProfile.wifi.channel;
-  const uint32_t hintTimeout = WIFI_CHANNEL_HINT_CONNECT_TIMEOUT_MS < totalTimeoutMs
-                                 ? WIFI_CHANNEL_HINT_CONNECT_TIMEOUT_MS
-                                 : totalTimeoutMs;
-
-  if (channel != 0) {
-    connected = wifiPreview.connectWifi(cameraProfile.wifi.ssid.c_str(),
-                                        cameraProfile.wifi.passphrase.c_str(),
-                                        cameraProfile.wifi.bssid.c_str(),
-                                        channel,
-                                        hintTimeout,
-                                        requireBleAnchor ? cameraWifiConnectGuard : nullptr)
-                  .ok();
-
-    if (allowFullScanFallback && !connected && (!requireBleAnchor || cameraWifiConnectGuard())) {
-      uint32_t fallbackTimeout = totalTimeoutMs > hintTimeout ? totalTimeoutMs - hintTimeout : totalTimeoutMs;
-      if (fallbackTimeout < 1000) {
-        fallbackTimeout = totalTimeoutMs;
-      }
-      Serial.printf("WiFi: channel hint %u failed; fallback to full scan timeout=%lums\n",
-                    static_cast<unsigned>(channel),
-                    static_cast<unsigned long>(fallbackTimeout));
-      connected = wifiPreview.connectWifi(cameraProfile.wifi.ssid.c_str(),
-                                          cameraProfile.wifi.passphrase.c_str(),
-                                          cameraProfile.wifi.bssid.c_str(),
-                                          0,
-                                          fallbackTimeout,
-                                          requireBleAnchor ? cameraWifiConnectGuard : nullptr)
-                    .ok();
-    }
-  } else {
-    connected = wifiPreview.connectWifi(cameraProfile.wifi.ssid.c_str(),
-                                        cameraProfile.wifi.passphrase.c_str(),
-                                        cameraProfile.wifi.bssid.c_str(),
-                                        0,
-                                        totalTimeoutMs,
-                                        requireBleAnchor ? cameraWifiConnectGuard : nullptr)
-                  .ok();
+  const bool hasBssid = !ssidOnly &&
+                        connectionBssid.length() > 0 &&
+                        connectionBssid != "00:00:00:00:00:00";
+  const uint8_t connectionChannel = ssidOnly ? 0 : cachedChannel;
+  if (ssidOnly) {
+    Serial.println("WiFi: camera WLAN session uses SSID-only; BSSID/channel retained as non-binding hints");
   }
+  WifiConnectAttempt attempts[WIFI_CONNECT_PLAN_MAX_ATTEMPTS]{};
+  const size_t attemptCount = buildWifiConnectPlan(hasBssid,
+                                                   connectionChannel,
+                                                   totalTimeoutMs,
+                                                   WIFI_BSSID_HINT_CONNECT_TIMEOUT_MS,
+                                                   WIFI_CHANNEL_HINT_CONNECT_TIMEOUT_MS,
+                                                   allowFullScanFallback,
+                                                   attempts);
+  const uint32_t planStartedAt = millis();
 
-  if (connected) {
-    showStatusIfChanged("WiFi connected", grWifi.localIPString(), cameraProfile.wifi.cameraIp, "", true);
-    Serial.printf("WiFi: connected ip=%s rssi=%ld\n", grWifi.localIPString().c_str(), static_cast<long>(grWifi.rssi()));
-    return true;
+  for (size_t index = 0; index < attemptCount; ++index) {
+    if (requireBleAnchor && !cameraWifiConnectGuard()) {
+      break;
+    }
+
+    const uint32_t elapsedMs = millis() - planStartedAt;
+    if (elapsedMs >= totalTimeoutMs) {
+      break;
+    }
+    const uint32_t remainingMs = totalTimeoutMs - elapsedMs;
+    const uint32_t attemptTimeoutMs = attempts[index].timeoutMs < remainingMs
+                                        ? attempts[index].timeoutMs
+                                        : remainingMs;
+    if (attemptTimeoutMs == 0) {
+      break;
+    }
+
+    const char* attemptBssid = attempts[index].useBssid
+                                 ? connectionBssid.c_str()
+                                 : nullptr;
+    Serial.printf("WiFi: attempt=%u/%u target=%s channel=%u has_bssid=%d timeout=%lums\n",
+                  static_cast<unsigned>(index + 1),
+                  static_cast<unsigned>(attemptCount),
+                  wifiConnectTargetName(attempts[index].target),
+                  static_cast<unsigned>(attempts[index].channel),
+                  attempts[index].useBssid ? 1 : 0,
+                  static_cast<unsigned long>(attemptTimeoutMs));
+
+    const bool connected = wifiPreview.connectWifi(cameraProfile.wifi.ssid.c_str(),
+                                                   cameraProfile.wifi.passphrase.c_str(),
+                                                   attemptBssid,
+                                                   attempts[index].channel,
+                                                   attemptTimeoutMs,
+                                                   requireBleAnchor ? cameraWifiConnectGuard : nullptr)
+                             .ok();
+    if (connected) {
+      showStatusIfChanged("WiFi connected", grWifi.localIPString(), cameraProfile.wifi.cameraIp, "", true);
+      Serial.printf("WiFi: connected target=%s total=%lums ip=%s rssi=%ld\n",
+                    wifiConnectTargetName(attempts[index].target),
+                    static_cast<unsigned long>(millis() - planStartedAt),
+                    grWifi.localIPString().c_str(),
+                    static_cast<long>(grWifi.rssi()));
+      return true;
+    }
+
+    Serial.printf("WiFi: attempt failed target=%s status=%s reason=%s rssi=%d\n",
+                  wifiConnectTargetName(attempts[index].target),
+                  grWifi.statusText().c_str(),
+                  grWifi.lastDisconnectText().c_str(),
+                  grWifi.lastDisconnectRssi());
+
+    if (index + 1 >= attemptCount) {
+      continue;
+    }
+    const uint32_t afterAttemptMs = millis() - planStartedAt;
+    if (afterAttemptMs >= totalTimeoutMs) {
+      break;
+    }
+    const uint32_t availableBackoffMs = totalTimeoutMs - afterAttemptMs;
+    const uint32_t backoffMs = WIFI_CONNECT_STAGE_BACKOFF_MS < availableBackoffMs
+                                 ? WIFI_CONNECT_STAGE_BACKOFF_MS
+                                 : availableBackoffMs;
+    const uint32_t backoffStartedAt = millis();
+    while (millis() - backoffStartedAt < backoffMs) {
+      if (requireBleAnchor && !cameraWifiConnectGuard()) {
+        break;
+      }
+      delay(20);
+      yield();
+    }
   }
 
   showStatusIfChanged("WiFi pending", grWifi.statusText(), cameraProfile.wifi.ssid, "", true);
-  Serial.printf("WiFi: connect failed status=%s\n", grWifi.statusText().c_str());
+  Serial.printf("WiFi: connect failed total=%lums status=%s reason=%s rssi=%d\n",
+                static_cast<unsigned long>(millis() - planStartedAt),
+                grWifi.statusText().c_str(),
+                grWifi.lastDisconnectText().c_str(),
+                grWifi.lastDisconnectRssi());
   return false;
 }
 
@@ -1831,7 +1919,7 @@ bool connectCachedWifiFromProfileForController() {
     Serial.printf("GR II WiFi: joining manually enabled AP ssid='%s' timeout=%lums\n",
                   cameraProfile.wifi.ssid.c_str(),
                   static_cast<unsigned long>(WIFI_CONNECT_TIMEOUT_MS));
-    return connectWifiFromProfile(true, true, WIFI_CONNECT_TIMEOUT_MS, true);
+    return connectWifiFromProfile(true, true, WIFI_CONNECT_TIMEOUT_MS, true, false);
   }
   if (WIFI_CACHED_CONNECT_GRACE_MS > 0) {
     Serial.printf("WiFi cache: waiting %lums for camera AP before cached connect\n",
@@ -1839,12 +1927,16 @@ bool connectCachedWifiFromProfileForController() {
     delay(WIFI_CACHED_CONNECT_GRACE_MS);
     yield();
   }
-  Serial.printf("WiFi cache: trying cached params ssid='%s' bssid='%s' channel=%u short_timeout=%lums\n",
+  Serial.printf("WiFi cache: trying cached params ssid='%s' bssid='%s' channel=%u budget=%lums\n",
                 cameraProfile.wifi.ssid.c_str(),
                 cameraProfile.wifi.bssid.c_str(),
                 static_cast<unsigned>(cameraProfile.wifi.channel),
                 static_cast<unsigned long>(WIFI_CACHED_CONNECT_TIMEOUT_MS));
-  return connectWifiFromProfile(true, true, WIFI_CACHED_CONNECT_TIMEOUT_MS, false);
+  return connectWifiFromProfile(true,
+                                true,
+                                WIFI_CACHED_CONNECT_TIMEOUT_MS,
+                                true,
+                                true);
 }
 
 void onCachedWifiConnectedForController() {
@@ -1888,7 +1980,11 @@ void applyFreshWifiCredentialsForController() {
 }
 
 bool connectFreshWifiFromProfileForController() {
-  return connectWifiFromProfile(true, !isGr2WifiOnlyProfile());
+  return connectWifiFromProfile(true,
+                                !isGr2WifiOnlyProfile(),
+                                WIFI_CONNECT_TIMEOUT_MS,
+                                true,
+                                !isGr2WifiOnlyProfile());
 }
 
 void onFreshWifiConnectedForController() {

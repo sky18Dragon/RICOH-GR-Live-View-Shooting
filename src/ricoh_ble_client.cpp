@@ -2189,11 +2189,12 @@ bool RicohBleClient::waitForWifiCredentials(RicohBleWifiCredentials& credentials
     credentials = current;
     if (credentials.valid) {
       _lastError = "";
-      Serial.printf("BLE WiFi params profile=%s ssid_present=%d passphrase_present=%d bssid_present=%d channel=%u wait_ms=%lu\n",
+      Serial.printf("BLE WiFi params profile=%s ssid_present=%d passphrase_present=%d bssid_present=%d security_type=%d channel=%u wait_ms=%lu\n",
                     ricohProtocolGenerationName(_protocolRouter.generation()),
                     credentials.ssid.length() > 0 ? 1 : 0,
                     credentials.passphrase.length() > 0 ? 1 : 0,
                     credentials.bssid.length() > 0 ? 1 : 0,
+                    credentials.securityType,
                     static_cast<unsigned>(credentials.channel),
                     static_cast<unsigned long>(millis() - startMs));
       return true;

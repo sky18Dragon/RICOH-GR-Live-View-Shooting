@@ -29,11 +29,14 @@ constexpr size_t FRAME_BUFFER_SIZE = 256 * 1024;
 constexpr size_t STREAM_READ_BUFFER_SIZE = 8192;
 
 constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 15000;
-constexpr uint32_t WIFI_CHANNEL_HINT_CONNECT_TIMEOUT_MS = 6000;
-// Start association as soon as the BLE WLAN-on write is acknowledged. The
-// previous 700 ms fixed sleep plus 1200 ms attempt is preserved as one 1900 ms
-// bounded attempt, allowing DHCP to complete as soon as the AP is actually up.
-constexpr uint32_t WIFI_CACHED_CONNECT_TIMEOUT_MS = 1900;
+constexpr uint32_t WIFI_BSSID_HINT_CONNECT_TIMEOUT_MS = 3000;
+constexpr uint32_t WIFI_CHANNEL_HINT_CONNECT_TIMEOUT_MS = 3000;
+constexpr uint32_t WIFI_CONNECT_STAGE_BACKOFF_MS = 400;
+// GR III/IV cold startup took about four seconds, while five consecutive
+// WLAN-off/on posture cycles made the AP usable after about eight seconds.
+// Leave enough room for one INVALID_PMKID reset/retry in the same SSID-only
+// attempt so normal resumes do not fall through to BLE refresh and NVS writes.
+constexpr uint32_t WIFI_CACHED_CONNECT_TIMEOUT_MS = 11000;
 constexpr uint32_t WIFI_CACHED_CONNECT_GRACE_MS = 0;
 constexpr uint32_t WIFI_CACHE_REFRESH_DELAY_MS = 5000;
 constexpr uint32_t BLE_SCAN_RETRY_INTERVAL_MS = 1000;

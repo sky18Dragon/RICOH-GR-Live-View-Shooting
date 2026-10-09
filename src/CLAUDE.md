@@ -109,7 +109,16 @@ BleScan → BleReady → WifiConnecting → HttpProbe → LiveViewRunning
 
 `GrWifi` 封装 ESP32 `WIFI_STA` 连接相机 AP。
 
-- `begin()`：`WiFi.mode(WIFI_STA)` + `setSleep(true)` + `setAutoReconnect(true)`。
+- `begin()`：`WiFi.persistent(false)` + `WiFi.mode(WIFI_STA)` + `setSleep(true)` +
+  `setAutoReconnect(false)`；应用状态机负责连接生命周期，驱动不持久化相机 AP 的
+  STA/安全上下文。
+- GR III/IV 由 BLE 开启的新 WLAN 会话直接 SSID-only；缓存 BSSID/channel 仅作非绑定
+  提示和诊断。GR II 手动 AP 路径仍可使用分阶段提示回退。
+- `INVALID_PMKID(49)` 会触发一次 RAM-only STA 安全上下文清理，并在原总超时内重试；
+  其他断线原因不触发此重置。
+- `NO_AP_FOUND(201)` 在同一总预算内最多立即重扫两次，不会收到事件后继续空等到超时。
+- Wi-Fi event callback 只保存轻量诊断状态；主任务输出 disconnect reason/RSSI、
+  association 和 GOT_IP 耗时，不在 event task 内执行 BLE/UI/NVS 或阻塞操作。
 - `connect(...)` 四重重载，最完整签名：`(ssid, password, bssid, timeoutMs, ConnectGuard guard)`。
   - `bssid`：锚定相机 AP MAC（动态凭据场景防漫游）。
   - `ConnectGuard`：`bool(*)()` 回调，连接轮询期间若返回 `false`（如 BLE 已断）即提前中止 —— `main.cpp` 传 `bleStillConnectedForWifi`。

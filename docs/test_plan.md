@@ -63,6 +63,43 @@ platformio device monitor --port COM6 --baud 115200 --filter time
 
 未经设备所有者确认不要覆盖设备。每次实机运行记录：相机型号、相机固件、StickS3 固件 commit、是否清空 NVS、结果、耗时和去密后的关键日志。使用 `docs/gr3_family_test_record.md` 记录 GR III Family。
 
+## Wi-Fi 稳定性回归（原故障暂时无法复现）
+
+当“BLE 已打开相机 Wi-Fi，但 StickS3 未连接”无法稳定复现时，不以单次连接成功作为
+结论，也不宣称原问题已经修复。按下面顺序验证连接状态机、长时间稳定性和环境裕量：
+
+1. **快速冒烟：20 轮。** 每轮执行 BLE WLAN-on → Wi-Fi GOT_IP → HTTP probe →
+   主动断开；要求 20/20 成功，无重启、无卡死、无无限重连。
+2. **循环压力：100 轮。** 保持同一相机、位置和供电，统计成功率、首次成功耗时、
+   重试次数和断开原因；成功率至少 99%，P95 GOT_IP 小于 4 秒，单轮不超过 15 秒。
+3. **持续运行：60 分钟。** LiveView 连续运行，记录 stall、Wi-Fi 重连、HTTP 重建、
+   reset reason、最低 free heap 和最大可用内存块；不得重启、出现重连风暴或持续内存下降。
+4. **环境 A/B。** USB/电池、满电/低电、热靴安装/离架 10–20 cm、0.3 m/1 m/3 m
+   分别至少 20 轮。每次只改变一个变量，比较成功率、RSSI 和 P95 连接耗时。
+5. **可控故障注入。** 在测试固件或 NVS 中分别写入错误 channel、错误 BSSID、两者都错；
+   要求连接计划最终进入 `ssid-only`，并在 15 秒总预算内恢复。此项可以覆盖现场最难
+   自然复现的缓存失效路径。
+   - GR4 使用 `m5stack-sticks3-wifi-cache-fault` 执行 BSSID/channel 同时错误，使用
+     `m5stack-sticks3-wifi-cache-bssid-fault` 和
+     `m5stack-sticks3-wifi-cache-channel-fault` 分别执行单变量测试。三者只在首次连接调用的
+     局部副本中覆盖提示值，不修改 SSID/密码、Profile、NVS 或 Bond。
+   - 测试结束必须重新烧录默认 `m5stack-sticks3` 环境，并从启动日志和构建产物确认不再
+     包含 `TEST ONLY`。2026-10-09 当前 GR4_FAMILY 实机已完成三种注入，均由 SSID-only
+     在预算内恢复；正式固件恢复验收通过。该结论不能外推到其他相机型号/固件。
+6. **AP 时序扰动。** 在 StickS3 已开始连接后延迟打开相机 Wi-Fi，或快速执行相机
+   WLAN OFF/ON；确认失败能够被记录为明确 reason，下一轮连接能够恢复且不会反复发送
+   BLE WLAN-on。
+7. **PMKID 恢复。** 若出现 `INVALID_PMKID(49)`，确认固件立即清理 RAM-only STA 安全
+   上下文并只重试一次；总耗时不得突破本轮预算，且日志不得把它标记为密码错误。
+
+每轮至少记录：轮次、供电/安装方式、连接阶段（GR III/IV 正常应为 `ssid-only`；
+GR II 可为 `bssid-channel`、`channel-only` 或 `ssid-only`）、关联耗时、GOT_IP 耗时、
+实际 channel、RSSI、disconnect reason/name、
+HTTP probe 结果和 reset reason。日志不得包含 Wi-Fi 密码或 BLE Passkey。
+
+只有在完成上述循环且保留原始日志后，才能评价“稳定性提高”；由于原现场问题没有复现，
+测试结果只能证明回归通过和故障恢复路径有效，不能单独证明原问题根因已消除。
+
 ## GR II 实机矩阵
 
 状态：**已通过真实 GR II 相机验证**。以下矩阵继续作为发布回归基线；本次确认未附相机固件版本、逐项日志和性能数据，后续记录时应补齐这些证据。

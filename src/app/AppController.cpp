@@ -253,21 +253,56 @@ bool AppController::resumeFromWifiCredentialsReady(const AppFlowActions& actions
     }
 
     transitionTo(AppState::ConnectingWifi, "landscape resumes cached WiFi params", controllerMillis());
-    if (actions.connectFreshWifiFromProfile == nullptr ||
-        !actions.connectFreshWifiFromProfile()) {
+    bool connected = actions.connectCachedWifiFromProfile != nullptr &&
+                     actions.connectCachedWifiFromProfile();
+    if (connected) {
+        if (actions.onCachedWifiConnected != nullptr) {
+            actions.onCachedWifiConnected();
+        }
+    } else {
+        if (actions.onCachedWifiConnectFailed != nullptr) {
+            actions.onCachedWifiConnectFailed();
+        }
+        if (actions.disconnectWifi != nullptr) {
+            actions.disconnectWifi();
+        }
+
+        const bool canRefreshCredentials =
+            _previewRequested &&
+            actions.isBleConnected != nullptr &&
+            actions.isBleConnected() &&
+            actions.readFreshWifiCredentials != nullptr &&
+            actions.readFreshWifiCredentials();
+        if (canRefreshCredentials) {
+            if (actions.applyFreshWifiCredentials != nullptr) {
+                actions.applyFreshWifiCredentials();
+            }
+            transitionTo(AppState::ConnectingWifi,
+                         "cached resume refreshed BLE WiFi params",
+                         controllerMillis());
+            connected = actions.connectFreshWifiFromProfile != nullptr &&
+                        actions.connectFreshWifiFromProfile();
+            if (connected && actions.onFreshWifiConnected != nullptr) {
+                actions.onFreshWifiConnected();
+            }
+        }
+    }
+
+    if (!connected) {
         if (actions.disconnectWifi != nullptr) {
             actions.disconnectWifi();
         }
         if (actions.deactivateCameraWifiOverBle != nullptr) {
             (void)actions.deactivateCameraWifiOverBle();
         }
-        transitionTo(_previewRequested ? AppState::BleReady : AppState::WifiCredentialsReady,
-                     _previewRequested ? "WiFi resume failed" : "portrait cancelled WiFi resume",
-                     controllerMillis());
+        if (actions.isBleConnected == nullptr || !actions.isBleConnected()) {
+            transitionTo(AppState::BleScan, "BLE lost during WiFi resume", controllerMillis());
+        } else {
+            transitionTo(_previewRequested ? AppState::BleReady : AppState::WifiCredentialsReady,
+                         _previewRequested ? "WiFi resume failed" : "portrait cancelled WiFi resume",
+                         controllerMillis());
+        }
         return false;
-    }
-    if (actions.onFreshWifiConnected != nullptr) {
-        actions.onFreshWifiConnected();
     }
     if (startLiveView(actions)) {
         return true;

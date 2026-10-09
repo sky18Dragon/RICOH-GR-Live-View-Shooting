@@ -42,10 +42,13 @@ Result WifiPreviewService::connectWifi(const char* ssid,
                              : _wifi->connect(ssid, password, bssid, channel, timeoutMs);
     const uint32_t elapsed = millis() - startedAt;
     if (!connected) {
-        setError(String("WiFi connect failed status=") + _wifi->statusText());
-        LOGW("WIFI", "connect failed in %lums status=%s",
+        setError(String("WiFi connect failed status=") + _wifi->statusText() +
+                 " reason=" + _wifi->lastDisconnectText());
+        LOGW("WIFI", "connect failed in %lums status=%s reason=%s rssi=%d",
              static_cast<unsigned long>(elapsed),
-             _wifi->statusText().c_str());
+             _wifi->statusText().c_str(),
+             _wifi->lastDisconnectText().c_str(),
+             _wifi->lastDisconnectRssi());
         return Result::failure(ErrorCode::WifiConnectFailed, _lastError);
     }
 

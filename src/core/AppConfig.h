@@ -38,7 +38,9 @@ struct AppConfig {
 
     struct Wifi {
         static constexpr uint32_t kConnectTimeoutMs = WIFI_CONNECT_TIMEOUT_MS;
+        static constexpr uint32_t kBssidHintConnectTimeoutMs = WIFI_BSSID_HINT_CONNECT_TIMEOUT_MS;
         static constexpr uint32_t kChannelHintConnectTimeoutMs = WIFI_CHANNEL_HINT_CONNECT_TIMEOUT_MS;
+        static constexpr uint32_t kConnectStageBackoffMs = WIFI_CONNECT_STAGE_BACKOFF_MS;
         static constexpr uint32_t kCachedConnectTimeoutMs = WIFI_CACHED_CONNECT_TIMEOUT_MS;
         static constexpr uint32_t kCachedConnectGraceMs = WIFI_CACHED_CONNECT_GRACE_MS;
         static constexpr uint32_t kCacheRefreshDelayMs = WIFI_CACHE_REFRESH_DELAY_MS;

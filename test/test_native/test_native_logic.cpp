@@ -30,6 +30,7 @@ void tearDown(void) {}
 #include "ui/PairingGuide.h"
 #include "ui/UiAnimator.h"
 #include "ui/UiCoordinator.h"
+#include "wifi_connection_policy.h"
 
 namespace {
 
@@ -128,6 +129,8 @@ struct FlowHarness {
   static bool resetStackSucceeds;
   static bool deactivateSucceeds;
   static bool reactivateSucceeds;
+  static bool cachedConnectSucceeds;
+  static bool freshConnectSucceeds;
   static uint32_t lastRecoveryAt;
   static uint32_t activateCalls;
   static uint32_t finishWlanCalls;
@@ -137,6 +140,8 @@ struct FlowHarness {
   static uint32_t readCredentialsCalls;
   static uint32_t applyCredentialsCalls;
   static uint32_t connectCalls;
+  static uint32_t cachedConnectCalls;
+  static uint32_t freshConnectCalls;
   static uint32_t disconnectCalls;
   static uint32_t openPreviewCalls;
   static uint32_t runBleDiscoveryCalls;
@@ -151,6 +156,8 @@ struct FlowHarness {
     resetStackSucceeds = true;
     deactivateSucceeds = true;
     reactivateSucceeds = true;
+    cachedConnectSucceeds = true;
+    freshConnectSucceeds = true;
     lastRecoveryAt = 0;
     activateCalls = 0;
     finishWlanCalls = 0;
@@ -160,6 +167,8 @@ struct FlowHarness {
     readCredentialsCalls = 0;
     applyCredentialsCalls = 0;
     connectCalls = 0;
+    cachedConnectCalls = 0;
+    freshConnectCalls = 0;
     disconnectCalls = 0;
     openPreviewCalls = 0;
     runBleDiscoveryCalls = 0;
@@ -204,8 +213,21 @@ struct FlowHarness {
     ++applyCredentialsCalls;
     cachedCredentials = true;
   }
-  static bool connectWifi() {
+  static bool connectCachedWifi() {
     ++connectCalls;
+    ++cachedConnectCalls;
+    if (!cachedConnectSucceeds) {
+      return false;
+    }
+    wifiConnected = true;
+    return true;
+  }
+  static bool connectFreshWifi() {
+    ++connectCalls;
+    ++freshConnectCalls;
+    if (!freshConnectSucceeds) {
+      return false;
+    }
     wifiConnected = true;
     return true;
   }
@@ -237,10 +259,10 @@ struct FlowHarness {
     result.deactivateCameraWifiOverBle = deactivateWifi;
     result.reactivateCameraWifiForCachedResume = reactivateWifi;
     result.hasUsableCachedWifiCredentials = hasCredentials;
-    result.connectCachedWifiFromProfile = connectWifi;
+    result.connectCachedWifiFromProfile = connectCachedWifi;
     result.readFreshWifiCredentials = readCredentials;
     result.applyFreshWifiCredentials = applyCredentials;
-    result.connectFreshWifiFromProfile = connectWifi;
+    result.connectFreshWifiFromProfile = connectFreshWifi;
     result.openLiveView = openPreview;
     result.previewStreamRunning = isPreviewRunning;
     result.cameraRecoveryInProgress = recoveryInactive;
@@ -263,6 +285,8 @@ bool FlowHarness::guardActive = false;
 bool FlowHarness::resetStackSucceeds = true;
 bool FlowHarness::deactivateSucceeds = true;
 bool FlowHarness::reactivateSucceeds = true;
+bool FlowHarness::cachedConnectSucceeds = true;
+bool FlowHarness::freshConnectSucceeds = true;
 uint32_t FlowHarness::lastRecoveryAt = 0;
 uint32_t FlowHarness::activateCalls = 0;
 uint32_t FlowHarness::finishWlanCalls = 0;
@@ -272,6 +296,8 @@ uint32_t FlowHarness::reactivateCalls = 0;
 uint32_t FlowHarness::readCredentialsCalls = 0;
 uint32_t FlowHarness::applyCredentialsCalls = 0;
 uint32_t FlowHarness::connectCalls = 0;
+uint32_t FlowHarness::cachedConnectCalls = 0;
+uint32_t FlowHarness::freshConnectCalls = 0;
 uint32_t FlowHarness::disconnectCalls = 0;
 uint32_t FlowHarness::openPreviewCalls = 0;
 uint32_t FlowHarness::runBleDiscoveryCalls = 0;
@@ -361,7 +387,33 @@ void testPortraitToLandscapeResumesAfterCredentialCache() {
   TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::AppState::PreviewRunning),
                         static_cast<int>(controller.state()));
   TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::connectCalls);
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::cachedConnectCalls);
+  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::freshConnectCalls);
   TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::reactivateCalls);
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::openPreviewCalls);
+}
+
+void testPostureResumeRefreshesCredentialsWithoutSecondWlanToggle() {
+  FlowHarness::reset();
+  rvf::AppController controller(rvf::AppState::BleScan);
+  controller.begin(rvf::AppState::BleScan);
+  const rvf::AppFlowActions actions = FlowHarness::actions();
+  TEST_ASSERT_TRUE(controller.runCameraFlowOnce(actions, 100));
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::activateCalls);
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::deactivateCalls);
+
+  FlowHarness::cachedConnectSucceeds = false;
+  controller.setPreviewRequested(true);
+  controller.serviceCameraFlowIfNeeded(actions, 200);
+
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::AppState::PreviewRunning),
+                        static_cast<int>(controller.state()));
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::reactivateCalls);
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::activateCalls);
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::cachedConnectCalls);
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::freshConnectCalls);
+  TEST_ASSERT_EQUAL_UINT32(2, FlowHarness::readCredentialsCalls);
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::disconnectCalls);
   TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::openPreviewCalls);
 }
 
@@ -1458,9 +1510,79 @@ void testBlePreviewParkingIsDisabledForGr3AndGr4() {
 void testGr3CredentialShapeAllowsOptionalChannel() {
   TEST_ASSERT_TRUE(validGr3WifiCredentials("GR_TEST", "secret", 0));
   TEST_ASSERT_TRUE(validGr3WifiCredentials("GR_TEST", "secret", 11));
-  TEST_ASSERT_FALSE(validGr3WifiCredentials("GR_TEST", "secret", 12));
+  TEST_ASSERT_TRUE(validGr3WifiCredentials("GR_TEST", "secret", 12));
+  TEST_ASSERT_TRUE(validGr3WifiCredentials("GR_TEST", "secret", 13));
+  TEST_ASSERT_FALSE(validGr3WifiCredentials("GR_TEST", "secret", 14));
   TEST_ASSERT_FALSE(validGr3WifiCredentials("", "secret", 1));
   TEST_ASSERT_FALSE(validGr3WifiCredentials("GR_TEST", "", 1));
+}
+
+void testWifiConnectPlanRelaxesBssidThenChannel() {
+  WifiConnectAttempt attempts[WIFI_CONNECT_PLAN_MAX_ATTEMPTS]{};
+  const size_t count = buildWifiConnectPlan(true, 6, 15000, 3000, 3000, true, attempts);
+
+  TEST_ASSERT_EQUAL_size_t(3, count);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(WifiConnectTarget::BssidAndChannel),
+                        static_cast<int>(attempts[0].target));
+  TEST_ASSERT_TRUE(attempts[0].useBssid);
+  TEST_ASSERT_EQUAL_UINT8(6, attempts[0].channel);
+  TEST_ASSERT_EQUAL_UINT32(3000, attempts[0].timeoutMs);
+
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(WifiConnectTarget::ChannelOnly),
+                        static_cast<int>(attempts[1].target));
+  TEST_ASSERT_FALSE(attempts[1].useBssid);
+  TEST_ASSERT_EQUAL_UINT8(6, attempts[1].channel);
+  TEST_ASSERT_EQUAL_UINT32(3000, attempts[1].timeoutMs);
+
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(WifiConnectTarget::SsidOnly),
+                        static_cast<int>(attempts[2].target));
+  TEST_ASSERT_FALSE(attempts[2].useBssid);
+  TEST_ASSERT_EQUAL_UINT8(0, attempts[2].channel);
+  TEST_ASSERT_EQUAL_UINT32(9000, attempts[2].timeoutMs);
+}
+
+void testWifiCachedConnectUsesOneBoundedAttempt() {
+  WifiConnectAttempt attempts[WIFI_CONNECT_PLAN_MAX_ATTEMPTS]{};
+  const size_t count = buildWifiConnectPlan(true, 6, 3000, 3000, 3000, false, attempts);
+
+  TEST_ASSERT_EQUAL_size_t(1, count);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(WifiConnectTarget::BssidAndChannel),
+                        static_cast<int>(attempts[0].target));
+  TEST_ASSERT_EQUAL_UINT32(3000, attempts[0].timeoutMs);
+}
+
+void testWifiConnectPlanUsesSsidOnlyWithoutHints() {
+  WifiConnectAttempt attempts[WIFI_CONNECT_PLAN_MAX_ATTEMPTS]{};
+  const size_t count = buildWifiConnectPlan(false, 0, 15000, 3000, 3000, true, attempts);
+
+  TEST_ASSERT_EQUAL_size_t(1, count);
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(WifiConnectTarget::SsidOnly),
+                        static_cast<int>(attempts[0].target));
+  TEST_ASSERT_FALSE(attempts[0].useBssid);
+  TEST_ASSERT_EQUAL_UINT8(0, attempts[0].channel);
+  TEST_ASSERT_EQUAL_UINT32(15000, attempts[0].timeoutMs);
+}
+
+void testWifiInvalidPmkidRequiresSecurityContextReset() {
+  TEST_ASSERT_TRUE(wifiDisconnectReasonRequiresSecurityReset(49));
+  TEST_ASSERT_FALSE(wifiDisconnectReasonRequiresSecurityReset(0));
+  TEST_ASSERT_FALSE(wifiDisconnectReasonRequiresSecurityReset(201));
+  TEST_ASSERT_FALSE(wifiDisconnectReasonRequiresSecurityReset(202));
+}
+
+void testWifiNoApFoundRequiresImmediateRetry() {
+  TEST_ASSERT_TRUE(wifiDisconnectReasonRequiresImmediateRetry(201));
+  TEST_ASSERT_FALSE(wifiDisconnectReasonRequiresImmediateRetry(0));
+  TEST_ASSERT_FALSE(wifiDisconnectReasonRequiresImmediateRetry(49));
+  TEST_ASSERT_FALSE(wifiDisconnectReasonRequiresImmediateRetry(202));
+  TEST_ASSERT_EQUAL_UINT8(2, WIFI_NO_AP_RETRIES_WITHIN_BUDGET);
+}
+
+void testWifiCachePersistsOnlyNewOrChangedConnectionHints() {
+  TEST_ASSERT_TRUE(wifiCacheNeedsPersistence(false, false, false));
+  TEST_ASSERT_TRUE(wifiCacheNeedsPersistence(true, true, false));
+  TEST_ASSERT_TRUE(wifiCacheNeedsPersistence(true, false, true));
+  TEST_ASSERT_FALSE(wifiCacheNeedsPersistence(true, false, false));
 }
 
 void testOldGr4ProfileMetadataMigratesWithoutRepairing() {
@@ -1648,6 +1770,7 @@ int main() {
   RUN_TEST(testPortraitReconnectReusesCacheWithoutTogglingCameraWlan);
   RUN_TEST(testLandscapeStartupOpensLiveViewWithoutPropsProbe);
   RUN_TEST(testPortraitToLandscapeResumesAfterCredentialCache);
+  RUN_TEST(testPostureResumeRefreshesCredentialsWithoutSecondWlanToggle);
   RUN_TEST(testLandscapeToPortraitDisconnectsWifiAndKeepsBleReady);
   RUN_TEST(testCachedResumeStopsBeforeWifiConnectWhenReactivationFails);
   RUN_TEST(testWifiDeactivationFailureDoesNotBreakBleShutterState);
@@ -1669,6 +1792,12 @@ int main() {
   RUN_TEST(testGr2CredentialHandoffWaitsForResponseFlushAndHandlesMillisWrap);
   RUN_TEST(testBlePreviewParkingIsDisabledForGr3AndGr4);
   RUN_TEST(testGr3CredentialShapeAllowsOptionalChannel);
+  RUN_TEST(testWifiConnectPlanRelaxesBssidThenChannel);
+  RUN_TEST(testWifiCachedConnectUsesOneBoundedAttempt);
+  RUN_TEST(testWifiConnectPlanUsesSsidOnlyWithoutHints);
+  RUN_TEST(testWifiInvalidPmkidRequiresSecurityContextReset);
+  RUN_TEST(testWifiNoApFoundRequiresImmediateRetry);
+  RUN_TEST(testWifiCachePersistsOnlyNewOrChangedConnectionHints);
   RUN_TEST(testOldGr4ProfileMetadataMigratesWithoutRepairing);
   RUN_TEST(testNewProfileMetadataRoundTrips);
   RUN_TEST(testNormalizesResolvedPeerAddressTypes);
