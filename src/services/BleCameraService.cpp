@@ -260,6 +260,33 @@ Result BleCameraService::enablePowerStateNotify() {
     return Result::success();
 }
 
+Result BleCameraService::enableCameraStatusNotify() {
+    Result ready = requireClient("enableCameraStatusNotify");
+    if (ready.failed()) {
+        return ready;
+    }
+    if (!_client->enableCameraStatusNotify()) {
+        return Result::failure(ErrorCode::Unknown, _client->lastError());
+    }
+    return Result::success();
+}
+
+bool BleCameraService::statusNotifyAttempted() const {
+    return _client != nullptr && _client->statusNotifyAttempted();
+}
+
+uint32_t BleCameraService::shotEventSequence() const {
+    return _client != nullptr ? _client->shotEventSequence() : 0;
+}
+
+bool BleCameraService::shotNotifyActive() const {
+    return _client != nullptr && _client->shotNotifyActive();
+}
+
+int BleCameraService::batteryLevel() const {
+    return _client != nullptr ? _client->batteryLevel() : -1;
+}
+
 bool BleCameraService::consumePowerOffNotification() {
     const bool notified = _client != nullptr && _client->consumePowerOffNotification();
     if (notified) {

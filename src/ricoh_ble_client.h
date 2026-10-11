@@ -94,6 +94,16 @@ public:
   bool requestCaptureOperationMode();
   bool enablePowerStateNotify();
   bool consumePowerOffNotification();
+  // Subscribes BatteryLevel, ShotCount and CaptureStatus individually; true
+  // when at least one is live. Runs once per connection after the link is
+  // usable (authenticated encryption on GR III).
+  bool enableCameraStatusNotify();
+  bool statusNotifyAttempted() const { return _statusNotifyAttempted; }
+  // Bumped by every ShotCount or CaptureStatus notification.
+  uint32_t shotEventSequence() const;
+  bool shotNotifyActive() const;
+  // Last BatteryLevel byte, or -1 while no battery notify is subscribed.
+  int batteryLevel() const;
   bool waitForWifiCredentials(RicohBleWifiCredentials& credentials, uint32_t timeoutMs);
   void disconnect();
   int consumeDisconnectReason();
@@ -127,4 +137,5 @@ private:
   RicohBleProtocolRouter _protocolRouter;
   RicohCameraOperationMode _lastOperationMode = RicohCameraOperationMode::Unknown;
   bool _lastOperationModeValid = false;
+  bool _statusNotifyAttempted = false;
 };

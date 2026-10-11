@@ -45,6 +45,11 @@ constexpr uint32_t LIVEVIEW_STALL_TIMEOUT_MS = 5000;
 // supervision timeouts; 7 held 4-7 FPS with working BLE shutter on GR IIIx
 // and GR IV. GR II has not been tested with the parameter and keeps 0.
 constexpr uint8_t LIVEVIEW_MAX_FPS = 7;
+// Window after an acknowledged BLE shutter write in which a ShotCount or
+// CaptureStatus notification counts as the camera confirming the capture.
+// Expiry is only reported, never treated as failure: long exposures and
+// cameras that never send these notifications must keep working.
+constexpr uint32_t SHOT_CONFIRM_TIMEOUT_MS = 4000;
 constexpr uint32_t UI_STATUS_INTERVAL_MS = 1000;
 constexpr uint32_t POWER_BUTTON_POLL_MS = 50;
 constexpr uint32_t POWER_BUTTON_HOLD_MS = 1200;
@@ -152,6 +157,14 @@ constexpr uint8_t RICOH_BLE_GR4_POWER_STATE_OFF_VALUE = 0x00;
 #endif
 #ifndef RICOH_BLE_OPERATION_MODE_LIST_UUID
 #define RICOH_BLE_OPERATION_MODE_LIST_UUID "430B80A3-CC2E-4EC2-AACD-08610281FF38"
+
+// Camera Service BatteryLevel (R/N, 1 byte) and Shooting service
+// CaptureStatus (R/N, 4 bytes) / ShotCount (R/N, 2 bytes). Registered with
+// the same UUIDs on GR IIIx V1.60 and GR IV V1.11. Value encodings are not
+// recovered yet, so only "a notification arrived" is relied on for shots.
+#define RICOH_BLE_BATTERY_LEVEL_UUID "875FC41D-4980-434C-A653-FD4A4D4410C4"
+#define RICOH_BLE_CAPTURE_STATUS_UUID "B5589C08-B5FD-46F5-BE7D-AB1B8C074CAA"
+#define RICOH_BLE_SHOT_COUNT_UUID "12D262BA-D8BF-44B0-8E85-C414A40230A9"
 #endif
 #ifndef RICOH_BLE_SHOOTING_SERVICE_UUID
 #define RICOH_BLE_SHOOTING_SERVICE_UUID "9F00F387-8345-4BBC-8B92-B87B52E3091A"

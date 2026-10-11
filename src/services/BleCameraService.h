@@ -46,6 +46,11 @@ public:
     Result requestCaptureOperationMode();
     Result enablePowerStateNotify();
     bool consumePowerOffNotification();
+    Result enableCameraStatusNotify();
+    bool statusNotifyAttempted() const;
+    uint32_t shotEventSequence() const;
+    bool shotNotifyActive() const;
+    int batteryLevel() const;
     Result waitForWifiCredentials(RicohBleWifiCredentials& credentials, uint32_t timeoutMs);
 
     int consumeDisconnectReason();

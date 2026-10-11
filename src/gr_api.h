@@ -3,10 +3,14 @@
 #include <Arduino.h>
 #include <WiFiClient.h>
 
+#include "liveview_reso_policy.h"
+
 struct CameraProps {
   bool ok = false;
   String model;
   String battery;
+  LiveViewResolution resoList[LIVEVIEW_RESO_LIST_CAPACITY];
+  size_t resoCount = 0;
 };
 
 class GrApi {
@@ -26,6 +30,9 @@ public:
   // 0 sends the bare /v1/liveview request; otherwise ?maxfps=<fps>, which the
   // camera applies as a send-side frame interval in SendFrameLoop.
   void setLiveViewMaxFps(uint8_t fps);
+  // An invalid resolution omits reso=. A camera that rejects the requested
+  // size gets one retry without it, and the size is dropped from then on.
+  void setLiveViewResolution(const LiveViewResolution& resolution);
   bool openLiveView();
   void closeLiveView();
   bool isLiveViewOpen();
@@ -40,10 +47,12 @@ private:
   bool postGr2Command(const char* path, uint32_t timeoutMs, String& responseBody);
   void parsePropsJson(const String& json, CameraProps& props) const;
   void setError(const String& message);
+  int requestLiveView(bool includeResolution);
 
   WiFiClient _liveClient;
   bool _liveViewOpen = false;
   uint8_t _liveViewMaxFps = 0;
+  LiveViewResolution _liveViewResolution;
   String _host;
   uint16_t _port = 80;
   String _lastError;

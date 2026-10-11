@@ -86,6 +86,11 @@ RicohCameraOperationMode cameraOperationMode = RicohCameraOperationMode::Unknown
 bool cameraWifiStartupModeProbe = false;
 uint32_t lastPropsAt = 0;
 uint32_t deferredPropsRefreshAfter = 0;
+bool liveViewResolutionSelected = false;
+int cameraBleBatteryShown = -1;
+bool shotConfirmPending = false;
+uint32_t shotConfirmStartedAt = 0;
+uint32_t shotEventSequenceBeforeShot = 0;
 uint32_t decodedFrames = 0;
 uint32_t fpsWindowStart = 0;
 uint32_t fpsWindowFrames = 0;
@@ -720,6 +725,7 @@ void toggleLiveViewLock() {
 }
 
 bool serviceButtonsDuringBleOperation();
+void refreshPropsIfDue(bool force = false);
 
 bool readCameraOperationModeWithRetries() {
   const uint8_t modeRetries = RICOH_BLE_OPERATION_MODE_READ_RETRIES == 0 ? 1 : RICOH_BLE_OPERATION_MODE_READ_RETRIES;
@@ -1664,8 +1670,40 @@ void showStartingLiveViewForController() {
   showStatusIfChanged("Starting LiveView", grWifi.localIPString(), cameraProps.model, cameraProps.battery, true);
 }
 
+void selectLiveViewResolutionFromProps() {
+  String listText;
+  for (size_t i = 0; i < cameraProps.resoCount; ++i) {
+    if (i > 0) {
+      listText += ' ';
+    }
+    listText += String(cameraProps.resoList[i].width) + "x" + cameraProps.resoList[i].height;
+  }
+  const LiveViewResolution chosen = chooseLiveViewResolution(
+      cameraProps.resoList, cameraProps.resoCount, JPEG_DECODE_WIDTH, JPEG_DECODE_HEIGHT);
+  grApi.setLiveViewResolution(chosen);
+  if (chosen.valid()) {
+    Serial.printf("HTTP: resoList=[%s] selected reso=%ux%u\n",
+                  listText.c_str(),
+                  static_cast<unsigned>(chosen.width),
+                  static_cast<unsigned>(chosen.height));
+  } else {
+    Serial.printf("HTTP: resoList=[%s] keeping camera default LiveView size\n", listText.c_str());
+  }
+}
+
 bool openLiveViewForController() {
   grApi.setLiveViewMaxFps(isGr2WifiOnlyProfile() ? 0 : LIVEVIEW_MAX_FPS);
+  if (!isGr2WifiOnlyProfile()) {
+    if (!cameraProps.ok) {
+      // One props read before the stream opens supplies resoList, model and
+      // battery together, so nothing has to compete with the stream for them.
+      refreshPropsIfDue(true);
+    }
+    if (cameraProps.ok && !liveViewResolutionSelected) {
+      selectLiveViewResolutionFromProps();
+      liveViewResolutionSelected = true;
+    }
+  }
   const rvf::Result previewResult = wifiPreview.startPreview();
   if (previewResult.failed()) {
     return false;
@@ -1681,8 +1719,13 @@ void onLiveViewOpenFailedForController() {
 void onLiveViewOpenedForController() {
   lastFrameAt = millis();
   lastLiveViewActivityAt = lastFrameAt;
-  deferredPropsRefreshAfter = lastFrameAt + INITIAL_PROPS_REFRESH_DELAY_MS;
   previewFrameBuffer.resetRuntimeStats();
+  if (cameraProps.ok) {
+    deferredPropsRefreshAfter = 0;
+    Serial.println("LiveView: connected; props already loaded");
+    return;
+  }
+  deferredPropsRefreshAfter = lastFrameAt + INITIAL_PROPS_REFRESH_DELAY_MS;
   Serial.printf("LiveView: connected; props deferred until first frame + %lums\n",
                 static_cast<unsigned long>(INITIAL_PROPS_REFRESH_DELAY_MS));
 }
@@ -1773,6 +1816,7 @@ bool retryShutterAfterGr3StartupMode() {
       Serial.printf("Button A: camera left BLE_STARTUP after %lums mode=%s; retrying shutter\n",
                     static_cast<unsigned long>(millis() - waitStartedAt),
                     cameraOperationModeName(mode));
+      shotEventSequenceBeforeShot = bleCamera.shotEventSequence();
       return bleCamera.shoot(true).ok();
     }
   }
@@ -1792,6 +1836,7 @@ bool shootAutofocusForController() {
     Serial.println("Button A: shutter over HTTP (BLE parked)");
     return grApi.shoot(PROPS_TIMEOUT_MS);
   }
+  shotEventSequenceBeforeShot = bleCamera.shotEventSequence();
   const rvf::Result shootResult = bleCamera.shoot(true);
   if (shootResult.ok()) {
     return true;
@@ -1801,14 +1846,58 @@ bool shootAutofocusForController() {
 
 void onShutterOkForController() {
   uiCoordinator.notifyShutterResult(true, millis());
+  const bool overHttp = isGr2WifiOnlyProfile() || bleParkedForPreview;
+  shotConfirmPending = !overHttp && bleCamera.shotNotifyActive();
+  shotConfirmStartedAt = millis();
   showStatusIfChanged("Button A shutter",
-                      (isGr2WifiOnlyProfile() || bleParkedForPreview)
-                        ? "HTTP SHOT OK"
-                        : "BLE SHOT OK",
+                      overHttp ? "HTTP SHOT OK" : (shotConfirmPending ? "BLE SHOT SENT" : "BLE SHOT OK"),
                       cameraProps.model,
                       cameraProps.battery,
                       true);
   updateUi();
+}
+
+void serviceShotConfirmation(uint32_t nowMs) {
+  if (!shotConfirmPending) {
+    return;
+  }
+  const uint32_t elapsed = nowMs - shotConfirmStartedAt;
+  if (bleCamera.shotEventSequence() != shotEventSequenceBeforeShot) {
+    shotConfirmPending = false;
+    Serial.printf("BLE: shot confirmed by camera notify after %lums\n", static_cast<unsigned long>(elapsed));
+    showStatusIfChanged("Button A shutter", "SHOT CONFIRMED", cameraProps.model, cameraProps.battery, true);
+    return;
+  }
+  if (!bleCamera.isConnected()) {
+    shotConfirmPending = false;
+    return;
+  }
+  if (elapsed >= SHOT_CONFIRM_TIMEOUT_MS) {
+    shotConfirmPending = false;
+    Serial.printf("BLE: shot not confirmed within %lums (no ShotCount/CaptureStatus notify)\n",
+                  static_cast<unsigned long>(elapsed));
+    showStatusIfChanged("Button A shutter", "Sent, not confirmed", "Check camera", "", true);
+  }
+}
+
+// Status notifications are subscribed once per BLE connection, from the tick
+// rather than the connect flow, because portrait resume with cached Wi-Fi
+// credentials never passes through the power check that enables power notify.
+void serviceCameraStatusNotify() {
+  if (!bleCamera.isConnected() || bleParkedForPreview) {
+    return;
+  }
+  if (!bleCamera.statusNotifyAttempted()) {
+    const rvf::Result result = bleCamera.enableCameraStatusNotify();
+    if (result.failed() && bleCamera.statusNotifyAttempted()) {
+      Serial.printf("BLE: status notify unavailable: %s\n", bleCamera.lastError().c_str());
+    }
+  }
+  const int battery = bleCamera.batteryLevel();
+  if (battery >= 0 && battery != cameraBleBatteryShown) {
+    cameraBleBatteryShown = battery;
+    cameraProps.battery = battery <= 100 ? String(battery) + "%" : String("raw ") + battery;
+  }
 }
 
 void onShutterFailedForController() {
@@ -2072,7 +2161,7 @@ rvf::AppFlowActions makeAppFlowActions() {
   return actions;
 }
 
-void refreshPropsIfDue(bool force = false) {
+void refreshPropsIfDue(bool force) {
   if (isGr2WifiOnlyProfile()) {
     // The official GR Remote uses /v1/params/device rather than /v1/props.
     // The current UI only needs a stable model label here; avoid generating a
@@ -2095,6 +2184,11 @@ void refreshPropsIfDue(bool force = false) {
   if (!force && cameraProps.ok && (now - lastPropsAt) < PROPS_REFRESH_INTERVAL_MS) {
     return;
   }
+  if (!force && cameraProps.ok && bleCamera.isConnected() && bleCamera.batteryLevel() >= 0) {
+    // Battery arrives over BLE notify and the model does not change, so a
+    // 16 KB /v1/props read would only take airtime from the stream.
+    return;
+  }
   if (!grWifi.isConnected()) {
     return;
   }
@@ -2103,6 +2197,7 @@ void refreshPropsIfDue(bool force = false) {
   if (wifiPreview.fetchProps(nextProps, PROPS_TIMEOUT_MS).ok()) {
     cameraProps = nextProps;
     lastPropsAt = now;
+    cameraBleBatteryShown = -1;
   } else if (force) {
     Serial.printf("HTTP: props refresh failed: %s\n", wifiPreview.lastError().c_str());
   }
@@ -2320,6 +2415,9 @@ void resetBlePairingFromKey2() {
   cameraProps = CameraProps{};
   lastPropsAt = 0;
   deferredPropsRefreshAfter = 0;
+  liveViewResolutionSelected = false;
+  cameraBleBatteryShown = -1;
+  grApi.setLiveViewResolution(LiveViewResolution{});
   liveviewEnabled = true;
   bleCamera.setBindingState(CameraBindingState::Unpaired);
   if (!resettingGr2) {
@@ -2800,6 +2898,8 @@ void runAppTick() {
   if (tickPlan.monitorWifi) {
     appController.monitorWifi(actions);
   }
+  serviceCameraStatusNotify();
+  serviceShotConfirmation(millis());
   if (tickPlan.refreshProps) {
     refreshPropsIfDue();
   }

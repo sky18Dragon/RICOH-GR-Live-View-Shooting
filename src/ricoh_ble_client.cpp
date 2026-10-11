@@ -54,6 +54,10 @@ std::atomic<int> g_powerOffDisconnectReason{0};
 std::atomic<int> g_powerStateNotifyValue{-1};
 std::atomic<bool> g_powerOffNotifyPending{false};
 std::atomic<uint16_t> g_powerStateNotifyHandle{0};
+std::atomic<uint32_t> g_shotEventSequence{0};
+std::atomic<int> g_batteryLevel{-1};
+std::atomic<bool> g_batteryNotifyActive{false};
+std::atomic<bool> g_shotNotifyActive{false};
 std::atomic<bool> g_passkeyEntryRequested{false};
 std::atomic<bool> g_bondInvalidRequested{false};
 std::atomic<uint8_t> g_bindingState{static_cast<uint8_t>(CameraBindingState::Unpaired)};
@@ -925,6 +929,43 @@ void powerStateNotifyCallback(NimBLERemoteCharacteristic*, uint8_t* data, size_t
     g_powerOffNotifyPending.store(false);
   }
   Serial.printf("BLE: power notify value=0x%02X\n", value);
+}
+
+String hexBytes(const uint8_t* data, size_t length) {
+  String text;
+  for (size_t i = 0; i < length; ++i) {
+    char hex[4];
+    snprintf(hex, sizeof(hex), "%02X", data[i]);
+    if (i > 0) {
+      text += ' ';
+    }
+    text += hex;
+  }
+  return text;
+}
+
+void batteryLevelNotifyCallback(NimBLERemoteCharacteristic*, uint8_t* data, size_t length, bool) {
+  if (data == nullptr || length == 0) {
+    return;
+  }
+  g_batteryLevel.store(data[0]);
+  Serial.printf("BLE: battery notify value=%u\n", static_cast<unsigned>(data[0]));
+}
+
+void shotCountNotifyCallback(NimBLERemoteCharacteristic*, uint8_t* data, size_t length, bool) {
+  if (data == nullptr || length == 0) {
+    return;
+  }
+  g_shotEventSequence.fetch_add(1);
+  Serial.printf("BLE: shot count notify raw=[%s]\n", hexBytes(data, length).c_str());
+}
+
+void captureStatusNotifyCallback(NimBLERemoteCharacteristic*, uint8_t* data, size_t length, bool) {
+  if (data == nullptr || length == 0) {
+    return;
+  }
+  g_shotEventSequence.fetch_add(1);
+  Serial.printf("BLE: capture status notify raw=[%s]\n", hexBytes(data, length).c_str());
 }
 
 const char* attErrorName(int rc) {
@@ -2077,16 +2118,7 @@ bool RicohBleClient::requestCaptureOperationMode() {
     return false;
   }
   const NimBLEAttValue listValue = modeList->readValue();
-  String listText;
-  for (size_t i = 0; i < listValue.length(); ++i) {
-    char hex[4];
-    snprintf(hex, sizeof(hex), "%02X", listValue.data()[i]);
-    if (i > 0) {
-      listText += ' ';
-    }
-    listText += hex;
-  }
-  Serial.printf("BLE: operation mode list=[%s]\n", listText.c_str());
+  Serial.printf("BLE: operation mode list=[%s]\n", hexBytes(listValue.data(), listValue.length()).c_str());
   if (!operationModeListContains(listValue.data(), listValue.length(), RicohCameraOperationMode::Capture)) {
     _lastError = "BLE operation mode list does not offer CAPTURE";
     return false;
@@ -2158,6 +2190,95 @@ bool RicohBleClient::enablePowerStateNotify() {
 
 bool RicohBleClient::consumePowerOffNotification() {
   return g_powerOffNotifyPending.exchange(false);
+}
+
+bool RicohBleClient::enableCameraStatusNotify() {
+  NimBLEClient* client = static_cast<NimBLEClient*>(_client);
+  if (!isConnected() || client == nullptr) {
+    _lastError = "BLE not connected";
+    return false;
+  }
+  const RicohProtocolGeneration generation = protocolProfile().generation;
+  if (generation != RicohProtocolGeneration::Gr3Family &&
+      generation != RicohProtocolGeneration::Gr4Family) {
+    _lastError = "BLE status notify unsupported for detected protocol";
+    return false;
+  }
+  if (generation == RicohProtocolGeneration::Gr3Family) {
+    const RicohBleSecurityState security = securityState();
+    if (!security.encrypted || !security.authenticated) {
+      _lastError = "BLE status notify requires authenticated encryption";
+      return false;
+    }
+  }
+  _statusNotifyAttempted = true;
+
+  struct StatusCharacteristic {
+    const char* serviceUuid;
+    const char* uuid;
+    const char* label;
+    void (*callback)(NimBLERemoteCharacteristic*, uint8_t*, size_t, bool);
+    bool battery;
+  };
+  const StatusCharacteristic characteristics[] = {
+      {RICOH_BLE_CAMERA_SERVICE_UUID, RICOH_BLE_BATTERY_LEVEL_UUID, "BatteryLevel", batteryLevelNotifyCallback, true},
+      {RICOH_BLE_SHOOTING_SERVICE_UUID, RICOH_BLE_SHOT_COUNT_UUID, "ShotCount", shotCountNotifyCallback, false},
+      {RICOH_BLE_SHOOTING_SERVICE_UUID,
+       RICOH_BLE_CAPTURE_STATUS_UUID,
+       "CaptureStatus",
+       captureStatusNotifyCallback,
+       false},
+  };
+
+  size_t subscribed = 0;
+  String failed;
+  for (const StatusCharacteristic& item : characteristics) {
+    if (!client->isConnected()) {
+      break;
+    }
+    NimBLERemoteCharacteristic* characteristic = findCharacteristic(client, item.serviceUuid, item.uuid);
+    if (characteristic == nullptr || !characteristic->canNotify() ||
+        !characteristic->subscribe(true, item.callback)) {
+      if (failed.length() > 0) {
+        failed += ',';
+      }
+      failed += item.label;
+      continue;
+    }
+    ++subscribed;
+    if (item.battery) {
+      g_batteryNotifyActive.store(true);
+      const NimBLEAttValue value = characteristic->readValue();
+      if (value.length() > 0) {
+        g_batteryLevel.store(value.data()[0]);
+      }
+    } else {
+      g_shotNotifyActive.store(true);
+    }
+  }
+
+  Serial.printf("BLE: status notify subscribed=%u failed=[%s] battery=%d\n",
+                static_cast<unsigned>(subscribed),
+                failed.c_str(),
+                g_batteryLevel.load());
+  if (subscribed == 0) {
+    _lastError = "BLE status notify unavailable";
+    return false;
+  }
+  _lastError = "";
+  return true;
+}
+
+uint32_t RicohBleClient::shotEventSequence() const {
+  return g_shotEventSequence.load();
+}
+
+bool RicohBleClient::shotNotifyActive() const {
+  return g_shotNotifyActive.load();
+}
+
+int RicohBleClient::batteryLevel() const {
+  return g_batteryNotifyActive.load() ? g_batteryLevel.load() : -1;
 }
 
 bool RicohBleClient::waitForWifiCredentials(RicohBleWifiCredentials& credentials, uint32_t timeoutMs) {
@@ -2358,6 +2479,10 @@ void RicohBleClient::disconnect() {
   _connectedIdentityAddressType = 0;
   _connectedIdentityKnown = false;
   g_powerStateNotifyHandle.store(0);
+  g_batteryNotifyActive.store(false);
+  g_batteryLevel.store(-1);
+  g_shotNotifyActive.store(false);
+  _statusNotifyAttempted = false;
 }
 
 int RicohBleClient::consumeDisconnectReason() {

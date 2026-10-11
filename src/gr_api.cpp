@@ -342,17 +342,30 @@ void GrApi::setLiveViewMaxFps(uint8_t fps) {
   _liveViewMaxFps = fps;
 }
 
-bool GrApi::openLiveView() {
-  closeLiveView();
+void GrApi::setLiveViewResolution(const LiveViewResolution& resolution) {
+  _liveViewResolution = resolution;
+}
 
+int GrApi::requestLiveView(bool includeResolution) {
   if (!connectClient(_liveClient, kDefaultConnectTimeoutMs)) {
-    return false;
+    return -1;
   }
 
   const String host = _host.length() ? _host : String(GR_HOST);
-  String path = "/v1/liveview";
+  String query;
   if (_liveViewMaxFps > 0) {
-    path += String("?maxfps=") + _liveViewMaxFps;
+    query += String("maxfps=") + _liveViewMaxFps;
+  }
+  if (includeResolution) {
+    if (query.length() > 0) {
+      query += '&';
+    }
+    query += String("reso=") + _liveViewResolution.width + "x" + _liveViewResolution.height;
+  }
+  String path = "/v1/liveview";
+  if (query.length() > 0) {
+    path += '?';
+    path += query;
   }
   Serial.printf("HTTP: opening LiveView path=%s\n", path.c_str());
   _liveClient.print(String("GET ") + path + " HTTP/1.1\r\nHost: " + host +
@@ -361,13 +374,30 @@ bool GrApi::openLiveView() {
   String headers;
   if (!readHttpHeaders(_liveClient, kDefaultConnectTimeoutMs, headers)) {
     _liveClient.stop();
-    return false;
+    return -1;
   }
-
   const int status = parseHttpStatus(headers);
   if (status != 200) {
     _liveClient.stop();
     setError(String("GET /v1/liveview HTTP ") + status);
+  }
+  return status;
+}
+
+bool GrApi::openLiveView() {
+  closeLiveView();
+
+  const bool withResolution = _liveViewResolution.valid();
+  int status = requestLiveView(withResolution);
+  if (withResolution && status >= 400 && status < 500) {
+    Serial.printf("HTTP: LiveView rejected reso=%ux%u (HTTP %d); using camera default\n",
+                  static_cast<unsigned>(_liveViewResolution.width),
+                  static_cast<unsigned>(_liveViewResolution.height),
+                  status);
+    _liveViewResolution = LiveViewResolution{};
+    status = requestLiveView(false);
+  }
+  if (status != 200) {
     return false;
   }
 
@@ -510,6 +540,8 @@ void GrApi::parsePropsJson(const String& json, CameraProps& props) const {
       extractJsonString(json, "battery", stringValue)) {
     batteryState = stringValue;
   }
+
+  props.resoCount = parseLiveViewResoList(json.c_str(), props.resoList, LIVEVIEW_RESO_LIST_CAPACITY);
 
   if (props.model.isEmpty()) {
     props.model = "RICOH GR";

@@ -60,7 +60,7 @@ BleScan → BleReady → WifiConnecting → HttpProbe → LiveViewRunning
   1. `handleButtons()` — 仅 `M5.BtnA`：保护态则 `requestManualCameraWake`，否则 `triggerShutterFromButtonA()`（`bleCamera.shoot(true)`）。
   2. `serviceCameraFlowIfNeeded()` — 非运行态按 `BLE_SCAN_RETRY_INTERVAL_MS` 周期推进。
   3. `ensureWiFi()` — LiveView 中 Wi-Fi 掉线即恢复。
-  4. `refreshPropsIfDue()` — 每 `PROPS_REFRESH_INTERVAL_MS=60s` 刷新 `/v1/props`。
+  4. `refreshPropsIfDue()` — 每 `PROPS_REFRESH_INTERVAL_MS=60s` 刷新 `/v1/props`；BLE 已连接且 BatteryLevel 通知可用时跳过周期刷新，电量改由 BLE 更新。首次 LiveView 打开前强制读取一次 props（取 `resoList`）。
   5. `ensureLiveView()` — 读 MJPEG → `mjpeg.process()`；处理 BLE/Wi-Fi/LiveView 掉线与 stall 看门狗。
   6. `updateStatusUiIfDue()` — 每 `UI_STATUS_INTERVAL_MS=1s` 刷新非 LiveView 状态。
 
@@ -90,6 +90,7 @@ BleScan → BleReady → WifiConnecting → HttpProbe → LiveViewRunning
 | `openWifi()` | 写 `0x0135`=`0x01` 唤醒相机 Wi-Fi |
 | `readPowerState(&state)` / `enablePowerStateNotify()` | 读/订阅电源状态 `0x00EB`/CCCD `0x00EC` |
 | `consumePowerOffNotification()` | 取走一次电源 `0x00` 通知 |
+| `enableCameraStatusNotify()` | 每条连接一次，按 UUID 订阅 BatteryLevel / ShotCount / CaptureStatus（GR III 需认证加密）；`batteryLevel()` 给出电量，`shotEventSequence()` 在每次 ShotCount/CaptureStatus 通知时递增，用于快门确认 |
 | `waitForWifiCredentials(&cred, timeoutMs)` | 轮询读取 `0x0138` SSID / `0x013A` 密码 / `0x0140` BSSID |
 | `disconnect()` / `resetStack(clearObjects=false)` | 断连 / 重建 BLE 栈（手动唤醒用 `clearObjects=true`） |
 | `consumeDisconnectReason()` / `clearDisconnectReason()` | 取走/清除 GAP 断连 reason |
@@ -124,7 +125,7 @@ BleScan → BleReady → WifiConnecting → HttpProbe → LiveViewRunning
 
 - `setEndpoint(host, port=80)` / 默认 `GR_HOST=192.168.0.1:80`。
 - `fetchProps(props, timeoutMs)`：`GET /v1/props HTTP/1.1`（`Connection: close`），`parsePropsJson` 用 ArduinoJson 兼容多键名（`model`/`modelName`/`model_name`、`batteryLevel`/`battery_level`、`batteryState`/`battery_state`），输出 `CameraProps{model, battery}`。
-- `openLiveView()` / `closeLiveView()` / `isLiveViewOpen()`：`GET /v1/liveview?maxfps=<LIVEVIEW_MAX_FPS> HTTP/1.1`（GR II 用 `setLiveViewMaxFps(0)` 保持无参数），**保持连接**，`_liveClient` 复用。
+- `openLiveView()` / `closeLiveView()` / `isLiveViewOpen()`：`GET /v1/liveview?maxfps=<LIVEVIEW_MAX_FPS>[&reso=WxH] HTTP/1.1`（GR II 用 `setLiveViewMaxFps(0)` 保持无参数），**保持连接**，`_liveClient` 复用。`reso` 由 `liveview_reso_policy` 从 props `resoList` 中挑选不小于 216×144、3:2（容差 1%）的最小尺寸；只有默认尺寸可选时不带该参数；相机返回 4xx 时去掉 `reso` 重试一次并在本次会话内不再使用。
 - `readLiveView(dst, len)`：从 `_liveClient` 读 MJPEG 字节流；`>0` 字节数、`0` 暂无数据、`<0` 错误。
 - 内部：`connectClient`（连接 + 超时）、`readHttpHeaders`/`parseHttpStatus`/`parseContentLength`、`lastError`。
 

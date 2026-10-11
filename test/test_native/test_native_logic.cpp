@@ -23,6 +23,7 @@ void tearDown(void) {}
 #include "ricoh/RicohBleProtocolRouter.h"
 #include "camera_sleep_policy.h"
 #include "image_fit.h"
+#include "liveview_reso_policy.h"
 #include "mjpeg_stream.h"
 #include "supervisor/SystemSupervisor.h"
 #include "ui/ButtonInput.h"
@@ -1347,6 +1348,48 @@ void testOperationModeListParsesCountPrefixedEntries() {
   TEST_ASSERT_FALSE(operationModeListContains(nullptr, 0, RicohCameraOperationMode::Capture));
 }
 
+void testLiveViewResoListParsesStringAndBareTokens() {
+  LiveViewResolution list[LIVEVIEW_RESO_LIST_CAPACITY];
+  const char* props =
+      "{\"model\":\"GR IIIx\",\"resoList\":[\"720x480\", \"360x240\",\"1280x720\"],\"liveState\":\"idle\"}";
+  TEST_ASSERT_EQUAL_UINT32(3, parseLiveViewResoList(props, list, LIVEVIEW_RESO_LIST_CAPACITY));
+  TEST_ASSERT_EQUAL_UINT16(720, list[0].width);
+  TEST_ASSERT_EQUAL_UINT16(480, list[0].height);
+  TEST_ASSERT_EQUAL_UINT16(360, list[1].width);
+  TEST_ASSERT_EQUAL_UINT16(1280, list[2].width);
+  TEST_ASSERT_EQUAL_UINT16(720, list[2].height);
+
+  // Digits outside the array and malformed tokens are ignored.
+  TEST_ASSERT_EQUAL_UINT32(1, parseLiveViewResoList("{\"battery\":80,\"resoList\":[\"640\",\"x9\",640x427]}",
+                                                    list,
+                                                    LIVEVIEW_RESO_LIST_CAPACITY));
+  TEST_ASSERT_EQUAL_UINT16(427, list[0].height);
+  TEST_ASSERT_EQUAL_UINT32(0, parseLiveViewResoList("{\"resoList\":[]}", list, LIVEVIEW_RESO_LIST_CAPACITY));
+  TEST_ASSERT_EQUAL_UINT32(0, parseLiveViewResoList("{\"model\":\"GR\"}", list, LIVEVIEW_RESO_LIST_CAPACITY));
+  TEST_ASSERT_EQUAL_UINT32(0, parseLiveViewResoList(nullptr, list, LIVEVIEW_RESO_LIST_CAPACITY));
+  // Capacity bounds the output.
+  TEST_ASSERT_EQUAL_UINT32(1, parseLiveViewResoList(props, list, 1));
+}
+
+void testLiveViewResolutionPicksSmallestMatchingAspect() {
+  const LiveViewResolution offered[] = {{720, 480}, {360, 240}, {1280, 720}, {216, 120}, {432, 288}};
+  const LiveViewResolution chosen = chooseLiveViewResolution(offered, 5, 216, 144);
+  TEST_ASSERT_EQUAL_UINT16(360, chosen.width);
+  TEST_ASSERT_EQUAL_UINT16(240, chosen.height);
+
+  // Near-3:2 camera sizes still qualify.
+  const LiveViewResolution nearAspect[] = {{720, 480}, {640, 427}};
+  TEST_ASSERT_EQUAL_UINT16(640, chooseLiveViewResolution(nearAspect, 2, 216, 144).width);
+
+  // Only the default size qualifies: keep the bare request.
+  const LiveViewResolution onlyDefault[] = {{720, 480}, {1280, 720}};
+  TEST_ASSERT_FALSE(chooseLiveViewResolution(onlyDefault, 2, 216, 144).valid());
+  // Nothing at least as large as the decode target, or at its aspect ratio.
+  const LiveViewResolution tooSmall[] = {{180, 120}, {720, 405}};
+  TEST_ASSERT_FALSE(chooseLiveViewResolution(tooSmall, 2, 216, 144).valid());
+  TEST_ASSERT_FALSE(chooseLiveViewResolution(nullptr, 0, 216, 144).valid());
+}
+
 void testGr3WifiProbeOnlyWidensStartupMode() {
   const CameraProtocolProfile& gr3 = cameraProtocolProfile(RicohProtocolGeneration::Gr3Family);
   TEST_ASSERT_TRUE(operationModeAllowsWifiProbe(gr3, RicohCameraOperationMode::BleStartup, true));
@@ -1707,6 +1750,8 @@ int main() {
   RUN_TEST(testGr3StartupModeWaitsInsteadOfSleeping);
   RUN_TEST(testGr3WifiProbeOnlyWidensStartupMode);
   RUN_TEST(testOperationModeListParsesCountPrefixedEntries);
+  RUN_TEST(testLiveViewResoListParsesStringAndBareTokens);
+  RUN_TEST(testLiveViewResolutionPicksSmallestMatchingAspect);
   RUN_TEST(testHttpShutterIsOnlyClaimedWhereItWasVerified);
   RUN_TEST(testGr2ShutterUsesOfficialRemotePaths);
   RUN_TEST(testGr2ShutterResponseSelectsOneShotOrFallback);
