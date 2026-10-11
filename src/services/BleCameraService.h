@@ -39,10 +39,11 @@ public:
     bool shutterReady() const;
 
     Result shoot(bool autofocus = true);
-    Result openWifi();
+    Result openWifi(bool startupModeProbe = false);
     Result closeWifi();
     Result readPowerState(RicohCameraPowerState& state);
     Result readOperationMode(RicohCameraOperationMode& mode);
+    Result requestCaptureOperationMode();
     Result enablePowerStateNotify();
     bool consumePowerOffNotification();
     Result waitForWifiCredentials(RicohBleWifiCredentials& credentials, uint32_t timeoutMs);

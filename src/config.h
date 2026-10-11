@@ -40,6 +40,11 @@ constexpr uint32_t BLE_SCAN_RETRY_INTERVAL_MS = 1000;
 constexpr uint32_t PROPS_TIMEOUT_MS = 3500;
 constexpr uint32_t WLAN_FINISH_TIMEOUT_MS = 1000;
 constexpr uint32_t LIVEVIEW_STALL_TIMEOUT_MS = 5000;
+// The camera defaults to maxfps=90. Unthrottled, a GR IIIx's shared
+// CYW43455 Wi-Fi/BT radio starved the stream to <1 FPS and dropped BLE with
+// supervision timeouts; 7 held 4-7 FPS with working BLE shutter on GR IIIx
+// and GR IV. GR II has not been tested with the parameter and keeps 0.
+constexpr uint8_t LIVEVIEW_MAX_FPS = 7;
 constexpr uint32_t UI_STATUS_INTERVAL_MS = 1000;
 constexpr uint32_t POWER_BUTTON_POLL_MS = 50;
 constexpr uint32_t POWER_BUTTON_HOLD_MS = 1200;
@@ -98,6 +103,16 @@ constexpr uint32_t RICOH_BLE_POWER_NOTIFY_SETTLE_MS = 30;
 constexpr bool RICOH_BLE_REQUIRE_POWER_ON_BEFORE_WIFI = true;
 constexpr bool RICOH_BLE_ALLOW_WIFI_WHEN_POWER_UNKNOWN = false;
 constexpr bool RICOH_BLE_BLOCK_WIFI_IN_STANDBY_OPERATION_MODE = true;
+// GR IIIx V1.50 can report Power=ON with OperationMode=bleStartup right after
+// pairing. Keep the link, re-read the mode, then probe NetworkType once; the
+// camera's bled forwards that write without a mode check and the camera
+// answers with a GATT error if it refuses.
+constexpr uint32_t RICOH_BLE_GR3_STARTUP_MODE_WAIT_MS = 10000;
+constexpr uint32_t RICOH_BLE_GR3_STARTUP_MODE_POLL_MS = 1000;
+// In bleStartup the camera rejects Shutter writes (CaptureCommand::Release
+// fails, ATT 0x80). bled forwards an OperationMode write to the camera's
+// SetOperationMode; only request capture when OperationModeList offers it.
+constexpr bool RICOH_BLE_GR3_REQUEST_CAPTURE_IN_STARTUP_MODE = true;
 
 constexpr bool RICOH_BLE_AUTO_WLAN_ON_BOOT = true;
 constexpr uint32_t RICOH_BLE_POST_WLAN_ON_WAIT_MS = 0;
@@ -134,6 +149,9 @@ constexpr uint8_t RICOH_BLE_GR4_POWER_STATE_OFF_VALUE = 0x00;
 #endif
 #ifndef RICOH_BLE_OPERATION_MODE_UUID
 #define RICOH_BLE_OPERATION_MODE_UUID "1452335A-EC7F-4877-B8AB-0F72E18BB295"
+#endif
+#ifndef RICOH_BLE_OPERATION_MODE_LIST_UUID
+#define RICOH_BLE_OPERATION_MODE_LIST_UUID "430B80A3-CC2E-4EC2-AACD-08610281FF38"
 #endif
 #ifndef RICOH_BLE_SHOOTING_SERVICE_UUID
 #define RICOH_BLE_SHOOTING_SERVICE_UUID "9F00F387-8345-4BBC-8B92-B87B52E3091A"

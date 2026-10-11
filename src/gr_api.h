@@ -23,6 +23,9 @@ public:
   // Ask the camera to shut down its WLAN AP. A dropped connection after the
   // request is expected because the endpoint tears down its own transport.
   bool finishWlan(uint32_t timeoutMs);
+  // 0 sends the bare /v1/liveview request; otherwise ?maxfps=<fps>, which the
+  // camera applies as a send-side frame interval in SendFrameLoop.
+  void setLiveViewMaxFps(uint8_t fps);
   bool openLiveView();
   void closeLiveView();
   bool isLiveViewOpen();
@@ -40,6 +43,7 @@ private:
 
   WiFiClient _liveClient;
   bool _liveViewOpen = false;
+  uint8_t _liveViewMaxFps = 0;
   String _host;
   uint16_t _port = 80;
   String _lastError;

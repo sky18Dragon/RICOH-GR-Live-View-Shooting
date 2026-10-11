@@ -274,6 +274,36 @@ bool operationModeAllowsWifi(const CameraProtocolProfile& profile,
   return false;
 }
 
+bool operationModeWaitsForCameraReady(const CameraProtocolProfile& profile,
+                                      RicohCameraOperationMode mode,
+                                      bool operationModeReadSucceeded) {
+  return profile.generation == RicohProtocolGeneration::Gr3Family &&
+         operationModeReadSucceeded &&
+         mode == RicohCameraOperationMode::BleStartup;
+}
+
+bool operationModeAllowsWifiProbe(const CameraProtocolProfile& profile,
+                                  RicohCameraOperationMode mode,
+                                  bool operationModeReadSucceeded) {
+  return protocolAllowsBleSideEffect(profile, BleSideEffect::WifiActivation) &&
+         (operationModeAllowsWifi(profile, mode, operationModeReadSucceeded) ||
+          operationModeWaitsForCameraReady(profile, mode, operationModeReadSucceeded));
+}
+
+bool operationModeListContains(const uint8_t* data, size_t length, RicohCameraOperationMode mode) {
+  if (data == nullptr || length == 0) {
+    return false;
+  }
+  const size_t count = data[0];
+  const uint8_t wanted = static_cast<uint8_t>(mode);
+  for (size_t i = 1; i <= count && i < length; ++i) {
+    if (data[i] == wanted) {
+      return true;
+    }
+  }
+  return false;
+}
+
 bool validGr3WifiChannel(uint8_t channel) {
   return channel <= 11;
 }

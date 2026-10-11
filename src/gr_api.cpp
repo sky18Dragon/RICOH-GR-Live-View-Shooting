@@ -338,6 +338,10 @@ bool GrApi::finishWlan(uint32_t timeoutMs) {
 }
 
 
+void GrApi::setLiveViewMaxFps(uint8_t fps) {
+  _liveViewMaxFps = fps;
+}
+
 bool GrApi::openLiveView() {
   closeLiveView();
 
@@ -346,7 +350,12 @@ bool GrApi::openLiveView() {
   }
 
   const String host = _host.length() ? _host : String(GR_HOST);
-  _liveClient.print(String("GET /v1/liveview HTTP/1.1\r\nHost: ") + host +
+  String path = "/v1/liveview";
+  if (_liveViewMaxFps > 0) {
+    path += String("?maxfps=") + _liveViewMaxFps;
+  }
+  Serial.printf("HTTP: opening LiveView path=%s\n", path.c_str());
+  _liveClient.print(String("GET ") + path + " HTTP/1.1\r\nHost: " + host +
                     "\r\nConnection: keep-alive\r\n\r\n");
 
   String headers;

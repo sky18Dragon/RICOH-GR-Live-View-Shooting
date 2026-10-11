@@ -1316,6 +1316,51 @@ void testOperationModeSafetyIsGenerationSpecific() {
   TEST_ASSERT_FALSE(operationModeAllowsWifi(gr4, RicohCameraOperationMode::PowerOffTransfer, true));
 }
 
+void testGr3StartupModeWaitsInsteadOfSleeping() {
+  const CameraProtocolProfile& gr3 = cameraProtocolProfile(RicohProtocolGeneration::Gr3Family);
+  TEST_ASSERT_TRUE(operationModeWaitsForCameraReady(gr3, RicohCameraOperationMode::BleStartup, true));
+  // A real power-off transfer and an unreadable mode keep their existing gates.
+  TEST_ASSERT_FALSE(operationModeWaitsForCameraReady(gr3, RicohCameraOperationMode::PowerOffTransfer, true));
+  TEST_ASSERT_FALSE(operationModeWaitsForCameraReady(gr3, RicohCameraOperationMode::BleStartup, false));
+  TEST_ASSERT_FALSE(operationModeWaitsForCameraReady(gr3, RicohCameraOperationMode::Capture, true));
+
+  const CameraProtocolProfile& gr4 = cameraProtocolProfile(RicohProtocolGeneration::Gr4Family);
+  TEST_ASSERT_FALSE(operationModeWaitsForCameraReady(gr4, RicohCameraOperationMode::BleStartup, true));
+  const CameraProtocolProfile& unknown = cameraProtocolProfile(RicohProtocolGeneration::Unknown);
+  TEST_ASSERT_FALSE(operationModeWaitsForCameraReady(unknown, RicohCameraOperationMode::BleStartup, true));
+}
+
+void testOperationModeListParsesCountPrefixedEntries() {
+  const uint8_t offersCapture[] = {0x03, 0x02, 0x01, 0x00};
+  TEST_ASSERT_TRUE(operationModeListContains(offersCapture, sizeof(offersCapture), RicohCameraOperationMode::Capture));
+  TEST_ASSERT_TRUE(operationModeListContains(offersCapture, sizeof(offersCapture), RicohCameraOperationMode::Playback));
+  TEST_ASSERT_FALSE(operationModeListContains(offersCapture, sizeof(offersCapture), RicohCameraOperationMode::Other));
+
+  // Bytes after the declared count are padding, not offered modes.
+  const uint8_t padded[] = {0x01, 0x02, 0x00, 0x00, 0x00, 0x00};
+  TEST_ASSERT_FALSE(operationModeListContains(padded, sizeof(padded), RicohCameraOperationMode::Capture));
+  // A count larger than the payload must not read past the buffer.
+  const uint8_t truncated[] = {0x05, 0x02};
+  TEST_ASSERT_FALSE(operationModeListContains(truncated, sizeof(truncated), RicohCameraOperationMode::Capture));
+  const uint8_t empty[] = {0x00};
+  TEST_ASSERT_FALSE(operationModeListContains(empty, sizeof(empty), RicohCameraOperationMode::Capture));
+  TEST_ASSERT_FALSE(operationModeListContains(nullptr, 0, RicohCameraOperationMode::Capture));
+}
+
+void testGr3WifiProbeOnlyWidensStartupMode() {
+  const CameraProtocolProfile& gr3 = cameraProtocolProfile(RicohProtocolGeneration::Gr3Family);
+  TEST_ASSERT_TRUE(operationModeAllowsWifiProbe(gr3, RicohCameraOperationMode::BleStartup, true));
+  TEST_ASSERT_TRUE(operationModeAllowsWifiProbe(gr3, RicohCameraOperationMode::Other, true));
+  TEST_ASSERT_FALSE(operationModeAllowsWifiProbe(gr3, RicohCameraOperationMode::PowerOffTransfer, true));
+  TEST_ASSERT_FALSE(operationModeAllowsWifiProbe(gr3, RicohCameraOperationMode::BleStartup, false));
+  TEST_ASSERT_FALSE(operationModeAllowsWifiProbe(gr3, RicohCameraOperationMode::Unknown, false));
+
+  const CameraProtocolProfile& gr4 = cameraProtocolProfile(RicohProtocolGeneration::Gr4Family);
+  TEST_ASSERT_FALSE(operationModeAllowsWifiProbe(gr4, RicohCameraOperationMode::BleStartup, true));
+  const CameraProtocolProfile& unknown = cameraProtocolProfile(RicohProtocolGeneration::Unknown);
+  TEST_ASSERT_FALSE(operationModeAllowsWifiProbe(unknown, RicohCameraOperationMode::BleStartup, true));
+}
+
 void testHttpShutterIsOnlyClaimedWhereItWasVerified() {
   // Parking the BLE link moves the shutter onto POST /v1/camera/shoot, so a
   // generation may only be parked once that endpoint is confirmed on real
@@ -1659,6 +1704,9 @@ int main() {
   RUN_TEST(testUnknownAndGr2ProfilesBlockBleSideEffects);
   RUN_TEST(testGr3AndGr4AllowProfileScopedWifiDeactivation);
   RUN_TEST(testOperationModeSafetyIsGenerationSpecific);
+  RUN_TEST(testGr3StartupModeWaitsInsteadOfSleeping);
+  RUN_TEST(testGr3WifiProbeOnlyWidensStartupMode);
+  RUN_TEST(testOperationModeListParsesCountPrefixedEntries);
   RUN_TEST(testHttpShutterIsOnlyClaimedWhereItWasVerified);
   RUN_TEST(testGr2ShutterUsesOfficialRemotePaths);
   RUN_TEST(testGr2ShutterResponseSelectsOneShotOrFallback);

@@ -1,0 +1,11 @@
+0.0s Flow: CONNECTING_BLE -> BLE_READY (BLE connected) uptime=91624ms
+0.0s Flow: BLE_READY -> CHECKING_CAMERA_POWER (WiFi open) uptime=91624ms
+0.5s BLE: power profile=GR3_FAMILY value=0x01
+1.7s BLE: operation mode read value=0x02 state=BLE_STARTUP
+1.7s WiFi blocked: camera operation mode=BLE_STARTUP while power=ON source=WiFi open
+1.7s Flow: CHECKING_CAMERA_POWER -> CAMERA_POWER_OFF (BLE operation mode standby) uptime=94016ms
+1.7s BLE guard: remote disconnect reason=533; scan paused, auto power off in 30000ms
+1.7s BLE guard: blocked scheduled service; press BtnA to scan (further repeats suppressed)
+1.7s BLE: disconnected reason=534 (0x216) meaning=LOCAL_HOST_TERMINATED
+31.7s Power: CameraSleep idle timeout reached
+31.7s Power: shutdown requested

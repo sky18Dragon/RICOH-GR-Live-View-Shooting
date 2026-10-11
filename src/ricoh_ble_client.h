@@ -84,10 +84,14 @@ public:
   bool isConnected() const;
   bool shutterReady() const;
   bool shoot(bool autofocus = true);
-  bool openWifi();
+  // startupModeProbe lets a GR III family camera that still reports
+  // bleStartup decide for itself whether to accept the NetworkType write.
+  bool openWifi(bool startupModeProbe = false);
   bool closeWifi();
   bool readPowerState(RicohCameraPowerState& state);
   bool readOperationMode(RicohCameraOperationMode& mode);
+  // Writes OperationMode=capture only when OperationModeList offers it.
+  bool requestCaptureOperationMode();
   bool enablePowerStateNotify();
   bool consumePowerOffNotification();
   bool waitForWifiCredentials(RicohBleWifiCredentials& credentials, uint32_t timeoutMs);

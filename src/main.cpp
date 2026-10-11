@@ -83,6 +83,7 @@ uint32_t cameraPowerProbeBackoffUntil = 0;
 uint32_t cameraSleepEnteredAt = 0;
 RicohCameraPowerState cameraPowerState = RicohCameraPowerState::Unknown;
 RicohCameraOperationMode cameraOperationMode = RicohCameraOperationMode::Unknown;
+bool cameraWifiStartupModeProbe = false;
 uint32_t lastPropsAt = 0;
 uint32_t deferredPropsRefreshAfter = 0;
 uint32_t decodedFrames = 0;
@@ -718,6 +719,72 @@ void toggleLiveViewLock() {
   Serial.printf("LiveView lock: enabled=%d\n", liveViewLocked ? 1 : 0);
 }
 
+bool serviceButtonsDuringBleOperation();
+
+bool readCameraOperationModeWithRetries() {
+  const uint8_t modeRetries = RICOH_BLE_OPERATION_MODE_READ_RETRIES == 0 ? 1 : RICOH_BLE_OPERATION_MODE_READ_RETRIES;
+  for (uint8_t attempt = 0; attempt < modeRetries; ++attempt) {
+    const rvf::Result operationModeResult = bleCamera.readOperationMode(cameraOperationMode);
+    if (operationModeResult.ok()) {
+      return true;
+    }
+    Serial.printf("BLE: operation mode read attempt %u/%u failed: %s\n",
+                  static_cast<unsigned>(attempt + 1),
+                  static_cast<unsigned>(modeRetries),
+                  bleCamera.lastError().c_str());
+    delay(80);
+    yield();
+  }
+  return false;
+}
+
+enum class Gr3StartupModeWait : uint8_t {
+  Ready,
+  Probe,
+  Aborted,
+};
+
+Gr3StartupModeWait waitForGr3StartupModeToClear(const char* source, bool& operationModeReadOk) {
+  Serial.printf("BLE: GR3 operation mode=BLE_STARTUP while power=ON; keeping link, waiting up to %lums source=%s\n",
+                static_cast<unsigned long>(RICOH_BLE_GR3_STARTUP_MODE_WAIT_MS),
+                source != nullptr ? source : "");
+  showStatusIfChanged("Camera not ready", "BLE_STARTUP", "Return camera to", "shooting screen", true);
+  if (RICOH_BLE_GR3_REQUEST_CAPTURE_IN_STARTUP_MODE && bleCamera.requestCaptureOperationMode().failed()) {
+    Serial.printf("BLE: capture mode request skipped: %s\n", bleCamera.lastError().c_str());
+  }
+
+  const uint32_t waitStartedAt = millis();
+  while (millis() - waitStartedAt < RICOH_BLE_GR3_STARTUP_MODE_WAIT_MS) {
+    const uint32_t pollStartedAt = millis();
+    while (millis() - pollStartedAt < RICOH_BLE_GR3_STARTUP_MODE_POLL_MS) {
+      if (serviceButtonsDuringBleOperation()) {
+        return Gr3StartupModeWait::Aborted;
+      }
+      delay(20);
+      yield();
+    }
+    if (!bleCamera.isConnected()) {
+      Serial.println("BLE: link lost while waiting for GR3 startup mode to clear");
+      return Gr3StartupModeWait::Aborted;
+    }
+    if (consumeCameraPowerOffNotification("BLE power notify during GR3 startup mode wait")) {
+      return Gr3StartupModeWait::Aborted;
+    }
+    operationModeReadOk = readCameraOperationModeWithRetries();
+    if (!operationModeWaitsForCameraReady(bleCamera.protocolProfile(), cameraOperationMode, operationModeReadOk)) {
+      Serial.printf("BLE: GR3 startup mode cleared after %lums mode=%s read_ok=%d\n",
+                    static_cast<unsigned long>(millis() - waitStartedAt),
+                    cameraOperationModeName(cameraOperationMode),
+                    operationModeReadOk ? 1 : 0);
+      return Gr3StartupModeWait::Ready;
+    }
+  }
+
+  Serial.printf("BLE: GR3 still BLE_STARTUP after %lums; probing NetworkType\n",
+                static_cast<unsigned long>(millis() - waitStartedAt));
+  return Gr3StartupModeWait::Probe;
+}
+
 bool ensureCameraPowerReadyForWifi(const char* source) {
   if (!cameraPowerPolicy.requiresPowerCheck()) {
     return true;
@@ -756,24 +823,24 @@ bool ensureCameraPowerReadyForWifi(const char* source) {
   }
 
   cameraOperationMode = RicohCameraOperationMode::Unknown;
+  cameraWifiStartupModeProbe = false;
   bool operationModeReadOk = false;
   if (cameraPowerPolicy.shouldReadOperationMode(readOk, toPolicyPowerStatus(cameraPowerState))) {
-    const uint8_t modeRetries = RICOH_BLE_OPERATION_MODE_READ_RETRIES == 0 ? 1 : RICOH_BLE_OPERATION_MODE_READ_RETRIES;
-    for (uint8_t attempt = 0; attempt < modeRetries; ++attempt) {
-      const rvf::Result operationModeResult = bleCamera.readOperationMode(cameraOperationMode);
-      if (operationModeResult.ok()) {
-        operationModeReadOk = true;
-        break;
+    operationModeReadOk = readCameraOperationModeWithRetries();
+
+    if (operationModeWaitsForCameraReady(bleCamera.protocolProfile(), cameraOperationMode, operationModeReadOk)) {
+      const Gr3StartupModeWait wait = waitForGr3StartupModeToClear(source, operationModeReadOk);
+      if (wait == Gr3StartupModeWait::Aborted) {
+        if (bleCamera.isConnected() && !cameraAutoWakeBlocked) {
+          setCameraFlowState(CameraFlowState::BleReady, "GR3 startup mode wait aborted");
+        }
+        return false;
       }
-      Serial.printf("BLE: operation mode read attempt %u/%u failed: %s\n",
-                    static_cast<unsigned>(attempt + 1),
-                    static_cast<unsigned>(modeRetries),
-                    bleCamera.lastError().c_str());
-      delay(80);
-      yield();
+      cameraWifiStartupModeProbe = wait == Gr3StartupModeWait::Probe;
     }
 
-    if (cameraPowerPolicy.blocksStandbyOperationMode(operationModeReadOk, toPolicyOperationStatus(cameraOperationMode), false)) {
+    if (!cameraWifiStartupModeProbe &&
+        cameraPowerPolicy.blocksStandbyOperationMode(operationModeReadOk, toPolicyOperationStatus(cameraOperationMode), false)) {
       Serial.printf("WiFi blocked: camera operation mode=%s while power=%s source=%s\n",
                     cameraOperationModeName(cameraOperationMode),
                     cameraPowerStateName(cameraPowerState),
@@ -791,7 +858,8 @@ bool ensureCameraPowerReadyForWifi(const char* source) {
   const CameraProtocolProfile& protocol = bleCamera.protocolProfile();
   if (protocol.generation == RicohProtocolGeneration::Gr3Family) {
     const RicohBleSecurityState security = bleCamera.securityState();
-    const bool safeMode = operationModeAllowsWifi(protocol,
+    const bool safeMode = cameraWifiStartupModeProbe ||
+                          operationModeAllowsWifi(protocol,
                                                   cameraOperationMode,
                                                   operationModeReadOk);
     if (!security.encrypted || !security.authenticated || !safeMode) {
@@ -872,7 +940,16 @@ bool activateCameraWifiOverBle() {
 
   showStatusIfChanged("BLE_READY", "Opening WiFi", cameraProfile.cameraName, "", true);
   setCameraFlowState(CameraFlowState::ActivatingWifi, "BLE WiFi ON");
-  const rvf::Result openWifiResult = bleCamera.openWifi();
+  const bool startupModeProbe = cameraWifiStartupModeProbe;
+  cameraWifiStartupModeProbe = false;
+  const rvf::Result openWifiResult = bleCamera.openWifi(startupModeProbe);
+  if (openWifiResult.failed() && startupModeProbe) {
+    Serial.printf("BLE: camera refused WLAN while BLE_STARTUP: %s; keeping link\n",
+                  bleCamera.lastError().c_str());
+    showStatusIfChanged("Camera not ready", "BLE_STARTUP", "Return camera to", "shooting screen", true);
+    setCameraFlowState(CameraFlowState::BleReady, "GR3 startup mode WLAN probe refused");
+    return false;
+  }
   if (openWifiResult.failed()) {
     Serial.printf("BLE: Wi-Fi open failed: %s\n", bleCamera.lastError().c_str());
     showStatusIfChanged("BLE WiFi failed", bleCamera.lastError(), "", "", true);
@@ -1588,6 +1665,7 @@ void showStartingLiveViewForController() {
 }
 
 bool openLiveViewForController() {
+  grApi.setLiveViewMaxFps(isGr2WifiOnlyProfile() ? 0 : LIVEVIEW_MAX_FPS);
   const rvf::Result previewResult = wifiPreview.startPreview();
   if (previewResult.failed()) {
     return false;
@@ -1668,6 +1746,40 @@ void showShutterBleNotReadyForController() {
                       true);
 }
 
+bool retryShutterAfterGr3StartupMode() {
+  if (!RICOH_BLE_GR3_REQUEST_CAPTURE_IN_STARTUP_MODE || !bleCamera.isConnected()) {
+    return false;
+  }
+  const String shootError = bleCamera.lastError();
+  RicohCameraOperationMode mode = RicohCameraOperationMode::Unknown;
+  if (bleCamera.readOperationMode(mode).failed() ||
+      !operationModeWaitsForCameraReady(bleCamera.protocolProfile(), mode, true)) {
+    return false;
+  }
+  Serial.printf("Button A: shutter refused in BLE_STARTUP (%s); requesting CAPTURE\n", shootError.c_str());
+  if (bleCamera.requestCaptureOperationMode().failed()) {
+    Serial.printf("BLE: capture mode request skipped: %s\n", bleCamera.lastError().c_str());
+    return false;
+  }
+
+  const uint32_t waitStartedAt = millis();
+  while (millis() - waitStartedAt < RICOH_BLE_GR3_STARTUP_MODE_WAIT_MS) {
+    delay(RICOH_BLE_GR3_STARTUP_MODE_POLL_MS / 4);
+    yield();
+    if (!bleCamera.isConnected() || bleCamera.readOperationMode(mode).failed()) {
+      return false;
+    }
+    if (!operationModeWaitsForCameraReady(bleCamera.protocolProfile(), mode, true)) {
+      Serial.printf("Button A: camera left BLE_STARTUP after %lums mode=%s; retrying shutter\n",
+                    static_cast<unsigned long>(millis() - waitStartedAt),
+                    cameraOperationModeName(mode));
+      return bleCamera.shoot(true).ok();
+    }
+  }
+  Serial.println("Button A: camera stayed in BLE_STARTUP after CAPTURE request");
+  return false;
+}
+
 bool shootAutofocusForController() {
   uiCoordinator.notifyShutterStarted(millis());
   if (isGr2WifiOnlyProfile()) {
@@ -1681,7 +1793,10 @@ bool shootAutofocusForController() {
     return grApi.shoot(PROPS_TIMEOUT_MS);
   }
   const rvf::Result shootResult = bleCamera.shoot(true);
-  return shootResult.ok();
+  if (shootResult.ok()) {
+    return true;
+  }
+  return retryShutterAfterGr3StartupMode();
 }
 
 void onShutterOkForController() {

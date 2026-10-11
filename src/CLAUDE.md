@@ -51,7 +51,7 @@ BleScan → BleReady → WifiConnecting → HttpProbe → LiveViewRunning
 
 ### 电源门控
 
-`ensureCameraPowerReadyForWifi(source)`：开 Wi-Fi 前必须 `bleCamera.readPowerState()`（最多 `RICOH_BLE_POWER_READ_RETRIES=2` 次）确认为 `On`，并 `bleCamera.enablePowerStateNotify()` 订阅电源 CCCD。`Off/Unknown` → 进保护态；`cameraManualWakeOverride` 可旁路。
+`ensureCameraPowerReadyForWifi(source)`：开 Wi-Fi 前必须 `bleCamera.readPowerState()`（最多 `RICOH_BLE_POWER_READ_RETRIES=2` 次）确认为 `On`，并 `bleCamera.enablePowerStateNotify()` 订阅电源 CCCD。`Off/Unknown` → 进保护态。GR III 系列电源 ON 但 OperationMode=`bleStartup` 时不进保护态：保持 BLE，先读 OperationModeList（`[count, modes...]`），列表含 capture 时写 OperationMode=`0x00`（该模式下相机拒绝 Shutter 写入，ATT `0x80`）；随后按 `RICOH_BLE_GR3_STARTUP_MODE_POLL_MS` 重读模式，最多等 `RICOH_BLE_GR3_STARTUP_MODE_WAIT_MS`；仍未切换则以 `openWifi(true)` 试写一次 NetworkType，相机拒绝时回到 `BleReady` 继续等待。`powerOffTransfer` 与真实关机信号仍走保护态。
 
 ### `setup()` / `loop()`
 
@@ -124,7 +124,7 @@ BleScan → BleReady → WifiConnecting → HttpProbe → LiveViewRunning
 
 - `setEndpoint(host, port=80)` / 默认 `GR_HOST=192.168.0.1:80`。
 - `fetchProps(props, timeoutMs)`：`GET /v1/props HTTP/1.1`（`Connection: close`），`parsePropsJson` 用 ArduinoJson 兼容多键名（`model`/`modelName`/`model_name`、`batteryLevel`/`battery_level`、`batteryState`/`battery_state`），输出 `CameraProps{model, battery}`。
-- `openLiveView()` / `closeLiveView()` / `isLiveViewOpen()`：`GET /v1/liveview HTTP/1.1`，**保持连接**，`_liveClient` 复用。
+- `openLiveView()` / `closeLiveView()` / `isLiveViewOpen()`：`GET /v1/liveview?maxfps=<LIVEVIEW_MAX_FPS> HTTP/1.1`（GR II 用 `setLiveViewMaxFps(0)` 保持无参数），**保持连接**，`_liveClient` 复用。
 - `readLiveView(dst, len)`：从 `_liveClient` 读 MJPEG 字节流；`>0` 字节数、`0` 暂无数据、`<0` 错误。
 - 内部：`connectClient`（连接 + 超时）、`readHttpHeaders`/`parseHttpStatus`/`parseContentLength`、`lastError`。
 

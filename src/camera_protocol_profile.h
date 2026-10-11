@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 enum class RicohProtocolGeneration : uint8_t {
@@ -141,5 +142,20 @@ bool protocolAllowsBleSideEffect(const CameraProtocolProfile& profile, BleSideEf
 bool operationModeAllowsWifi(const CameraProtocolProfile& profile,
                              RicohCameraOperationMode mode,
                              bool operationModeReadSucceeded);
+// A powered-on GR III family camera that reports bleStartup is not shutting
+// down: the caller should keep the link and wait instead of entering the
+// camera sleep guard.
+bool operationModeWaitsForCameraReady(const CameraProtocolProfile& profile,
+                                      RicohCameraOperationMode mode,
+                                      bool operationModeReadSucceeded);
+// Whether an explicit NetworkType probe may be sent despite the mode gate.
+// The camera arbitrates NetworkType writes itself and rejects them with a
+// GATT write error, so a probe cannot raise WLAN against the camera's will.
+bool operationModeAllowsWifiProbe(const CameraProtocolProfile& profile,
+                                  RicohCameraOperationMode mode,
+                                  bool operationModeReadSucceeded);
+// OperationModeList payload: byte 0 is the entry count, followed by one byte
+// per mode the camera currently accepts.
+bool operationModeListContains(const uint8_t* data, size_t length, RicohCameraOperationMode mode);
 bool validGr3WifiChannel(uint8_t channel);
 bool validGr3WifiCredentials(const char* ssid, const char* passphrase, uint8_t channel);

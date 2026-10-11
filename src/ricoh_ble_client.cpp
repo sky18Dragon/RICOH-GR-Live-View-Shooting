@@ -1769,7 +1769,7 @@ bool RicohBleClient::shutterReady() const {
          protocolAllowsBleSideEffect(protocolProfile(), BleSideEffect::Shutter);
 }
 
-bool RicohBleClient::openWifi() {
+bool RicohBleClient::openWifi(bool startupModeProbe) {
   NimBLEClient* client = static_cast<NimBLEClient*>(_client);
   const IRicohBleProtocol* protocol = _protocolRouter.protocol();
   if (!isConnected() || client == nullptr) {
@@ -1811,7 +1811,11 @@ bool RicohBleClient::openWifi() {
       // to be separate copies of the same allowlist, which is how one of them
       // came to be fixed on its own; whichever mode the camera reports, both
       // gates now agree on whether it is safe to raise the WLAN.
-      if (!operationModeAllowsWifi(protocolProfile(), _lastOperationMode, _lastOperationModeValid)) {
+      const bool modeAllowsWifi =
+          startupModeProbe
+              ? operationModeAllowsWifiProbe(protocolProfile(), _lastOperationMode, _lastOperationModeValid)
+              : operationModeAllowsWifi(protocolProfile(), _lastOperationMode, _lastOperationModeValid);
+      if (!modeAllowsWifi) {
         _lastError = "BLE UUID WiFi activation blocked by camera operation mode";
         return false;
       }
@@ -2047,6 +2051,61 @@ bool RicohBleClient::readOperationMode(RicohCameraOperationMode& mode) {
   _lastOperationMode = mode;
   _lastOperationModeValid = true;
   _lastError = "";
+  return true;
+}
+
+bool RicohBleClient::requestCaptureOperationMode() {
+  NimBLEClient* client = static_cast<NimBLEClient*>(_client);
+  if (!isConnected() || client == nullptr) {
+    _lastError = "BLE not connected";
+    return false;
+  }
+  if (protocolProfile().generation != RicohProtocolGeneration::Gr3Family) {
+    _lastError = "BLE capture mode request is GR III family only";
+    return false;
+  }
+  const RicohBleSecurityState security = securityState();
+  if (!security.encrypted || !security.authenticated) {
+    _lastError = "BLE capture mode request requires authenticated encryption";
+    return false;
+  }
+
+  NimBLERemoteCharacteristic* modeList =
+      findCharacteristic(client, RICOH_BLE_CAMERA_SERVICE_UUID, RICOH_BLE_OPERATION_MODE_LIST_UUID);
+  if (modeList == nullptr || !modeList->canRead()) {
+    _lastError = "BLE operation mode list unavailable";
+    return false;
+  }
+  const NimBLEAttValue listValue = modeList->readValue();
+  String listText;
+  for (size_t i = 0; i < listValue.length(); ++i) {
+    char hex[4];
+    snprintf(hex, sizeof(hex), "%02X", listValue.data()[i]);
+    if (i > 0) {
+      listText += ' ';
+    }
+    listText += hex;
+  }
+  Serial.printf("BLE: operation mode list=[%s]\n", listText.c_str());
+  if (!operationModeListContains(listValue.data(), listValue.length(), RicohCameraOperationMode::Capture)) {
+    _lastError = "BLE operation mode list does not offer CAPTURE";
+    return false;
+  }
+
+  NimBLERemoteCharacteristic* operationMode =
+      findCharacteristic(client, RICOH_BLE_CAMERA_SERVICE_UUID, RICOH_BLE_OPERATION_MODE_UUID);
+  if (operationMode == nullptr || !operationMode->canWrite()) {
+    _lastError = "BLE operation mode not writable";
+    return false;
+  }
+  const uint8_t captureMode[] = {static_cast<uint8_t>(RicohCameraOperationMode::Capture)};
+  String error;
+  if (!writeCharacteristicValue(operationMode, captureMode, sizeof(captureMode), "OperationMode", error)) {
+    _lastError = error;
+    return false;
+  }
+  _lastError = "";
+  Serial.println("BLE: operation mode write CAPTURE result=OK");
   return true;
 }
 

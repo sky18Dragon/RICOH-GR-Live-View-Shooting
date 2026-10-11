@@ -176,13 +176,13 @@ Result BleCameraService::shoot(bool autofocus) {
     return Result::success();
 }
 
-Result BleCameraService::openWifi() {
+Result BleCameraService::openWifi(bool startupModeProbe) {
     Result ready = requireClient("openWifi");
     if (ready.failed()) {
         publish(AppEventType::ErrorRaised, static_cast<int>(ready.code), "openWifi");
         return ready;
     }
-    if (!_client->openWifi()) {
+    if (!_client->openWifi(startupModeProbe)) {
         publish(AppEventType::ErrorRaised, static_cast<int>(ErrorCode::BleConnectFailed), "openWifi");
         return Result::failure(ErrorCode::BleConnectFailed, _client->lastError());
     }
@@ -231,6 +231,17 @@ Result BleCameraService::readOperationMode(RicohCameraOperationMode& mode) {
     if (!_client->readOperationMode(mode)) {
         mode = RicohCameraOperationMode::Unknown;
         publish(AppEventType::ErrorRaised, static_cast<int>(ErrorCode::Unknown), "readOperationMode");
+        return Result::failure(ErrorCode::Unknown, _client->lastError());
+    }
+    return Result::success();
+}
+
+Result BleCameraService::requestCaptureOperationMode() {
+    Result ready = requireClient("requestCaptureOperationMode");
+    if (ready.failed()) {
+        return ready;
+    }
+    if (!_client->requestCaptureOperationMode()) {
         return Result::failure(ErrorCode::Unknown, _client->lastError());
     }
     return Result::success();
