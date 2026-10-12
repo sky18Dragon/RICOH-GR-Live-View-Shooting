@@ -192,6 +192,9 @@ bool GrWifi::connectTo(const char* ssid, const char* password, const char* bssid
     if (guard != nullptr && !guard()) {
       WiFi.disconnect(false, false);
       _lastStatus = WiFi.status();
+      Serial.printf("WiFi: connect cancelled by guard after %lums channel=%u\n",
+                    static_cast<unsigned long>(millis() - startMs),
+                    static_cast<unsigned>(channel));
       return false;
     }
 

@@ -904,6 +904,21 @@ bool readHandleWithResponse(NimBLEClient* client, uint16_t handle, std::vector<u
   return readHandleOnce(client, handle, false, value, errorOut);
 }
 
+bool ensureServiceCharacteristicsCached(NimBLERemoteService* service) {
+  if (service == nullptr) {
+    return false;
+  }
+  if (!service->getCharacteristics(false).empty()) {
+    return true;
+  }
+  // Discover every characteristic once so later UUID lookups hit the cache
+  // and CCCD searches are bounded by the next characteristic handle. A
+  // by-UUID lookup with ATT_MTU 23 returns one 128-bit characteristic per
+  // round trip and then walks the rest of the service looking for 0x2902.
+  (void)service->getCharacteristics(true);
+  return !service->getCharacteristics(false).empty();
+}
+
 NimBLERemoteCharacteristic* findCharacteristic(NimBLEClient* client,
                                                const char* serviceUuid,
                                                const char* characteristicUuid) {
@@ -914,6 +929,7 @@ NimBLERemoteCharacteristic* findCharacteristic(NimBLEClient* client,
   if (service == nullptr) {
     return nullptr;
   }
+  (void)ensureServiceCharacteristicsCached(service);
   return service->getCharacteristic(NimBLEUUID(characteristicUuid));
 }
 
@@ -1209,6 +1225,7 @@ NimBLERemoteCharacteristic* writableCharacteristic(NimBLERemoteService* service,
     return nullptr;
   }
 
+  (void)ensureServiceCharacteristicsCached(service);
   NimBLERemoteCharacteristic* characteristic = service->getCharacteristic(NimBLEUUID(uuid));
   if (characteristic == nullptr || !characteristic->canWrite()) {
     errorOut = String("BLE ") + label + " unavailable";
@@ -1553,11 +1570,16 @@ bool RicohBleClient::connect(const RicohBleDeviceInfo& info, const RicohBleConne
     yield();
   }
 
-  Serial.printf("BLE: connect start addr=%s type=%u timeout=%lums mtu=%d pre_delay=%lums\n",
+  // Bonded reconnect used to skip ATT_MTU exchange to save one round trip.
+  // With the default MTU of 23, a 128-bit characteristic declaration fills
+  // the ATT payload, so status-notify discovery on GR IIIx blocked the main
+  // loop for ~8s. Exchange even on bonded links; one extra round trip.
+  const bool exchangeMtu = true;
+  Serial.printf("BLE: connect start addr=%s type=%u timeout=%lums exchange_mtu=%d pre_delay=%lums\n",
                 info.address.c_str(),
                 static_cast<unsigned>(info.addressType),
                 static_cast<unsigned long>(options.timeoutMs),
-                options.exchangeMtu ? 1 : 0,
+                exchangeMtu ? 1 : 0,
                 static_cast<unsigned long>(options.preConnectDelayMs));
 
   NimBLEAddress peer(std::string(info.address.c_str()), normalizedPeerAddressType(info.addressType));
@@ -1583,7 +1605,6 @@ bool RicohBleClient::connect(const RicohBleDeviceInfo& info, const RicohBleConne
                               1,
                               2 * BLE_GAP_INITIAL_SUPERVISION_TIMEOUT);
 
-  const bool exchangeMtu = options.exchangeMtu || !peerBonded;
   if (!client->connect(peer, true, false, exchangeMtu)) {
     const int err = client->getLastError();
     _lastFailureResourceExhausted = (err == BLE_HS_ENOMEM);
@@ -1778,13 +1799,15 @@ bool RicohBleClient::connect(const RicohBleDeviceInfo& info, const RicohBleConne
   g_pairingRecovery.onPairingSuccess();
   _lastFailureResourceExhausted = false;
   _lastError = "";
-  Serial.printf("BLE: connected secure connect_ms=%lu security_ms=%lu total_ms=%lu bonded=%d encrypted=%d authenticated=%d\n",
+  Serial.printf("BLE: connected secure connect_ms=%lu security_ms=%lu total_ms=%lu bonded=%d encrypted=%d authenticated=%d mtu=%u interval=%u\n",
                 static_cast<unsigned long>(securityStartMs - connectStartMs),
                 static_cast<unsigned long>(millis() - securityStartMs),
                 static_cast<unsigned long>(millis() - connectStartMs),
                 securityInfo.isBonded() ? 1 : 0,
                 securityInfo.isEncrypted() ? 1 : 0,
-                securityInfo.isAuthenticated() ? 1 : 0);
+                securityInfo.isAuthenticated() ? 1 : 0,
+                static_cast<unsigned>(client->getMTU()),
+                static_cast<unsigned>(securityInfo.getConnInterval()));
   return true;
 }
 
@@ -2213,6 +2236,27 @@ bool RicohBleClient::enableCameraStatusNotify() {
   }
   _statusNotifyAttempted = true;
 
+  const uint32_t startedAt = millis();
+  const uint16_t mtu = client->getMTU();
+  const uint16_t connInterval = client->getConnInfo().getConnInterval();
+  NimBLERemoteService* cameraService =
+      client->getService(NimBLEUUID(RICOH_BLE_CAMERA_SERVICE_UUID));
+  NimBLERemoteService* shootingService =
+      client->getService(NimBLEUUID(RICOH_BLE_SHOOTING_SERVICE_UUID));
+  const uint32_t discoverStartedAt = millis();
+  (void)ensureServiceCharacteristicsCached(cameraService);
+  (void)ensureServiceCharacteristicsCached(shootingService);
+  Serial.printf("BLE: status notify cache mtu=%u interval=%u camera_chrs=%u shooting_chrs=%u discover_ms=%lu\n",
+                static_cast<unsigned>(mtu),
+                static_cast<unsigned>(connInterval),
+                static_cast<unsigned>(cameraService != nullptr
+                                          ? cameraService->getCharacteristics(false).size()
+                                          : 0),
+                static_cast<unsigned>(shootingService != nullptr
+                                          ? shootingService->getCharacteristics(false).size()
+                                          : 0),
+                static_cast<unsigned long>(millis() - discoverStartedAt));
+
   struct StatusCharacteristic {
     const char* serviceUuid;
     const char* uuid;
@@ -2236,9 +2280,15 @@ bool RicohBleClient::enableCameraStatusNotify() {
     if (!client->isConnected()) {
       break;
     }
+    const uint32_t itemStartedAt = millis();
     NimBLERemoteCharacteristic* characteristic = findCharacteristic(client, item.serviceUuid, item.uuid);
-    if (characteristic == nullptr || !characteristic->canNotify() ||
-        !characteristic->subscribe(true, item.callback)) {
+    const bool ok = characteristic != nullptr && characteristic->canNotify() &&
+                    characteristic->subscribe(true, item.callback);
+    Serial.printf("BLE: status notify %s subscribed=%d elapsed_ms=%lu\n",
+                  item.label,
+                  ok ? 1 : 0,
+                  static_cast<unsigned long>(millis() - itemStartedAt));
+    if (!ok) {
       if (failed.length() > 0) {
         failed += ',';
       }
@@ -2257,10 +2307,12 @@ bool RicohBleClient::enableCameraStatusNotify() {
     }
   }
 
-  Serial.printf("BLE: status notify subscribed=%u failed=[%s] battery=%d\n",
+  Serial.printf("BLE: status notify subscribed=%u failed=[%s] battery=%d mtu=%u total_ms=%lu\n",
                 static_cast<unsigned>(subscribed),
                 failed.c_str(),
-                g_batteryLevel.load());
+                g_batteryLevel.load(),
+                static_cast<unsigned>(mtu),
+                static_cast<unsigned long>(millis() - startedAt));
   if (subscribed == 0) {
     _lastError = "BLE status notify unavailable";
     return false;

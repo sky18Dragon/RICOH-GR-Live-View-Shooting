@@ -57,7 +57,7 @@ BleScan → BleReady → WifiConnecting → HttpProbe → LiveViewRunning
 
 - `setup()`：`Serial` → `ui.begin()` → boot 画面 → 等串口 → `buttons/decoder/grWifi.begin()` → `applyDefaultProfile()` → PSRAM 检查 → 分配 `frameBuffer`（PSRAM 优先，回退内部 RAM，失败则停机）→ `mjpeg.begin(frameBuffer, ..., onJpegFrame)` → `runCameraFlowOnce()`。
 - `loop()`（每轮 `delay(1)`）：
-  1. `handleButtons()` — 仅 `M5.BtnA`：保护态则 `requestManualCameraWake`，否则 `triggerShutterFromButtonA()`（`bleCamera.shoot(true)`）。
+  1. `handleButtons()` — 仅 `M5.BtnA`：保护态则 `requestManualCameraWake`，否则 `triggerShutterFromButtonA()`；竖持走 `bleCamera.shoot(true)`，横持只走 HTTP `grApi.shoot()`（横持 LiveView 推流后 BLE 已释放）。
   2. `serviceCameraFlowIfNeeded()` — 非运行态按 `BLE_SCAN_RETRY_INTERVAL_MS` 周期推进。
   3. `ensureWiFi()` — LiveView 中 Wi-Fi 掉线即恢复。
   4. `refreshPropsIfDue()` — 每 `PROPS_REFRESH_INTERVAL_MS=60s` 刷新 `/v1/props`；BLE 已连接且 BatteryLevel 通知可用时跳过周期刷新，电量改由 BLE 更新。首次 LiveView 打开前强制读取一次 props（取 `resoList`）。
@@ -90,7 +90,7 @@ BleScan → BleReady → WifiConnecting → HttpProbe → LiveViewRunning
 | `openWifi()` | 写 `0x0135`=`0x01` 唤醒相机 Wi-Fi |
 | `readPowerState(&state)` / `enablePowerStateNotify()` | 读/订阅电源状态 `0x00EB`/CCCD `0x00EC` |
 | `consumePowerOffNotification()` | 取走一次电源 `0x00` 通知 |
-| `enableCameraStatusNotify()` | 每条连接一次，按 UUID 订阅 BatteryLevel / ShotCount / CaptureStatus（GR III 需认证加密）；`batteryLevel()` 给出电量，`shotEventSequence()` 在每次 ShotCount/CaptureStatus 通知时递增，用于快门确认 |
+| `enableCameraStatusNotify()` | 每条连接一次，先按服务完整发现特征再订阅 BatteryLevel / ShotCount / CaptureStatus（GR III 需认证加密）；已绑定重连也会交换 ATT_MTU，避免 MTU 23 时 128 位 UUID 发现阻塞主循环。`batteryLevel()` 给出电量，`shotEventSequence()` 在每次 ShotCount/CaptureStatus 通知时递增，用于快门确认 |
 | `waitForWifiCredentials(&cred, timeoutMs)` | 轮询读取 `0x0138` SSID / `0x013A` 密码 / `0x0140` BSSID |
 | `disconnect()` / `resetStack(clearObjects=false)` | 断连 / 重建 BLE 栈（手动唤醒用 `clearObjects=true`） |
 | `consumeDisconnectReason()` / `clearDisconnectReason()` | 取走/清除 GAP 断连 reason |

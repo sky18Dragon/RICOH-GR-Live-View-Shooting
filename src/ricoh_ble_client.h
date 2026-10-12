@@ -35,6 +35,8 @@ struct RicohBleConnectOptions {
   uint32_t securityWaitMs = 0;
   uint32_t preConnectDelayMs = 0;
   int8_t connectRetries = -1;
+  // Callers may still set this; connect() currently always exchanges ATT_MTU
+  // because GR 128-bit UUID discovery is too slow at the default MTU of 23.
   bool exchangeMtu = true;
   RicohProtocolGeneration protocolHint = RicohProtocolGeneration::Unknown;
   // When set, read-only discovery must identify this exact generation before

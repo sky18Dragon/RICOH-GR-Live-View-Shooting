@@ -89,8 +89,9 @@ struct CameraCapabilities {
   bool supportsHttpLiveView = false;
   // POST /v1/camera/shoot, confirmed on the camera rather than assumed.
   bool supportsHttpShutter = false;
-  // RF scheduling policy, intentionally separate from HTTP functionality.
-  // A generation must opt in explicitly before LiveView can release BLE.
+  // Landscape is Wi-Fi only: BLE brings the camera AP up and is released once
+  // the preview streams, so the shutter must work over HTTP. A generation must
+  // opt in explicitly; one that does not keeps BLE through the preview.
   bool allowBlePreviewParking = false;
 };
 

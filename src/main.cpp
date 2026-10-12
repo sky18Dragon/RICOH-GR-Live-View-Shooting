@@ -123,6 +123,7 @@ constexpr uint32_t DEVICE_POWER_NORMAL_SAMPLE_MS = 2000;
 constexpr uint32_t DEVICE_POWER_LIVE_SAMPLE_MS = 1500;
 
 void requestManualCameraWake(const char* source);
+void unparkBleIfNeeded(const char* reason);
 void resetBlePairingFromKey2();
 void shutdownStickS3();
 void updateUi();
@@ -420,6 +421,7 @@ void enterCameraSleepGuard(const char* source, int reason) {
     scheduleCameraPowerProbeBackoff(guardSource);
     closeLiveView(guardSource);
     wifiPreview.disconnectWifi();
+    unparkBleIfNeeded(guardSource);
     bleCamera.disconnect();
     setCameraFlowState(CameraFlowState::CameraPowerOff, guardSource);
     showCameraSleepGuardStatus(false);
@@ -437,6 +439,7 @@ void enterCameraSleepGuard(const char* source, int reason) {
 
   closeLiveView(guardSource);
   wifiPreview.disconnectWifi();
+  unparkBleIfNeeded(guardSource);
   bleCamera.disconnect();
   setCameraFlowState(CameraFlowState::CameraPowerOff, guardSource);
   Serial.printf("BLE guard: remote disconnect reason=%d; scan paused, auto power off in %lums\n",
@@ -1194,7 +1197,7 @@ bool tryDirectStoredBleReconnect(bool force = false) {
   options.securityWaitMs = RICOH_BLE_BONDED_SECURITY_WAIT_MS;
   options.preConnectDelayMs = 0;
   options.connectRetries = 0;
-  options.exchangeMtu = false;
+  options.exchangeMtu = true;
   options.protocolHint = cameraProfile.protocolGeneration;
 
   const uint32_t startedAt = millis();
@@ -1430,7 +1433,7 @@ bool runBleDiscoveryAtBoot() {
                                  ? RICOH_BLE_BONDED_SECURITY_WAIT_MS
                                  : RICOH_BLE_SECURITY_WAIT_MS;
       options.preConnectDelayMs = BLE_SCAN_TO_CONNECT_DELAY_MS;
-      options.exchangeMtu = false;
+      options.exchangeMtu = true;
       options.protocolHint = !firstBootPairing && cameraProfile.protocolGenerationKnown
                                ? cameraProfile.protocolGeneration
                                : RicohProtocolGeneration::Unknown;
@@ -1528,15 +1531,15 @@ bool runBleDiscoveryAtBoot() {
 // preview streams costs more than half the available throughput (measured on
 // a GR IIIx: 380 KiB/s with it up against 831 KiB/s without). The camera does
 // not need BLE once its access point is running - the shutter, state and
-// battery are all served over HTTP - so the link is released while streaming
-// and brought back when the preview stops or the shutter needs it.
+// battery are all served over HTTP - so landscape runs on Wi-Fi alone: BLE only
+// brings the access point up, is released as soon as the preview streams, and
+// is brought back when the preview stops or has to be recovered.
 //
 // Parked means "released deliberately", which the flow must not confuse with
 // "the camera vanished". While parked there is no BLE link to lose, and a
 // camera that really goes away takes its access point with it, so the Wi-Fi
 // and HTTP paths detect that instead.
 bool bleParkedForPreview = false;
-uint32_t previewStableSinceMs = 0;
 uint32_t bleParkedAtMs = 0;
 
 // True when the BLE link is either up or deliberately parked. Everything that
@@ -1553,12 +1556,35 @@ bool bleStillConnectedForWifi() {
   return bleLinkHealthy();
 }
 
+// The BLE link is down in landscape, so fall back to the generation stored at
+// pairing whenever the live link cannot say which camera this is.
+const CameraProtocolProfile& knownCameraProtocol() {
+  const CameraProtocolProfile& connected = bleCamera.protocolProfile();
+  if (connected.generation != RicohProtocolGeneration::Unknown) {
+    return connected;
+  }
+  return cameraProtocolProfile(cameraProfile.protocolGenerationKnown
+                                   ? cameraProfile.protocolGeneration
+                                   : RicohProtocolGeneration::Unknown);
+}
+
+bool cameraSupportsWifiOnlyLandscape() {
+  const CameraCapabilities& capabilities = knownCameraProtocol().capabilities;
+  return capabilities.supportsHttpShutter && capabilities.allowBlePreviewParking;
+}
+
+// Landscape shoots over HTTP only, including the moments where BLE is still
+// up bringing the access point online.
+bool shutterUsesHttp() {
+  return isGr2WifiOnlyProfile() || bleParkedForPreview ||
+         (appController.previewRequested() && cameraSupportsWifiOnlyLandscape());
+}
+
 void unparkBleIfNeeded(const char* reason) {
   if (!bleParkedForPreview) {
     return;
   }
   bleParkedForPreview = false;
-  previewStableSinceMs = 0;
   Serial.printf("BLE: unparking (%s)\n", reason != nullptr ? reason : "unspecified");
 }
 
@@ -1592,6 +1618,17 @@ bool restoreBleAfterPreviewPark(const char* reason) {
     setCameraFlowState(CameraFlowState::BleScan, "restore BLE after preview park");
   }
   return false;
+}
+
+void restoreReleasedBleForRecovery(const char* reason) {
+  if (!bleParkedForPreview) {
+    return;
+  }
+  // The broken stream is torn down anyway; dropping it first leaves the radio
+  // to the BLE reconnect.
+  closeLiveView(reason);
+  wifiPreview.disconnectWifi();
+  (void)restoreBleAfterPreviewPark(reason);
 }
 
 bool cameraWifiConnectGuard() {
@@ -1786,16 +1823,21 @@ void requestManualCameraWakeForController(const char* source) {
 }
 
 bool shutterReadyForController() {
-  return (isGr2WifiOnlyProfile() || bleParkedForPreview)
-           ? grWifi.isConnected()
-           : bleCamera.shutterReady();
+  return shutterUsesHttp() ? grWifi.isConnected() : bleCamera.shutterReady();
 }
 
 void showShutterBleNotReadyForController() {
   uiCoordinator.notifyShutterResult(false, millis());
+  const bool overHttp = shutterUsesHttp();
+  const char* hint = "Back to BLE scan";
+  if (isGr2WifiOnlyProfile()) {
+    hint = "Enable GR II WiFi";
+  } else if (overHttp) {
+    hint = "Portrait: BLE shutter";
+  }
   showStatusIfChanged("Button A shutter",
-                      isGr2WifiOnlyProfile() ? "WiFi not ready" : "BLE not ready",
-                      isGr2WifiOnlyProfile() ? "Enable GR II WiFi" : "Back to BLE scan",
+                      overHttp ? "WiFi not ready" : "BLE not ready",
+                      hint,
                       "",
                       true);
 }
@@ -1841,10 +1883,10 @@ bool shootAutofocusForController() {
     Serial.println("Button A: GR II shutter over official GR Remote HTTP sequence");
     return grApi.shootGr2(PROPS_TIMEOUT_MS);
   }
-  if (bleParkedForPreview) {
-    // BLE is released for bandwidth; the camera takes the shot over HTTP.
+  if (shutterUsesHttp()) {
     // Failures are reported by onShutterFailedForController.
-    Serial.println("Button A: shutter over HTTP (BLE parked)");
+    Serial.printf("Button A: landscape shutter over HTTP (BLE %s)\n",
+                  bleParkedForPreview ? "released" : "bringing up WiFi");
     return grApi.shoot(PROPS_TIMEOUT_MS);
   }
   shotEventSequenceBeforeShot = bleCamera.shotEventSequence();
@@ -1857,7 +1899,7 @@ bool shootAutofocusForController() {
 
 void onShutterOkForController() {
   uiCoordinator.notifyShutterResult(true, millis());
-  const bool overHttp = isGr2WifiOnlyProfile() || bleParkedForPreview;
+  const bool overHttp = shutterUsesHttp();
   shotConfirmPending = !overHttp && bleCamera.shotNotifyActive();
   shotConfirmStartedAt = millis();
   showStatusIfChanged("Button A shutter",
@@ -1895,7 +1937,8 @@ void serviceShotConfirmation(uint32_t nowMs) {
 // rather than the connect flow, because portrait resume with cached Wi-Fi
 // credentials never passes through the power check that enables power notify.
 void serviceCameraStatusNotify() {
-  if (!RICOH_BLE_SUBSCRIBE_CAMERA_STATUS || !bleCamera.isConnected() || bleParkedForPreview) {
+  // Landscape is about to release the link; its battery comes from /v1/props.
+  if (!RICOH_BLE_SUBSCRIBE_CAMERA_STATUS || !bleCamera.isConnected() || shutterUsesHttp()) {
     return;
   }
   if (!bleCamera.statusNotifyAttempted()) {
@@ -1918,10 +1961,10 @@ void serviceCameraStatusNotify() {
 }
 
 void onShutterFailedForController() {
-  // The shot goes over BLE normally and over HTTP while the link is parked,
-  // so report whichever one actually ran; bleCamera's error is stale in the
-  // parked case and would send anyone reading the screen down the wrong path.
-  const bool overHttp = isGr2WifiOnlyProfile() || bleParkedForPreview;
+  // The shot goes over BLE in portrait and over HTTP in landscape, so report
+  // whichever one actually ran; bleCamera's error is stale in the HTTP case
+  // and would send anyone reading the screen down the wrong path.
+  const bool overHttp = shutterUsesHttp();
   const String& error = overHttp ? grApi.lastError() : bleCamera.lastError();
   Serial.printf("Button A: %s shutter failed: %s\n", overHttp ? "HTTP" : "BLE", error.c_str());
   uiCoordinator.notifyShutterResult(false, millis());
@@ -1996,6 +2039,7 @@ void disconnectWifiLiveViewToBleReady(const char* reason) {
 void disconnectAllTransportsToBleScan(const char* reason) {
   closeLiveView(reason != nullptr ? reason : "flow reset");
   wifiPreview.disconnectWifi();
+  unparkBleIfNeeded(reason != nullptr ? reason : "flow reset");
   bleCamera.disconnect();
   setCameraFlowState(CameraFlowState::BleScan, reason);
 }
@@ -2147,6 +2191,7 @@ rvf::AppFlowActions makeAppFlowActions() {
   actions.disconnectAllTransportsToBleScan = disconnectAllTransportsToBleScan;
   actions.cameraRecoveryInProgress = cameraRecoveryInProgressForController;
   actions.setCameraRecoveryInProgress = setCameraRecoveryInProgressForController;
+  actions.restoreReleasedBle = restoreReleasedBleForRecovery;
   actions.reasonRequiresBleRescan = reasonRequiresBleRescan;
   actions.showRecoveryBleReadyRetry = showRecoveryBleReadyRetryForController;
   actions.showRecoveryBleScan = showRecoveryBleScanForController;
@@ -2156,6 +2201,7 @@ rvf::AppFlowActions makeAppFlowActions() {
   actions.onRecoveryFinished = onRecoveryFinishedForController;
   actions.requestManualCameraWake = requestManualCameraWakeForController;
   actions.shutterReady = shutterReadyForController;
+  actions.shutterOverWifi = shutterUsesHttp;
   actions.showShutterBleNotReady = showShutterBleNotReadyForController;
   actions.shootAutofocus = shootAutofocusForController;
   actions.onShutterOk = onShutterOkForController;
@@ -2642,6 +2688,7 @@ void requestManualCameraWake(const char* source) {
   liveviewEnabled = true;
   closeLiveView(wakeSource);
   wifiPreview.disconnectWifi();
+  unparkBleIfNeeded(wakeSource);
   bleCamera.disconnect();
   setCameraFlowState(CameraFlowState::BleScan, wakeSource);
   showStatusIfChanged("Manual retry", "Resetting BLE...", preferredBleName(), "", true);
@@ -2817,12 +2864,10 @@ void updateStatusUiIfDue() {
   }
 }
 
-// Releases the BLE link once the preview has been streaming steadily, and
-// takes it back as soon as the preview stops. The settle window matters: the
-// flow is still finishing its Wi-Fi and HTTP bring-up right after the stream
-// opens, and dropping BLE in the middle of that would look like a failure.
+// Releases the BLE link as soon as the landscape preview streams, and takes it
+// back when the preview stops. The camera flow is synchronous, so by the time
+// this tick runs the Wi-Fi and HTTP bring-up that needed BLE has finished.
 void serviceBleParking(uint32_t nowMs) {
-  constexpr uint32_t kParkAfterStablePreviewMs = 3000;
   // A disconnect is not instant, so do not read the link as "back up" in the
   // moment right after releasing it.
   constexpr uint32_t kParkSettleMs = 1000;
@@ -2846,36 +2891,31 @@ void serviceBleParking(uint32_t nowMs) {
       restoreBleAfterPreviewPark(appController.previewRequested()
                                      ? "preview transport stopped"
                                      : "portrait handoff");
-    } else {
-      previewStableSinceMs = 0;
     }
     return;
   }
 
-  if (bleParkedForPreview) {
-    return;
-  }
-
-  if (previewStableSinceMs == 0) {
-    previewStableSinceMs = nowMs;
-    return;
-  }
-  if (nowMs - previewStableSinceMs < kParkAfterStablePreviewMs) {
+  if (bleParkedForPreview || !appController.previewRequested()) {
+    // A portrait turn leaves the stream up for one tick before the flow
+    // closes it; releasing BLE then would only force an extra reconnect.
     return;
   }
   if (!bleCamera.isConnected()) {
     return;  // Nothing to release.
   }
-  const CameraCapabilities& capabilities = bleCamera.protocolProfile().capabilities;
-  if (!capabilities.supportsHttpShutter || !capabilities.allowBlePreviewParking) {
-    // Releasing BLE moves the shutter onto POST /v1/camera/shoot. Only do it
-    // where that endpoint has actually been confirmed on the camera - a
-    // generation that turns out not to serve it would lose its shutter
-    // entirely, and the frame rate is not worth that.
+  if (!cameraSupportsWifiOnlyLandscape()) {
+    // Releasing BLE moves the shutter onto POST /v1/camera/shoot. A
+    // generation that has not opted in keeps BLE through the preview.
     return;
   }
 
-  Serial.println("BLE: parking link to free radio time for the preview stream");
+  if (wifiCacheRefreshPending) {
+    // These cached parameters just joined the access point; their BLE re-read
+    // is not worth holding the link open in landscape.
+    wifiCacheRefreshPending = false;
+    Serial.println("WiFi cache: deferred BLE refresh skipped; landscape is WiFi-only");
+  }
+  Serial.println("BLE: releasing link; landscape preview runs on WiFi only");
   bleParkedForPreview = true;
   bleParkedAtMs = nowMs;
   bleCamera.disconnect();

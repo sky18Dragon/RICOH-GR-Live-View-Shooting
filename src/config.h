@@ -44,7 +44,7 @@ constexpr uint32_t LIVEVIEW_STALL_TIMEOUT_MS = 5000;
 // CYW43455 Wi-Fi/BT radio starved the stream to <1 FPS and dropped BLE with
 // supervision timeouts; 7 held 4-7 FPS with working BLE shutter on GR IIIx
 // and GR IV. GR II has not been tested with the parameter and keeps 0.
-constexpr uint8_t LIVEVIEW_MAX_FPS = 7;
+constexpr uint8_t LIVEVIEW_MAX_FPS = 10;
 // GR III/IV stream 720x480 when /v1/liveview carries no reso=. A GR IIIx on
 // V1.50 locked up (power LED off, battery pull needed) one second after a
 // landscape BLE shot with reso=720x480 on the stream, and its resoList holds

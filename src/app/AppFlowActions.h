@@ -42,6 +42,9 @@ struct AppFlowActions {
 
     bool (*cameraRecoveryInProgress)() = nullptr;
     void (*setCameraRecoveryInProgress)(bool inProgress) = nullptr;
+    // Recovery needs BLE to bring the camera AP back, so a link released for
+    // the Wi-Fi-only landscape preview is restored before anything else.
+    void (*restoreReleasedBle)(const char* reason) = nullptr;
     bool (*reasonRequiresBleRescan)(const char* reason) = nullptr;
     void (*showRecoveryBleReadyRetry)(const char* reason) = nullptr;
     void (*showRecoveryBleScan)(const char* reason) = nullptr;
@@ -52,6 +55,7 @@ struct AppFlowActions {
 
     void (*requestManualCameraWake)(const char* source) = nullptr;
     bool (*shutterReady)() = nullptr;
+    bool (*shutterOverWifi)() = nullptr;
     void (*showShutterBleNotReady)() = nullptr;
     bool (*shootAutofocus)() = nullptr;
     void (*onShutterOk)() = nullptr;

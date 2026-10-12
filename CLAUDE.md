@@ -93,6 +93,7 @@ flowchart TD
 5. **JPEG 缩放** —— `config.h` 设 `JPEG_SCALE_POLICY=JPEG_SCALE_HALF`（覆盖 `display.h`/`jpeg_decoder.h` 的 `QUARTER` 默认）。
 6. **NVS schema** —— namespace `ricoh2`，`proto_ver`（当前 3）/`cam_name`/`ble_addr`/`ble_addr_type`/`ble_bonded`/`cam_ip`/Wi-Fi cache。保护态只在 RAM 中生效，StickS3 重启后会重新走自动连接流程。已保存 BLE 身份的 `setup()` 启动流只做一轮快速扫描，失败后交给主循环处理 KEY1 和周期重试。
 7. **按键 = 仅 `M5.BtnA`** —— 见下方「文档漂移」。
+8. **姿态决定链路** —— 竖持只用 BLE（相机 AP 关闭，快门走 BLE）；横持只用 Wi-Fi：BLE 仅用于唤醒相机 AP，LiveView 一开始推流即释放 BLE（`serviceBleParking`），快门只走 HTTP `POST /v1/camera/shoot`（`shutterUsesHttp()`）。需要恢复时先直连恢复 BLE（`restoreReleasedBleForRecovery`）。由能力位 `supportsHttpShutter && allowBlePreviewParking` 控制，GR III/IV 均开启，GR IIIx 与 GR IV 已真机验证。
 
 ## 按键实现说明
 

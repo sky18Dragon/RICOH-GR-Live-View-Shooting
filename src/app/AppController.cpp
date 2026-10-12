@@ -507,6 +507,10 @@ void AppController::recoverCameraConnection(const AppFlowActions& actions, const
         return;
     }
 
+    if (actions.restoreReleasedBle != nullptr) {
+        actions.restoreReleasedBle(recoveryReason);
+    }
+
     bool recovered = false;
     const bool needsBleRescan = actions.reasonRequiresBleRescan == nullptr ||
                                 actions.reasonRequiresBleRescan(reason);
@@ -735,11 +739,14 @@ void AppController::triggerShutterFromButtonA(const AppFlowActions& actions) {
         return;
     }
 
+    const bool overWifi = actions.shutterOverWifi != nullptr && actions.shutterOverWifi();
     if (actions.shutterReady == nullptr || !actions.shutterReady()) {
         if (actions.showShutterBleNotReady != nullptr) {
             actions.showShutterBleNotReady();
         }
-        recoverCameraConnection(actions, "Button A shutter BLE not ready");
+        recoverCameraConnection(actions,
+                                overWifi ? "Button A shutter WiFi not ready"
+                                         : "Button A shutter BLE not ready");
         return;
     }
 
@@ -759,7 +766,9 @@ void AppController::triggerShutterFromButtonA(const AppFlowActions& actions) {
         return;
     }
 
-    recoverCameraConnection(actions, "Button A BLE shutter failed");
+    recoverCameraConnection(actions,
+                            overWifi ? "Button A HTTP shutter failed"
+                                     : "Button A BLE shutter failed");
 }
 
 void AppController::dispatch(const AppMessage& message) {
