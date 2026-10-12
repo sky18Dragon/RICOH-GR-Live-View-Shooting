@@ -17,10 +17,12 @@ constexpr size_t LIVEVIEW_RESO_LIST_CAPACITY = 8;
 size_t parseLiveViewResoList(const char* json, LiveViewResolution* out, size_t capacity);
 
 // Picks the smallest listed resolution that still covers minWidth x minHeight
-// at that aspect ratio (within 1%, since the decoder scales to a fixed size). Returns an invalid resolution when nothing
-// qualifies or when the pick is already the largest qualifying entry, so the
-// caller keeps the camera's default stream instead of requesting it by name.
+// at that aspect ratio (within 1%, since the decoder scales to a fixed size)
+// and is strictly smaller than the camera's default stream. Returns an invalid
+// resolution otherwise, so the default is never requested by name.
 LiveViewResolution chooseLiveViewResolution(const LiveViewResolution* list,
                                             size_t count,
                                             uint16_t minWidth,
-                                            uint16_t minHeight);
+                                            uint16_t minHeight,
+                                            uint16_t defaultWidth,
+                                            uint16_t defaultHeight);

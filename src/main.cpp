@@ -1678,8 +1678,19 @@ void selectLiveViewResolutionFromProps() {
     }
     listText += String(cameraProps.resoList[i].width) + "x" + cameraProps.resoList[i].height;
   }
-  const LiveViewResolution chosen = chooseLiveViewResolution(
-      cameraProps.resoList, cameraProps.resoCount, JPEG_DECODE_WIDTH, JPEG_DECODE_HEIGHT);
+  const LiveViewResolution chosen = chooseLiveViewResolution(cameraProps.resoList,
+                                                             cameraProps.resoCount,
+                                                             JPEG_DECODE_WIDTH,
+                                                             JPEG_DECODE_HEIGHT,
+                                                             LIVEVIEW_DEFAULT_WIDTH,
+                                                             LIVEVIEW_DEFAULT_HEIGHT);
+  if (!LIVEVIEW_REQUEST_RESO) {
+    Serial.printf("HTTP: resoList=[%s] reso= disabled; candidate=%ux%u\n",
+                  listText.c_str(),
+                  static_cast<unsigned>(chosen.width),
+                  static_cast<unsigned>(chosen.height));
+    return;
+  }
   grApi.setLiveViewResolution(chosen);
   if (chosen.valid()) {
     Serial.printf("HTTP: resoList=[%s] selected reso=%ux%u\n",
@@ -1884,7 +1895,7 @@ void serviceShotConfirmation(uint32_t nowMs) {
 // rather than the connect flow, because portrait resume with cached Wi-Fi
 // credentials never passes through the power check that enables power notify.
 void serviceCameraStatusNotify() {
-  if (!bleCamera.isConnected() || bleParkedForPreview) {
+  if (!RICOH_BLE_SUBSCRIBE_CAMERA_STATUS || !bleCamera.isConnected() || bleParkedForPreview) {
     return;
   }
   if (!bleCamera.statusNotifyAttempted()) {
@@ -1896,6 +1907,12 @@ void serviceCameraStatusNotify() {
   const int battery = bleCamera.batteryLevel();
   if (battery >= 0 && battery != cameraBleBatteryShown) {
     cameraBleBatteryShown = battery;
+    if (battery == 0) {
+      // A GR IIIx sent 0 about a second before locking up with charge left,
+      // so 0 reads as a failing camera rather than an empty battery.
+      Serial.println("BLE: camera reported battery 0; camera may be failing");
+      return;
+    }
     cameraProps.battery = battery <= 100 ? String(battery) + "%" : String("raw ") + battery;
   }
 }

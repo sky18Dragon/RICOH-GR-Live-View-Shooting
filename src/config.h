@@ -45,6 +45,15 @@ constexpr uint32_t LIVEVIEW_STALL_TIMEOUT_MS = 5000;
 // supervision timeouts; 7 held 4-7 FPS with working BLE shutter on GR IIIx
 // and GR IV. GR II has not been tested with the parameter and keeps 0.
 constexpr uint8_t LIVEVIEW_MAX_FPS = 7;
+// GR III/IV stream 720x480 when /v1/liveview carries no reso=. A GR IIIx on
+// V1.50 locked up (power LED off, battery pull needed) one second after a
+// landscape BLE shot with reso=720x480 on the stream, and its resoList holds
+// nothing smaller anyway, so reso= stays off until a model proves both a
+// smaller size and stability with it. Even when enabled, only sizes below the
+// default are ever requested.
+constexpr bool LIVEVIEW_REQUEST_RESO = false;
+constexpr uint16_t LIVEVIEW_DEFAULT_WIDTH = 720;
+constexpr uint16_t LIVEVIEW_DEFAULT_HEIGHT = 480;
 // Window after an acknowledged BLE shutter write in which a ShotCount or
 // CaptureStatus notification counts as the camera confirming the capture.
 // Expiry is only reported, never treated as failure: long exposures and
@@ -165,6 +174,9 @@ constexpr uint8_t RICOH_BLE_GR4_POWER_STATE_OFF_VALUE = 0x00;
 #define RICOH_BLE_BATTERY_LEVEL_UUID "875FC41D-4980-434C-A653-FD4A4D4410C4"
 #define RICOH_BLE_CAPTURE_STATUS_UUID "B5589C08-B5FD-46F5-BE7D-AB1B8C074CAA"
 #define RICOH_BLE_SHOT_COUNT_UUID "12D262BA-D8BF-44B0-8E85-C414A40230A9"
+// Kill switch for the three subscriptions above, for A/B testing camera
+// stability. Off restores the power-notify-only behaviour.
+#define RICOH_BLE_SUBSCRIBE_CAMERA_STATUS 1
 #endif
 #ifndef RICOH_BLE_SHOOTING_SERVICE_UUID
 #define RICOH_BLE_SHOOTING_SERVICE_UUID "9F00F387-8345-4BBC-8B92-B87B52E3091A"

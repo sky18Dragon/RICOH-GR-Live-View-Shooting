@@ -74,15 +74,20 @@ size_t parseLiveViewResoList(const char* json, LiveViewResolution* out, size_t c
 LiveViewResolution chooseLiveViewResolution(const LiveViewResolution* list,
                                             size_t count,
                                             uint16_t minWidth,
-                                            uint16_t minHeight) {
+                                            uint16_t minHeight,
+                                            uint16_t defaultWidth,
+                                            uint16_t defaultHeight) {
   LiveViewResolution smallest;
-  LiveViewResolution largest;
   if (list == nullptr || minWidth == 0 || minHeight == 0) {
     return smallest;
   }
+  const uint32_t defaultArea = static_cast<uint32_t>(defaultWidth) * defaultHeight;
   for (size_t i = 0; i < count; ++i) {
     const LiveViewResolution& candidate = list[i];
     if (!candidate.valid() || candidate.width < minWidth || candidate.height < minHeight) {
+      continue;
+    }
+    if (static_cast<uint32_t>(candidate.width) * candidate.height >= defaultArea) {
       continue;
     }
     const uint32_t scaledWidth = static_cast<uint32_t>(candidate.width) * minHeight;
@@ -95,12 +100,6 @@ LiveViewResolution chooseLiveViewResolution(const LiveViewResolution* list,
     if (!smallest.valid() || area < static_cast<uint32_t>(smallest.width) * smallest.height) {
       smallest = candidate;
     }
-    if (!largest.valid() || area > static_cast<uint32_t>(largest.width) * largest.height) {
-      largest = candidate;
-    }
-  }
-  if (!smallest.valid() || (smallest.width == largest.width && smallest.height == largest.height)) {
-    return LiveViewResolution{};
   }
   return smallest;
 }

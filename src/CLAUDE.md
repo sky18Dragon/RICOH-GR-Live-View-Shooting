@@ -125,7 +125,7 @@ BleScan → BleReady → WifiConnecting → HttpProbe → LiveViewRunning
 
 - `setEndpoint(host, port=80)` / 默认 `GR_HOST=192.168.0.1:80`。
 - `fetchProps(props, timeoutMs)`：`GET /v1/props HTTP/1.1`（`Connection: close`），`parsePropsJson` 用 ArduinoJson 兼容多键名（`model`/`modelName`/`model_name`、`batteryLevel`/`battery_level`、`batteryState`/`battery_state`），输出 `CameraProps{model, battery}`。
-- `openLiveView()` / `closeLiveView()` / `isLiveViewOpen()`：`GET /v1/liveview?maxfps=<LIVEVIEW_MAX_FPS>[&reso=WxH] HTTP/1.1`（GR II 用 `setLiveViewMaxFps(0)` 保持无参数），**保持连接**，`_liveClient` 复用。`reso` 由 `liveview_reso_policy` 从 props `resoList` 中挑选不小于 216×144、3:2（容差 1%）的最小尺寸；只有默认尺寸可选时不带该参数；相机返回 4xx 时去掉 `reso` 重试一次并在本次会话内不再使用。
+- `openLiveView()` / `closeLiveView()` / `isLiveViewOpen()`：`GET /v1/liveview?maxfps=<LIVEVIEW_MAX_FPS>[&reso=WxH] HTTP/1.1`（GR II 用 `setLiveViewMaxFps(0)` 保持无参数），**保持连接**，`_liveClient` 复用。`reso` 默认关闭（`LIVEVIEW_REQUEST_RESO=false`）：GR IIIx V1.50 在带 `reso=720x480` 的横屏预览中拍摄后死机，且其 `resoList` 只有 720x480/1080x720。开启时由 `liveview_reso_policy` 挑选不小于 216×144、3:2（容差 1%）且严格小于默认 720×480 的最小尺寸；相机返回 4xx 时去掉 `reso` 重试一次并在本次会话内不再使用。
 - `readLiveView(dst, len)`：从 `_liveClient` 读 MJPEG 字节流；`>0` 字节数、`0` 暂无数据、`<0` 错误。
 - 内部：`connectClient`（连接 + 超时）、`readHttpHeaders`/`parseHttpStatus`/`parseContentLength`、`lastError`。
 

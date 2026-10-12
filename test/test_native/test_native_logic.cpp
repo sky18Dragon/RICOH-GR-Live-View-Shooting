@@ -1373,21 +1373,22 @@ void testLiveViewResoListParsesStringAndBareTokens() {
 
 void testLiveViewResolutionPicksSmallestMatchingAspect() {
   const LiveViewResolution offered[] = {{720, 480}, {360, 240}, {1280, 720}, {216, 120}, {432, 288}};
-  const LiveViewResolution chosen = chooseLiveViewResolution(offered, 5, 216, 144);
+  const LiveViewResolution chosen = chooseLiveViewResolution(offered, 5, 216, 144, 720, 480);
   TEST_ASSERT_EQUAL_UINT16(360, chosen.width);
   TEST_ASSERT_EQUAL_UINT16(240, chosen.height);
 
   // Near-3:2 camera sizes still qualify.
   const LiveViewResolution nearAspect[] = {{720, 480}, {640, 427}};
-  TEST_ASSERT_EQUAL_UINT16(640, chooseLiveViewResolution(nearAspect, 2, 216, 144).width);
+  TEST_ASSERT_EQUAL_UINT16(640, chooseLiveViewResolution(nearAspect, 2, 216, 144, 720, 480).width);
 
-  // Only the default size qualifies: keep the bare request.
-  const LiveViewResolution onlyDefault[] = {{720, 480}, {1280, 720}};
-  TEST_ASSERT_FALSE(chooseLiveViewResolution(onlyDefault, 2, 216, 144).valid());
+  // GR IIIx V1.50 offers only the default and a larger size: never request
+  // either by name, since reso=720x480 preceded a camera lock-up.
+  const LiveViewResolution gr3xList[] = {{720, 480}, {1080, 720}};
+  TEST_ASSERT_FALSE(chooseLiveViewResolution(gr3xList, 2, 216, 144, 720, 480).valid());
   // Nothing at least as large as the decode target, or at its aspect ratio.
   const LiveViewResolution tooSmall[] = {{180, 120}, {720, 405}};
-  TEST_ASSERT_FALSE(chooseLiveViewResolution(tooSmall, 2, 216, 144).valid());
-  TEST_ASSERT_FALSE(chooseLiveViewResolution(nullptr, 0, 216, 144).valid());
+  TEST_ASSERT_FALSE(chooseLiveViewResolution(tooSmall, 2, 216, 144, 720, 480).valid());
+  TEST_ASSERT_FALSE(chooseLiveViewResolution(nullptr, 0, 216, 144, 720, 480).valid());
 }
 
 void testGr3WifiProbeOnlyWidensStartupMode() {
