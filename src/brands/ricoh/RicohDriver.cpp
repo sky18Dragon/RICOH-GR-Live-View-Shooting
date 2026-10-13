@@ -1505,9 +1505,10 @@ bool connectWifiFromProfile(bool forceStatus, bool requireBleAnchor = false, uin
 
   bool connected = false;
   const uint8_t channel = cameraProfile.wifi.channel;
-  const uint32_t hintTimeout = WIFI_CHANNEL_HINT_CONNECT_TIMEOUT_MS < totalTimeoutMs
-                                 ? WIFI_CHANNEL_HINT_CONNECT_TIMEOUT_MS
-                                 : totalTimeoutMs;
+  const uint32_t hintLimit = knownCameraProtocol().capabilities.wifiChannelChangesOnRestart
+                                 ? WIFI_UNSTABLE_CHANNEL_HINT_CONNECT_TIMEOUT_MS
+                                 : WIFI_CHANNEL_HINT_CONNECT_TIMEOUT_MS;
+  const uint32_t hintTimeout = hintLimit < totalTimeoutMs ? hintLimit : totalTimeoutMs;
 
   if (channel != 0) {
     connected = wifiPreview.connectWifi(cameraProfile.wifi.ssid.c_str(),

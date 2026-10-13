@@ -431,6 +431,18 @@ void testLandscapeKeepsBleShutterForAllGenerations() {
                         .capabilities.allowBlePreviewParking);
 }
 
+void testOnlyGr4TreatsCachedWifiChannelAsAGuess() {
+  // GR IV moved its AP between channels across WLAN restarts; GR III kept one.
+  TEST_ASSERT_TRUE(cameraProtocolProfile(RicohProtocolGeneration::Gr4Family)
+                       .capabilities.wifiChannelChangesOnRestart);
+  TEST_ASSERT_FALSE(cameraProtocolProfile(RicohProtocolGeneration::Gr3Family)
+                        .capabilities.wifiChannelChangesOnRestart);
+  TEST_ASSERT_FALSE(cameraProtocolProfile(RicohProtocolGeneration::Gr2Family)
+                        .capabilities.wifiChannelChangesOnRestart);
+  TEST_ASSERT_FALSE(cameraProtocolProfile(RicohProtocolGeneration::Unknown)
+                        .capabilities.wifiChannelChangesOnRestart);
+}
+
 void testGr3CredentialShapeAllowsOptionalChannel() {
   TEST_ASSERT_TRUE(validGr3WifiCredentials("GR_TEST", "secret", 0));
   TEST_ASSERT_TRUE(validGr3WifiCredentials("GR_TEST", "secret", 11));
@@ -509,6 +521,7 @@ int main() {
   RUN_TEST(testGr2ScanCacheShowsEmptyAndNonRicohWarnings);
   RUN_TEST(testGr2CredentialHandoffWaitsForResponseFlushAndHandlesMillisWrap);
   RUN_TEST(testLandscapeKeepsBleShutterForAllGenerations);
+  RUN_TEST(testOnlyGr4TreatsCachedWifiChannelAsAGuess);
   RUN_TEST(testGr3CredentialShapeAllowsOptionalChannel);
   RUN_TEST(testOldGr4ProfileMetadataMigratesWithoutRepairing);
   RUN_TEST(testNewProfileMetadataRoundTrips);

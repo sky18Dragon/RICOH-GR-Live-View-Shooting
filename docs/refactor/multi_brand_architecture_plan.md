@@ -1,6 +1,6 @@
 # 多品牌 / 多型号相机架构重构计划
 
-> 状态：已定稿方案 A；阶段 0 的 CI 部分、阶段 1（仅接口）、阶段 2 代码迁移已完成（2026-10-13），**阶段 2 的实机回归尚未执行**。详见「四、迁移路线」下的「执行记录」
+> 状态：已定稿方案 A；阶段 0 的 CI 部分、阶段 1（仅接口）、阶段 2 代码迁移已完成（2026-10-13），阶段 2 已在 GR III 系列与 GR IV 上实机回归，GR II 尚未回归。详见「四、迁移路线」下的「执行记录」
 > 日期：2026-10-13
 > 分析基线：分支 `feature/firmware-optimization`
 > 关联文档：[architecture_refactor_plan.md](architecture_refactor_plan.md)、[../project_overview.md](../project_overview.md)、[../power_state_policy.md](../power_state_policy.md)
@@ -263,11 +263,13 @@ GR III 与 GR IV 约 60–70% 的流程相同（电源门控、HTTP 预览、恢
 
 **2026-10-13 阶段 0–2**
 
-- 阶段 0：CI 新增 `native-test` job；实机行为基线清单**未建立**。
+- 阶段 0：CI 新增 `native-test` job；迁移前未建立实机行为基线清单，改为迁移后对照串口日志回归。
 - 阶段 1：只新增了 [`camera/ICameraDriver.h`](../../src/camera/ICameraDriver.h)（`ICameraDriver` + `ICameraHost` + `CameraStatus`）。Registry 与 `transport/ble/BleStack` 推迟到第一次真正使用它们的阶段（Registry → 阶段 3/5，BleStack → 阶段 6），避免重新引入空骨架。
 - 阶段 2：理光流程从 `main.cpp` 原样搬入 [`brands/ricoh/RicohDriver.cpp`](../../src/brands/ricoh/RicohDriver.cpp)。`main.cpp`（约 800 行）只剩板级、UI、按键与 Supervisor，经 `ICameraDriver` 驱动相机，驱动经 `ICameraHost` 回调显示 / 输入。`AppController` 现在只在驱动内部使用。
   - 校验方式：原 155 个函数中 129 个逐字未变，其余 24 个只改了跨边界调用；全部日志 / UI 字符串的出现次数与迁移前一致；固件编译通过，Native 121 个用例通过。
   - 主动保留到后续阶段的耦合：`main.cpp` 直接实例化 `RicohDriver`（阶段 5 由注册表替代）；配对引导 `PairingGuide` 仍使用 `RicohProtocolGeneration`，经 `CameraModelId` 透传（阶段 3）；`CameraStatus.appState` 仍是理光工作流状态（阶段 3 通用化）；显示镜像设置与相机档案共用 `ricoh2` 的 `CameraProfileStore`，由 `main` 注入驱动（阶段 4 拆分）；驱动接口仍传递 `String`（阶段 8）。
+  - 实机回归（2026-10-13/14）：GR III 系列与 GR IV 通过首次配对、竖屏 BLE 快门、横屏 LiveView + BLE 快门、横竖反复切换、关机保护与手动唤醒；GR IV 另验证了重启后快速重连与长按 B 重置配对。GR II 未测。
+  - 回归中发现 GR IV 的 AP 每次 WLAN ON 可能换信道（6 / 11 交替），按缓存信道连接常需约 14 s；已加 `wifiChannelChangesOnRestart` 能力位缩短信道猜测，并让全信道扫描不再被重连打断，GR IV 进入 LiveView 降到约 4–7 s。
   - 驱动接口暂时包含 `beginTick / serviceFlowTick / serviceBackgroundTick` 三段式 tick，用来保持原主循环的调用顺序（Supervisor 夹在中间）。驱动改为非阻塞（阶段 8）后合并为单个 `tick()`。
 
 ### 执行注意事项

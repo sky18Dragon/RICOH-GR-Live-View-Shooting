@@ -96,6 +96,10 @@ struct CameraCapabilities {
   // the preview streams, so the shutter must work over HTTP. A generation must
   // opt in explicitly; one that does not keeps BLE through the preview.
   bool allowBlePreviewParking = false;
+  // The camera AP may come back on a different channel after each WLAN ON,
+  // so the cached channel is only a guess: keep the channel-hinted join short
+  // and fall back to a full scan quickly.
+  bool wifiChannelChangesOnRestart = false;
 };
 
 struct CameraProtocolProfile {

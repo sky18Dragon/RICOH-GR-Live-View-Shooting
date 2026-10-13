@@ -67,6 +67,10 @@ CameraProtocolProfile makeGr4Profile() {
   profile.capabilities.supportsHttpFocusSetting = true;
   // Keep BLE connected during LiveView and shoot over BLE, matching GR III.
   profile.capabilities.allowBlePreviewParking = false;
+  // GR IV, 2026-10-13: the AP alternated between channels 6 and 11 across
+  // landscape turns, and the first BLE read reported channel 1 while the AP
+  // was on 11.
+  profile.capabilities.wifiChannelChangesOnRestart = true;
   profile.wifiActivationMethod = WifiActivationMethod::BleFixedHandle;
   profile.wifiCredentialMethod = WifiCredentialMethod::BleFixedHandles;
   profile.requiresLegacyShutterFlavorWrite = true;

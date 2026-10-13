@@ -283,6 +283,7 @@ bool GrWifi::connectTo(const char* ssid, const char* password, const char* bssid
   const uint32_t startMs = millis();
   uint32_t lastBeginMs = startMs;
   uint8_t kicks = 0;
+  const uint32_t kickIntervalMs = channel == 0 ? WIFI_CONNECT_FULL_SCAN_KICK_MS : WIFI_CONNECT_KICK_MS;
   Serial.printf("WiFi: begin channel=%u has_bssid=%d timeout=%lums\n",
                 static_cast<unsigned>(channel),
                 hasBssid ? 1 : 0,
@@ -312,7 +313,7 @@ bool GrWifi::connectTo(const char* ssid, const char* password, const char* bssid
     const uint32_t elapsedMs = nowMs - startMs;
     if (!g_wifiStaAssociated.load() &&
         kicks < WIFI_CONNECT_MAX_KICKS &&
-        (nowMs - lastBeginMs) >= WIFI_CONNECT_KICK_MS &&
+        (nowMs - lastBeginMs) >= kickIntervalMs &&
         elapsedMs + WIFI_CONNECT_KICK_MIN_REMAINING_MS <= timeoutMs) {
       ++kicks;
       Serial.printf("WiFi: not associated after %lums; re-issuing join (kick %u/%u)\n",

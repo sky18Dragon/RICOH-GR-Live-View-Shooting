@@ -30,6 +30,10 @@ constexpr size_t STREAM_READ_BUFFER_SIZE = 8192;
 
 constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 15000;
 constexpr uint32_t WIFI_CHANNEL_HINT_CONNECT_TIMEOUT_MS = 6000;
+// Channel-hinted join for cameras whose AP channel changes on every WLAN ON
+// (wifiChannelChangesOnRestart). A GR IV on the right channel joined within
+// 2.5 s; on the wrong one the 6 s hint was pure waiting before the full scan.
+constexpr uint32_t WIFI_UNSTABLE_CHANNEL_HINT_CONNECT_TIMEOUT_MS = 3000;
 // Start association as soon as the BLE WLAN-on write is acknowledged. The
 // previous 700 ms fixed sleep plus 1200 ms attempt is preserved as one 1900 ms
 // bounded attempt, allowing DHCP to complete as soon as the AP is actually up.
@@ -59,6 +63,10 @@ constexpr uint32_t BLE_LIVEVIEW_LOW_DUTY_SETTLE_MS = 1500;
 // not associated after this long instead of waiting out the doomed attempt.
 // A join that has associated (auth/DHCP in progress) is never interrupted.
 constexpr uint32_t WIFI_CONNECT_KICK_MS = 1500;
+// A full-channel scan (channel 0) plus join takes ~3.4 s; re-issuing the join
+// every 1.5 s restarted the scan before it finished, so full-scan joins only
+// succeeded once the kicks ran out (GR IV, 2026-10-13: 8.1 s instead of ~3.4 s).
+constexpr uint32_t WIFI_CONNECT_FULL_SCAN_KICK_MS = 4000;
 constexpr uint8_t WIFI_CONNECT_MAX_KICKS = 3;
 // A kick is only worth it with at least this much of the timeout left.
 constexpr uint32_t WIFI_CONNECT_KICK_MIN_REMAINING_MS = 1000;
