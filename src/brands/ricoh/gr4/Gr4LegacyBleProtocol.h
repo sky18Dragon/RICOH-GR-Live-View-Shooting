@@ -17,4 +17,7 @@ public:
   bool readPowerValue(RicohGattSession& gatt, std::vector<uint8_t>& value, std::string& error) const override;
   bool enablePowerNotify(RicohGattSession& gatt, std::string& error) const override;
   bool requestCaptureOperationMode(RicohGattSession& gatt, std::string& error) const override;
+  bool readWifiCredentials(RicohGattSession& gatt,
+                           RicohWifiCredentials& credentials,
+                           std::string& error) const override;
 };

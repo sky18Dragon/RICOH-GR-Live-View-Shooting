@@ -1,4 +1,5 @@
 #include <cstdio>
+#include <cstring>
 #include <map>
 #include <string>
 #include <vector>
@@ -13,6 +14,7 @@ void tearDown(void) {}
 #include "brands/ricoh/gr3/Gr3BleProtocol.h"
 #include "brands/ricoh/gr4/Gr4BleConfig.h"
 #include "brands/ricoh/gr4/Gr4LegacyBleProtocol.h"
+#include "brands/ricoh/gr4/Gr4WifiCredentialParser.h"
 
 namespace {
 
@@ -102,6 +104,7 @@ public:
   }
 
   RicohLinkSecurity security() const override { return link; }
+  void pause(uint32_t ms) override { calls.push_back("pause " + std::to_string(ms)); }
   void print(const char* text) override { out += text; }
   void println(const char* text) override {
     out += text;
@@ -356,6 +359,168 @@ void testGr3CaptureRequestNeedsCaptureInTheModeList() {
   TEST_ASSERT_TRUE(unauthenticated.calls.empty());
 }
 
+// ---- Wi-Fi credentials ----
+
+std::vector<uint8_t> bytes(const char* text) {
+  return std::vector<uint8_t>(text, text + std::strlen(text));
+}
+
+void testGr4ParsesThePlainHandleValues() {
+  // The shape a GR IV returns per handle: text SSID / passphrase, a one-byte
+  // security type and the frequency as a little-endian number.
+  RicohWifiCredentials c;
+  mergeGr4CredentialValue(c, "ssid", bytes("GR_CEC596"));
+  TEST_ASSERT_FALSE(c.valid);
+  mergeGr4CredentialValue(c, "passphrase", bytes("abcd1234"));
+  TEST_ASSERT_TRUE(c.valid);
+  mergeGr4CredentialValue(c, "security", {0x03});
+  mergeGr4CredentialValue(c, "frequency", {0x6C, 0x09});  // 2412
+  TEST_ASSERT_EQUAL_STRING("GR_CEC596", c.ssid.c_str());
+  TEST_ASSERT_EQUAL_STRING("abcd1234", c.passphrase.c_str());
+  TEST_ASSERT_EQUAL_INT(3, c.securityType);
+  TEST_ASSERT_EQUAL_UINT16(2412, c.frequencyMhz);
+  TEST_ASSERT_EQUAL_UINT8(1, c.channel);
+  TEST_ASSERT_TRUE(c.bssid.empty());
+}
+
+void testGr4ParsesKeyValueText() {
+  RicohWifiCredentials c;
+  mergeGr4CredentialValue(c, "ssid",
+                          bytes("{\"SSID\": \"GR_ABC123\", \"Password\"='pw 12345', \"bssid\":\"\"}"));
+  TEST_ASSERT_EQUAL_STRING("GR_ABC123", c.ssid.c_str());
+  TEST_ASSERT_EQUAL_STRING("pw 12345", c.passphrase.c_str());
+  TEST_ASSERT_TRUE(c.valid);
+
+  // A MAC anywhere in the text, dashes or colons, ends up upper case.
+  mergeGr4CredentialValue(c, "security", bytes("ap f0-3e-05-ce-c5-97 wpa2"));
+  TEST_ASSERT_EQUAL_STRING("F0:3E:05:CE:C5:97", c.bssid.c_str());
+}
+
+void testGr4OnlyAcceptsGrLookingSsids() {
+  RicohWifiCredentials c;
+  mergeGr4CredentialValue(c, "ssid", bytes("HomeWiFi"));
+  TEST_ASSERT_TRUE(c.ssid.empty());
+  mergeGr4CredentialValue(c, "ssid", bytes("ricoh_gr_x"));
+  TEST_ASSERT_EQUAL_STRING("ricoh_gr_x", c.ssid.c_str());
+  mergeGr4CredentialValue(c, "ssid", bytes("GR_0123456789012345678901234567890"));  // 33 chars
+  TEST_ASSERT_EQUAL_STRING("ricoh_gr_x", c.ssid.c_str());
+}
+
+void testGr4FlagsAnUnreadablePassphrase() {
+  RicohWifiCredentials c;
+  mergeGr4CredentialValue(c, "ssid", bytes("GR_CEC596"));
+  mergeGr4CredentialValue(c, "passphrase", {0x8F, 0x12, 0xA0});
+  TEST_ASSERT_TRUE(c.encryptedPassphrase);
+  TEST_ASSERT_FALSE(c.valid);
+
+  // An open network (security 0) needs no passphrase.
+  RicohWifiCredentials open;
+  mergeGr4CredentialValue(open, "ssid", bytes("GR_OPEN"));
+  mergeGr4CredentialValue(open, "security", {0x00});
+  TEST_ASSERT_TRUE(open.valid);
+}
+
+void testGr4BssidAndFrequencyForms() {
+  RicohWifiCredentials c;
+  mergeGr4CredentialValue(c, "bssid", {0xF2, 0x3E, 0x05, 0xCE, 0xC6, 0x96});
+  TEST_ASSERT_EQUAL_STRING("F2:3E:05:CE:C6:96", c.bssid.c_str());
+
+  RicohWifiCredentials text;
+  mergeGr4CredentialValue(text, "frequency", bytes("channel 6"));
+  TEST_ASSERT_EQUAL_UINT16(2437, text.frequencyMhz);
+  TEST_ASSERT_EQUAL_UINT8(6, text.channel);
+
+  RicohWifiCredentials big;
+  mergeGr4CredentialValue(big, "frequency", {0x09, 0xAE});  // 2478 BE, not a 2.4 GHz centre
+  TEST_ASSERT_EQUAL_UINT16(0, big.frequencyMhz);
+  mergeGr4CredentialValue(big, "frequency", {0x00, 0x00, 0x09, 0x9B});  // 2459 BE -> no
+  TEST_ASSERT_EQUAL_UINT16(0, big.frequencyMhz);
+  mergeGr4CredentialValue(big, "frequency", {0x09, 0xB4});  // 2484 BE -> channel 14
+  TEST_ASSERT_EQUAL_UINT16(2484, big.frequencyMhz);
+  TEST_ASSERT_EQUAL_UINT8(14, big.channel);
+}
+
+void testGr4TextHelpersKeepArduinoStringSemantics() {
+  TEST_ASSERT_EQUAL_STRING("a b", gr4PrintableText(bytes("\t a\rb \n")).c_str());
+  TEST_ASSERT_EQUAL_STRING("", gr4PrintableText({'a', 0x07}).c_str());
+  TEST_ASSERT_EQUAL_STRING("x", gr4PrintableText({0, 'x', 0}).c_str());
+  TEST_ASSERT_EQUAL_STRING("v1", gr4MaybeQuotedValue("Key : \"v1\" ,", "key").c_str());
+  TEST_ASSERT_EQUAL_STRING("", gr4MaybeQuotedValue("key v1", "key").c_str());
+  TEST_ASSERT_EQUAL_STRING("", gr4MacFromText("f0:3e:05:ce:c5").c_str());
+  TEST_ASSERT_EQUAL_STRING("", gr4MacFromText("f0:3e-05:ce:c5:97").c_str());
+  TEST_ASSERT_EQUAL_UINT16(2412, gr4FrequencyFromValue("ch=1", {}));
+}
+
+void testGr4PollReadsEveryHandleWithPauses() {
+  Gr4LegacyBleProtocol gr4;
+  FakeGattSession gatt;
+  gatt.handleValues[RICOH_BLE_GR4_WLAN_SSID_HANDLE] = bytes("GR_CEC596");
+  gatt.handleValues[RICOH_BLE_GR4_WLAN_PASSPHRASE_HANDLE] = bytes("abcd1234");
+  RicohWifiCredentials c;
+  std::string error;
+  TEST_ASSERT_TRUE(gr4.readWifiCredentials(gatt, c, error));
+  TEST_ASSERT_TRUE(c.valid);
+  // Unreadable handles are skipped but still followed by the same pause.
+  TEST_ASSERT_EQUAL_STRING(
+      "readHandle 0x0138 | pause 20 | readHandle 0x013A | pause 20 | readHandle 0x013C | pause 20 | "
+      "readHandle 0x013E | pause 20 | readHandle 0x0140 | pause 20",
+      join(gatt.calls).c_str());
+}
+
+void testGr3PollReadsTheWlanCharacteristics() {
+  Gr3BleProtocol gr3;
+  FakeGattSession gatt;
+  const std::string ssid = RICOH_BLE_GR3_WLAN_SSID_UUID;
+  const std::string pass = RICOH_BLE_GR3_WLAN_PASSPHRASE_UUID;
+  const std::string channel = RICOH_BLE_GR3_WLAN_CHANNEL_UUID;
+  gatt.readResults[ssid] = RicohGattRead::Ok;
+  gatt.characteristicValues[ssid] = {' ', 'G', 'R', '_', 'C', 'D', 'F', 'D', '6', '3', 0, 0};
+  gatt.readResults[pass] = RicohGattRead::Ok;
+  gatt.characteristicValues[pass] = bytes("secret12\n");
+  gatt.readResults[channel] = RicohGattRead::Ok;
+  gatt.characteristicValues[channel] = {6};
+  RicohWifiCredentials c;
+  c.encryptedPassphrase = true;
+  std::string error;
+  TEST_ASSERT_TRUE(gr3.readWifiCredentials(gatt, c, error));
+  TEST_ASSERT_EQUAL_STRING("GR_CDFD63", c.ssid.c_str());
+  TEST_ASSERT_EQUAL_STRING("secret12", c.passphrase.c_str());
+  TEST_ASSERT_FALSE(c.encryptedPassphrase);
+  TEST_ASSERT_EQUAL_UINT8(6, c.channel);
+  TEST_ASSERT_TRUE(c.valid);
+  const std::string expected = "read " + ssid + " ssid @" + kGr3Wlan + " | pause 20 | read " + pass +
+                               " passphrase @" + kGr3Wlan + " | pause 20 | read " + channel + " channel @" +
+                               kGr3Wlan + " | pause 20";
+  TEST_ASSERT_EQUAL_STRING(expected.c_str(), join(gatt.calls).c_str());
+}
+
+void testGr3PollSkipsMissingValuesAndStopsOnAuthFailure() {
+  Gr3BleProtocol gr3;
+  const std::string ssid = RICOH_BLE_GR3_WLAN_SSID_UUID;
+  const std::string pass = RICOH_BLE_GR3_WLAN_PASSPHRASE_UUID;
+  std::string error;
+
+  // Missing and failed reads are skipped without a pause; earlier passes
+  // still count.
+  FakeGattSession partial;
+  partial.readResults[ssid] = RicohGattRead::Failed;
+  RicohWifiCredentials c;
+  c.ssid = "GR_KEEP";
+  TEST_ASSERT_TRUE(gr3.readWifiCredentials(partial, c, error));
+  TEST_ASSERT_EQUAL_STRING("GR_KEEP", c.ssid.c_str());
+  TEST_ASSERT_FALSE(c.valid);
+  TEST_ASSERT_EQUAL_UINT32(3, partial.calls.size());
+
+  FakeGattSession rejected;
+  rejected.readResults[ssid] = RicohGattRead::Ok;
+  rejected.characteristicValues[ssid] = bytes("GR_X");
+  rejected.readResults[pass] = RicohGattRead::Rejected;
+  RicohWifiCredentials d;
+  TEST_ASSERT_FALSE(gr3.readWifiCredentials(rejected, d, error));
+  TEST_ASSERT_EQUAL_STRING("BLE protected read requires authenticated encryption", error.c_str());
+  TEST_ASSERT_EQUAL_UINT32(3, rejected.calls.size());  // read, pause, read; channel never read
+}
+
 void testHexFormattingMatchesTheLogFormat() {
   const uint8_t bytes[] = {0x00, 0x0A, 0xFF};
   TEST_ASSERT_EQUAL_STRING("00 0A FF", ricohHexBytes(bytes, sizeof(bytes)).c_str());
@@ -378,6 +543,15 @@ int main() {
   RUN_TEST(testGr3PowerReadOutcomes);
   RUN_TEST(testGr3PowerNotifySubscribesTheUuid);
   RUN_TEST(testGr3CaptureRequestNeedsCaptureInTheModeList);
+  RUN_TEST(testGr4ParsesThePlainHandleValues);
+  RUN_TEST(testGr4ParsesKeyValueText);
+  RUN_TEST(testGr4OnlyAcceptsGrLookingSsids);
+  RUN_TEST(testGr4FlagsAnUnreadablePassphrase);
+  RUN_TEST(testGr4BssidAndFrequencyForms);
+  RUN_TEST(testGr4TextHelpersKeepArduinoStringSemantics);
+  RUN_TEST(testGr4PollReadsEveryHandleWithPauses);
+  RUN_TEST(testGr3PollReadsTheWlanCharacteristics);
+  RUN_TEST(testGr3PollSkipsMissingValuesAndStopsOnAuthFailure);
   RUN_TEST(testHexFormattingMatchesTheLogFormat);
   return UNITY_END();
 }

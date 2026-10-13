@@ -3,6 +3,8 @@
 #include "../common/RicohBleUuids.h"
 #include "Gr3BleConfig.h"
 
+#include <cstring>
+
 RicohProtocolGeneration Gr3BleProtocol::generation() const {
   return RicohProtocolGeneration::Gr3Family;
 }
@@ -175,5 +177,59 @@ bool Gr3BleProtocol::requestCaptureOperationMode(RicohGattSession& gatt, std::st
   }
   error.clear();
   gatt.println("BLE: operation mode write CAPTURE result=OK");
+  return true;
+}
+
+bool Gr3BleProtocol::readWifiCredentials(RicohGattSession& gatt,
+                                         RicohWifiCredentials& credentials,
+                                         std::string& error) const {
+  struct Gr3CredentialCharacteristic {
+    const char* uuid;
+    const char* label;
+  };
+  const Gr3CredentialCharacteristic parameters[] = {
+      {RICOH_BLE_GR3_WLAN_SSID_UUID, "ssid"},
+      {RICOH_BLE_GR3_WLAN_PASSPHRASE_UUID, "passphrase"},
+      {RICOH_BLE_GR3_WLAN_CHANNEL_UUID, "channel"},
+  };
+
+  for (const Gr3CredentialCharacteristic& parameter : parameters) {
+    std::vector<uint8_t> value;
+    int rc = 0;
+    const RicohGattRead result =
+        gatt.readCharacteristic(RICOH_BLE_GR3_WLAN_SERVICE_UUID, parameter.uuid, parameter.label, value, error, rc);
+    if (result == RicohGattRead::Rejected) {
+      return false;
+    }
+    if (result != RicohGattRead::Ok) {
+      continue;
+    }
+
+    if (std::strcmp(parameter.label, "channel") == 0) {
+      credentials.channel = value[0];
+    } else {
+      std::string text;
+      text.reserve(value.size());
+      for (uint8_t byte : value) {
+        if (byte != 0) {
+          text += static_cast<char>(byte);
+        }
+      }
+      // Arduino String::trim(): strip leading and trailing whitespace.
+      const size_t first = text.find_first_not_of(" \t\n\v\f\r");
+      const size_t last = text.find_last_not_of(" \t\n\v\f\r");
+      text = first == std::string::npos ? std::string() : text.substr(first, last - first + 1);
+      if (std::strcmp(parameter.label, "ssid") == 0) {
+        credentials.ssid = text;
+      } else {
+        credentials.passphrase = text;
+        credentials.encryptedPassphrase = false;
+      }
+    }
+    gatt.pause(20);
+  }
+  credentials.valid = validGr3WifiCredentials(credentials.ssid.c_str(),
+                                              credentials.passphrase.c_str(),
+                                              credentials.channel);
   return true;
 }

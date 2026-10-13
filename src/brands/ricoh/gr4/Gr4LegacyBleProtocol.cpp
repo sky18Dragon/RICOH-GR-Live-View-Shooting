@@ -3,6 +3,7 @@
 #include <cstdio>
 
 #include "Gr4BleConfig.h"
+#include "Gr4WifiCredentialParser.h"
 
 RicohProtocolGeneration Gr4LegacyBleProtocol::generation() const {
   return RicohProtocolGeneration::Gr4Family;
@@ -93,4 +94,29 @@ bool Gr4LegacyBleProtocol::enablePowerNotify(RicohGattSession& gatt, std::string
 bool Gr4LegacyBleProtocol::requestCaptureOperationMode(RicohGattSession&, std::string& error) const {
   error = "BLE capture mode request is GR III family only";
   return false;
+}
+
+bool Gr4LegacyBleProtocol::readWifiCredentials(RicohGattSession& gatt,
+                                               RicohWifiCredentials& credentials,
+                                               std::string&) const {
+  struct WlanParamHandle {
+    uint16_t handle;
+    const char* label;
+  };
+  static const WlanParamHandle kWlanParamHandles[] = {
+      {RICOH_BLE_GR4_WLAN_SSID_HANDLE, "ssid"},
+      {RICOH_BLE_GR4_WLAN_PASSPHRASE_HANDLE, "passphrase"},
+      {RICOH_BLE_GR4_WLAN_SECURITY_HANDLE, "security"},
+      {RICOH_BLE_GR4_WLAN_FREQUENCY_HANDLE, "frequency"},
+      {RICOH_BLE_GR4_WLAN_BSSID_HANDLE, "bssid"},
+  };
+  for (const WlanParamHandle& item : kWlanParamHandles) {
+    std::vector<uint8_t> value;
+    std::string readError;
+    if (gatt.readHandle(item.handle, value, readError)) {
+      mergeGr4CredentialValue(credentials, item.label, value);
+    }
+    gatt.pause(20);
+  }
+  return true;
 }

@@ -164,19 +164,6 @@ int ricohGapEventHandler(ble_gap_event* event, void*) {
   return 0;
 }
 
-struct WlanParamHandle {
-  uint16_t handle;
-  const char* label;
-};
-
-const WlanParamHandle kWlanParamHandles[] = {
-    {RICOH_BLE_GR4_WLAN_SSID_HANDLE, "ssid"},
-    {RICOH_BLE_GR4_WLAN_PASSPHRASE_HANDLE, "passphrase"},
-    {RICOH_BLE_GR4_WLAN_SECURITY_HANDLE, "security"},
-    {RICOH_BLE_GR4_WLAN_FREQUENCY_HANDLE, "frequency"},
-    {RICOH_BLE_GR4_WLAN_BSSID_HANDLE, "bssid"},
-};
-
 String toUpperCopy(String value) {
   value.toUpperCase();
   return value;
@@ -389,279 +376,12 @@ private:
 // object while the application task stops or rebuilds the BLE stack.
 RicohScanCallbacks g_scanCallbacks;
 
-String printableText(const std::vector<uint8_t>& data) {
-  String text;
-  for (uint8_t b : data) {
-    if (b == 0) {
-      continue;
-    }
-    if (b == '\r' || b == '\n' || b == '\t') {
-      text += ' ';
-      continue;
-    }
-    if (b < 0x20 || b > 0x7E) {
-      return String();
-    }
-    text += static_cast<char>(b);
-  }
-  text.trim();
-  return text;
-}
-
-String maybeQuotedValue(const String& text, const char* key) {
-  String lowerText = text;
-  lowerText.toLowerCase();
-  String lowerKey = key;
-  lowerKey.toLowerCase();
-
-  const int keyPos = lowerText.indexOf(lowerKey);
-  if (keyPos < 0) {
-    return String();
-  }
-
-  int sep = -1;
-  for (int i = keyPos + lowerKey.length(); i < text.length(); ++i) {
-    const char c = text[i];
-    if (c == ':' || c == '=') {
-      sep = i;
-      break;
-    }
-    if (!(c == ' ' || c == '\t' || c == '"' || c == '\'')) {
-      break;
-    }
-  }
-  if (sep < 0) {
-    return String();
-  }
-
-  int start = sep + 1;
-  while (start < text.length() && (text[start] == ' ' || text[start] == '\t' || text[start] == '"' || text[start] == '\'')) {
-    ++start;
-  }
-
-  int end = start;
-  while (end < text.length()) {
-    const char c = text[end];
-    if (c == '"' || c == '\'' || c == ',' || c == ';' || c == '}' || c == '\r' || c == '\n') {
-      break;
-    }
-    ++end;
-  }
-
-  String value = text.substring(start, end);
-  value.trim();
-  return value;
-}
-
-bool looksLikeSsid(const String& text) {
-  if (text.length() == 0 || text.length() > 32) {
-    return false;
-  }
-  String upper = text;
-  upper.toUpperCase();
-  return upper.startsWith("GR_") || upper.startsWith("RICOH_GR") ||
-         upper.startsWith("GR4_") || upper.startsWith("GR_4_");
-}
-
-bool isHexPair(char a, char b) {
-  return std::isxdigit(static_cast<unsigned char>(a)) && std::isxdigit(static_cast<unsigned char>(b));
-}
-
-String macFromText(const String& text) {
-  for (int i = 0; i + 16 < text.length(); ++i) {
-    if (isHexPair(text[i], text[i + 1]) &&
-        (text[i + 2] == ':' || text[i + 2] == '-') &&
-        isHexPair(text[i + 3], text[i + 4]) &&
-        text[i + 5] == text[i + 2] &&
-        isHexPair(text[i + 6], text[i + 7]) &&
-        text[i + 8] == text[i + 2] &&
-        isHexPair(text[i + 9], text[i + 10]) &&
-        text[i + 11] == text[i + 2] &&
-        isHexPair(text[i + 12], text[i + 13]) &&
-        text[i + 14] == text[i + 2] &&
-        isHexPair(text[i + 15], text[i + 16])) {
-      String mac = text.substring(i, i + 17);
-      mac.replace('-', ':');
-      mac.toUpperCase();
-      return mac;
-    }
-  }
-  return String();
-}
-
-String macFromRaw6(const std::vector<uint8_t>& data) {
-  if (data.size() != 6) {
-    return String();
-  }
-  char mac[18];
-  snprintf(mac,
-           sizeof(mac),
-           "%02X:%02X:%02X:%02X:%02X:%02X",
-           data[0],
-           data[1],
-           data[2],
-           data[3],
-           data[4],
-           data[5]);
-  return String(mac);
-}
-
-uint16_t frequencyMhzForChannel(uint8_t channel) {
-  if (channel >= 1 && channel <= 13) {
-    return static_cast<uint16_t>(2407 + channel * 5);
-  }
-  if (channel == 14) {
-    return 2484;
-  }
-  return 0;
-}
-
-uint8_t channelFromFrequencyMhz(uint16_t frequencyMhz) {
-  if (frequencyMhz == 2484) {
-    return 14;
-  }
-  if (frequencyMhz >= 2412 && frequencyMhz <= 2472 && ((frequencyMhz - 2407) % 5) == 0) {
-    return static_cast<uint8_t>((frequencyMhz - 2407) / 5);
-  }
-  return 0;
-}
-
-uint16_t normalizeFrequencyOrChannel(uint32_t value) {
-  if (value >= 2412 && value <= 2484) {
-    return static_cast<uint16_t>(value);
-  }
-  if (value >= 1 && value <= 14) {
-    return frequencyMhzForChannel(static_cast<uint8_t>(value));
-  }
-  return 0;
-}
-
-uint16_t frequencyFromText(const String& text) {
-  const char* cursor = text.c_str();
-  while (*cursor != '\0') {
-    while (*cursor != '\0' && !std::isdigit(static_cast<unsigned char>(*cursor))) {
-      ++cursor;
-    }
-    if (*cursor == '\0') {
-      break;
-    }
-    char* end = nullptr;
-    const unsigned long value = std::strtoul(cursor, &end, 10);
-    const uint16_t normalized = normalizeFrequencyOrChannel(value);
-    if (normalized != 0) {
-      return normalized;
-    }
-    cursor = end != nullptr && end != cursor ? end : cursor + 1;
-  }
-  return 0;
-}
-
-uint32_t readUnsignedLe(const std::vector<uint8_t>& data, size_t width) {
-  uint32_t value = 0;
-  const size_t count = std::min(width, data.size());
-  for (size_t i = 0; i < count; ++i) {
-    value |= static_cast<uint32_t>(data[i]) << (8 * i);
-  }
-  return value;
-}
-
-uint32_t readUnsignedBe(const std::vector<uint8_t>& data, size_t width) {
-  uint32_t value = 0;
-  const size_t count = std::min(width, data.size());
-  for (size_t i = 0; i < count; ++i) {
-    value = (value << 8) | data[i];
-  }
-  return value;
-}
-
-uint16_t frequencyFromRaw(const std::vector<uint8_t>& data) {
-  if (data.empty() || data.size() > 4) {
-    return 0;
-  }
-  const uint16_t le = normalizeFrequencyOrChannel(readUnsignedLe(data, data.size()));
-  if (le != 0) {
-    return le;
-  }
-  return normalizeFrequencyOrChannel(readUnsignedBe(data, data.size()));
-}
-
-uint16_t frequencyFromValue(const String& text, const std::vector<uint8_t>& data) {
-  const uint16_t fromText = frequencyFromText(text);
-  if (fromText != 0) {
-    return fromText;
-  }
-  return frequencyFromRaw(data);
-}
-
 void logBleHeapOnResourceError(const char* label) {
   Serial.printf("BLE heap: %s free_internal=%u largest_internal=%u free_psram=%u\n",
                 label != nullptr ? label : "resource error",
                 static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
                 static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)),
                 static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)));
-}
-
-void mergeCredentialValue(RicohBleWifiCredentials& out, const char* label, const std::vector<uint8_t>& data) {
-  if (data.empty()) {
-    return;
-  }
-
-  const String text = printableText(data);
-  if (text.length() > 0) {
-    String value = maybeQuotedValue(text, "ssid");
-    if (looksLikeSsid(value)) {
-      out.ssid = value;
-    }
-
-    value = maybeQuotedValue(text, "passphrase");
-    if (value.length() == 0) {
-      value = maybeQuotedValue(text, "password");
-    }
-    if (value.length() > 0) {
-      out.passphrase = value;
-      out.encryptedPassphrase = false;
-    }
-
-    value = maybeQuotedValue(text, "bssid");
-    if (value.length() == 0) {
-      value = macFromText(text);
-    }
-    if (value.length() > 0) {
-      out.bssid = value;
-    }
-  }
-
-  if (strcmp(label, "ssid") == 0 && out.ssid.length() == 0 && looksLikeSsid(text)) {
-    out.ssid = text;
-  } else if (strcmp(label, "passphrase") == 0 && out.passphrase.length() == 0) {
-    if (text.length() > 0) {
-      out.passphrase = text;
-      out.encryptedPassphrase = false;
-    } else {
-      out.encryptedPassphrase = true;
-    }
-  } else if (strcmp(label, "bssid") == 0 && out.bssid.length() == 0) {
-    String mac = text.length() > 0 ? macFromText(text) : String();
-    if (mac.length() == 0) {
-      mac = macFromRaw6(data);
-    }
-    if (mac.length() > 0) {
-      out.bssid = mac;
-    }
-  } else if (strcmp(label, "security") == 0 && data.size() == 1) {
-    out.securityType = data[0];
-  } else if (strcmp(label, "frequency") == 0) {
-    const uint16_t frequencyMhz = frequencyFromValue(text, data);
-    const uint8_t channel = channelFromFrequencyMhz(frequencyMhz);
-    if (frequencyMhz != 0 && channel != 0) {
-      out.frequencyMhz = frequencyMhz;
-      out.channel = channel;
-    }
-  }
-
-  out.valid = out.ssid.length() > 0 &&
-              !out.encryptedPassphrase &&
-              (out.passphrase.length() > 0 || out.securityType == 0);
 }
 
 class RicohNimBleCallbacks : public NimBLEClientCallbacks {
@@ -1349,6 +1069,19 @@ bool waitForEncryptedConnection(NimBLEClient* client,
 }
 }  // namespace
 
+RicohBleWifiCredentials toBleWifiCredentials(const RicohWifiCredentials& in) {
+  RicohBleWifiCredentials out;
+  out.valid = in.valid;
+  out.encryptedPassphrase = in.encryptedPassphrase;
+  out.securityType = in.securityType;
+  out.frequencyMhz = in.frequencyMhz;
+  out.channel = in.channel;
+  out.ssid = in.ssid.c_str();
+  out.passphrase = in.passphrase.c_str();
+  out.bssid = in.bssid.c_str();
+  return out;
+}
+
 // RicohGattSession on a live NimBLE link: the primitives the per-model
 // protocols in brands/ricoh/ build their operations from.
 class NimBleGattSession final : public RicohGattSession {
@@ -1441,6 +1174,11 @@ public:
     link.encrypted = state.encrypted;
     link.authenticated = state.authenticated;
     return link;
+  }
+
+  void pause(uint32_t ms) override {
+    delay(ms);
+    yield();
   }
 
   void print(const char* text) override { Serial.print(text); }
@@ -2286,18 +2024,21 @@ int RicohBleClient::batteryLevel() const {
 
 bool RicohBleClient::waitForWifiCredentials(RicohBleWifiCredentials& credentials, uint32_t timeoutMs) {
   NimBLEClient* client = static_cast<NimBLEClient*>(_client);
-  const WifiCredentialMethod credentialMethod = protocolProfile().wifiCredentialMethod;
+  const IRicohBleProtocol* protocol = _protocolRouter.protocol();
   credentials = RicohBleWifiCredentials{};
   if (!isConnected() || client == nullptr) {
     _lastError = "BLE not connected";
     return false;
   }
-  if (protocolProfile().wifiCredentialMethod != WifiCredentialMethod::BleFixedHandles &&
-      protocolProfile().wifiCredentialMethod != WifiCredentialMethod::BleUuidCharacteristics) {
+  if (protocol == nullptr ||
+      (protocolProfile().wifiCredentialMethod != WifiCredentialMethod::BleFixedHandles &&
+       protocolProfile().wifiCredentialMethod != WifiCredentialMethod::BleUuidCharacteristics)) {
     _lastError = "BLE WiFi credential read blocked for detected protocol";
     return false;
   }
 
+  NimBleGattSession gatt(client, *this);
+  RicohWifiCredentials accumulated;
   const uint32_t startMs = millis();
   while (millis() - startMs < timeoutMs) {
     if (!isConnected() || !client->isConnected()) {
@@ -2305,71 +2046,15 @@ bool RicohBleClient::waitForWifiCredentials(RicohBleWifiCredentials& credentials
       return false;
     }
 
-    RicohBleWifiCredentials current = credentials;
-    if (credentialMethod == WifiCredentialMethod::BleFixedHandles) {
-      for (const WlanParamHandle& item : kWlanParamHandles) {
-        std::vector<uint8_t> value;
-        String error;
-        if (readHandleWithResponse(client, item.handle, value, error)) {
-          mergeCredentialValue(current, item.label, value);
-        }
-        delay(20);
-        yield();
-      }
-    } else if (credentialMethod == WifiCredentialMethod::BleUuidCharacteristics) {
-      struct Gr3CredentialCharacteristic {
-        const char* uuid;
-        const char* label;
-      };
-      const Gr3CredentialCharacteristic parameters[] = {
-          {RICOH_BLE_GR3_WLAN_SSID_UUID, "ssid"},
-          {RICOH_BLE_GR3_WLAN_PASSPHRASE_UUID, "passphrase"},
-          {RICOH_BLE_GR3_WLAN_CHANNEL_UUID, "channel"},
-      };
-
-      for (const Gr3CredentialCharacteristic& parameter : parameters) {
-        NimBLERemoteCharacteristic* characteristic =
-            findCharacteristic(client, RICOH_BLE_GR3_WLAN_SERVICE_UUID, parameter.uuid);
-        if (characteristic == nullptr || !characteristic->canRead()) {
-          continue;
-        }
-        const NimBLEAttValue value = characteristic->readValue();
-        if (value.length() == 0) {
-          const int rc = client->getLastError();
-          if (handleProtectedReadError(client, rc, parameter.label, _lastError)) {
-            return false;
-          }
-          continue;
-        }
-
-        g_pairingRecovery.onAuthenticatedRead();
-        if (strcmp(parameter.label, "channel") == 0) {
-          current.channel = value.data()[0];
-        } else {
-          String text;
-          text.reserve(value.length());
-          for (size_t i = 0; i < value.length(); ++i) {
-            if (value.data()[i] != 0) {
-              text += static_cast<char>(value.data()[i]);
-            }
-          }
-          text.trim();
-          if (strcmp(parameter.label, "ssid") == 0) {
-            current.ssid = text;
-          } else {
-            current.passphrase = text;
-            current.encryptedPassphrase = false;
-          }
-        }
-        delay(20);
-        yield();
-      }
-      current.valid = validGr3WifiCredentials(current.ssid.c_str(),
-                                               current.passphrase.c_str(),
-                                               current.channel);
+    RicohWifiCredentials current = accumulated;
+    std::string error;
+    if (!protocol->readWifiCredentials(gatt, current, error)) {
+      _lastError = error.c_str();
+      return false;
     }
 
-    credentials = current;
+    accumulated = current;
+    credentials = toBleWifiCredentials(accumulated);
     if (credentials.valid) {
       _lastError = "";
       Serial.printf("BLE WiFi params profile=%s ssid_present=%d passphrase_present=%d bssid_present=%d channel=%u wait_ms=%lu\n",

@@ -65,6 +65,9 @@ public:
 
   virtual RicohLinkSecurity security() const = 0;
 
+  // Lets the camera breathe between back-to-back reads (delay + yield).
+  virtual void pause(uint32_t ms) = 0;
+
   virtual void print(const char* text) = 0;
   virtual void println(const char* text) = 0;
 };

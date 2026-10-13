@@ -6,6 +6,7 @@
 
 #include "../../../camera_protocol_profile.h"
 #include "RicohGattSession.h"
+#include "RicohWifiCredentials.h"
 
 // What the camera last reported about its operation mode, for models that
 // gate Wi-Fi activation on it.
@@ -36,4 +37,10 @@ public:
   virtual bool readPowerValue(RicohGattSession& gatt, std::vector<uint8_t>& value, std::string& error) const = 0;
   virtual bool enablePowerNotify(RicohGattSession& gatt, std::string& error) const = 0;
   virtual bool requestCaptureOperationMode(RicohGattSession& gatt, std::string& error) const = 0;
+  // One polling pass over the camera's Wi-Fi parameters, merged into
+  // `credentials` (which carries earlier passes). False only when the pass
+  // must stop polling; `error` then explains.
+  virtual bool readWifiCredentials(RicohGattSession& gatt,
+                                   RicohWifiCredentials& credentials,
+                                   std::string& error) const = 0;
 };
