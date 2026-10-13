@@ -235,29 +235,6 @@ bool Gr3BleProtocol::readWifiCredentials(RicohGattSession& gatt,
   return true;
 }
 
-// A GR III family camera needs a complete, coherent read-only profile: the
-// WLAN UUIDs are shared with GR IV, so an interrupted discovery must never
-// classify as GR III. GR IV's own fixed-handle markers veto this match (it is
-// the more specific model).
-RicohEvidenceMatch Gr3BleProtocol::matchEvidence(const ProtocolDetectionEvidence& evidence) const {
-  const bool full =
-      evidence.gattDiscoveryComplete &&
-      evidence.hasGr3WlanService &&
-      evidence.hasGr3NetworkTypeCharacteristic &&
-      evidence.hasGr3SsidCharacteristic &&
-      evidence.hasGr3PassphraseCharacteristic &&
-      evidence.hasCameraService &&
-      evidence.hasOperationModeCharacteristic &&
-      evidence.hasShootingService &&
-      evidence.hasShootingFlavorCharacteristic &&
-      evidence.hasOperationRequestCharacteristic &&
-      evidence.hasControlService;
-  return full ? RicohEvidenceMatch::Full : RicohEvidenceMatch::None;
-}
-
-uint8_t Gr3BleProtocol::detectionPriority() const {
-  return 1;
-}
 
 // A GR III family camera only asks for a passkey once something reads a
 // protected characteristic; read the WLAN SSID and ignore the result.

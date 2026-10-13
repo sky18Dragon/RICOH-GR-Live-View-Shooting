@@ -19,6 +19,9 @@ jobs:
       matrix:
         environment:
           - m5stack-sticks3
+          # Single-model firmware; building them is the per-model coupling check.
+          - sticks3-ricoh-gr3
+          - sticks3-ricoh-gr4
 
     steps:
       - name: Checkout
@@ -78,6 +81,15 @@ jobs:
           python -m pip install --upgrade pip
           pip install platformio==6.1.18
 
+      - name: Check per-model include rules
+        run: |
+          python scripts/check_model_includes.py
+
       - name: Run native tests
         run: |
           platformio test -e native
+
+      - name: Run model-selection tests on single-model builds
+        run: |
+          platformio test -e native-gr3
+          platformio test -e native-gr4

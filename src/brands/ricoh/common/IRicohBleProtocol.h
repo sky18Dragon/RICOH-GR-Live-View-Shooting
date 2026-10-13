@@ -8,13 +8,6 @@
 #include "RicohGattSession.h"
 #include "RicohWifiCredentials.h"
 
-// How well a read-only GATT discovery matches one model.
-enum class RicohEvidenceMatch : uint8_t {
-  None,
-  Partial,  // some of the model's markers, not all
-  Full,     // every marker the model requires
-};
-
 // What the camera last reported about its operation mode, for models that
 // gate Wi-Fi activation on it.
 struct RicohWifiGate {
@@ -39,12 +32,6 @@ public:
   virtual bool requireAuthenticatedBond() const = 0;
   virtual bool rediscoverServicesAfterSecurity() const = 0;
   virtual bool decodePowerState(uint8_t value, bool& isOn, bool& isOff) const = 0;
-
-  // Detection: a model judges only its own markers. A more specific model
-  // (higher priority) wins a tie and vetoes a less specific match when it sees
-  // partial markers of itself; see RicohBleProtocolRouter::detect().
-  virtual RicohEvidenceMatch matchEvidence(const ProtocolDetectionEvidence& evidence) const = 0;
-  virtual uint8_t detectionPriority() const = 0;
 
   virtual bool openWifi(RicohGattSession& gatt, const RicohWifiGate& gate, std::string& error) const = 0;
   virtual bool closeWifi(RicohGattSession& gatt, std::string& error) const = 0;

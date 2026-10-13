@@ -11,8 +11,6 @@ public:
   bool requireAuthenticatedBond() const override;
   bool rediscoverServicesAfterSecurity() const override;
   bool decodePowerState(uint8_t value, bool& isOn, bool& isOff) const override;
-  RicohEvidenceMatch matchEvidence(const ProtocolDetectionEvidence& evidence) const override;
-  uint8_t detectionPriority() const override;
 
   bool openWifi(RicohGattSession& gatt, const RicohWifiGate& gate, std::string& error) const override;
   bool closeWifi(RicohGattSession& gatt, std::string& error) const override;

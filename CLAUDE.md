@@ -26,7 +26,12 @@ platformio run                 # 编译
 platformio run -t upload       # 烧录（upload_speed=921600）
 platformio device monitor      # 串口日志（monitor_speed=115200）
 platformio test -e native      # host-side 纯逻辑单元测试
+platformio run -e sticks3-ricoh-gr3   # 只含 GR III 系列的固件（sticks3-ricoh-gr4 同理）
+platformio test -e native-gr4  # 单型号构建下的型号选择测试（native-gr3 同理）
+python scripts/check_model_includes.py  # 型号目录 include 规则
 ```
+
+编译期选型号：`RVF_RICOH_GR2/GR3/GR4`（默认全开，见 `src/brands/ricoh/RicohModelSelection.h`）。依赖版本已固定为实机验证版本（M5GFX 0.2.25 / M5Unified 0.2.18 / M5PM1 1.0.7），升级需重新实机回归。
 
 `test/` 下的 host-side native 单元测试覆盖各纯逻辑策略模块、理光工作流状态机 `RicohFlowController` 与 UI 协调器（CI 中与固件编译一起运行）；完整链路验证仍依赖真实硬件（StickS3 + RICOH GR II/III/IIIx/IV）与串口日志。
 

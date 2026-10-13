@@ -1,8 +1,15 @@
 #include "camera_protocol_profile.h"
 
+#include "brands/ricoh/RicohModelSelection.h"
+#if RVF_RICOH_GR2
 #include "brands/ricoh/gr2/Gr2Profile.h"
+#endif
+#if RVF_RICOH_GR3
 #include "brands/ricoh/gr3/Gr3Profile.h"
+#endif
+#if RVF_RICOH_GR4
 #include "brands/ricoh/gr4/Gr4Profile.h"
+#endif
 
 // Shared Ricoh policy. Per-model differences are parameters of
 // CameraProtocolProfile, set in brands/ricoh/<model>/<Model>Profile.cpp;
@@ -21,13 +28,21 @@ bool isStandbyOperationMode(RicohCameraOperationMode mode) {
 
 const CameraProtocolProfile& cameraProtocolProfile(RicohProtocolGeneration generation) {
   switch (generation) {
+#if RVF_RICOH_GR2
     case RicohProtocolGeneration::Gr2Family:
       return gr2CameraProtocolProfile();
+#endif
+#if RVF_RICOH_GR3
     case RicohProtocolGeneration::Gr3Family:
       return gr3CameraProtocolProfile();
+#endif
+#if RVF_RICOH_GR4
     case RicohProtocolGeneration::Gr4Family:
       return gr4CameraProtocolProfile();
-    case RicohProtocolGeneration::Unknown:
+#endif
+    default:
+      // Unknown, or a model this firmware does not contain: every BLE side
+      // effect stays blocked.
       return kUnknownProfile;
   }
   return kUnknownProfile;
@@ -61,11 +76,15 @@ bool canPromoteDiscoveryConnectionInPlace(RicohSecurityProfileId activeProfile,
 
 const RicohSecurityProfile& ricohSecurityProfile(RicohSecurityProfileId id) {
   switch (id) {
+#if RVF_RICOH_GR3
     case RicohSecurityProfileId::Gr3Passkey:
       return gr3SecurityProfile();
+#endif
+#if RVF_RICOH_GR4
     case RicohSecurityProfileId::Gr4Legacy:
       return gr4SecurityProfile();
-    case RicohSecurityProfileId::Unknown:
+#endif
+    default:
       return kUnknownSecurityProfile;
   }
   return kUnknownSecurityProfile;

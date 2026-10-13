@@ -303,7 +303,16 @@ GR III 与 GR IV 约 60–70% 的流程相同（电源门控、HTTP 预览、恢
 - 6.3 协议识别下沉：证据收集 `collectProtocolEvidence()` 不拆（其 GATT 访问顺序与刷新次数影响相机是否中途断开），只把判定移入型号：`IRicohBleProtocol::matchEvidence()` 返回 None / Partial / Full，`detectionPriority()` 表示特异度（GR IV 2 > GR III 1）。`RicohBleProtocolRouter::detect()` 用通用规则：取特异度最高的 Full；若有更高特异度的型号出现 Partial 则判为未知。原 `detectRicohProtocol()` 从 `camera_protocol_profile` 移除，同名函数改由路由器提供。新测试把原判定函数逐字保留为参照，对 15 个布尔证据 × 计数 0–6 共 229,376 种组合逐一比较，全部一致；人为把 GR IV 特异度改低会立即失败。阶段 5 只编入部分型号时，路由器只询问已编入型号，其他相机会被判为未知。
 - 6.4 / 6.5 状态通知与连接 / 配对中的型号分支：`statusNotifyAllowed()`（GR III 要求认证加密，订阅过程本身两型号相同、留在共用代码）；GR III 的“异步读 SSID 触发配对”移为 `armPairing()`（会话新增 `startRead()`），`triggerPairingWithProtectedRead()` 保留为门控，因为它还决定配对前是否做完整服务发现；认证失败后的探测读移为 `probeAuthenticationError()`（会话新增 `probeRead()`）；GAP 事件处理器不再使用 GR IV 的开 / 关常量，改用路由该 handle 的型号的 `decodePowerState()`（路由时一并记录型号，断开时随 handle 清零），对 GR IV 的 256 个取值逐一验证与旧常量一致。`ricoh_ble_client.cpp` 中除证据收集与快门日志外不再出现型号常量。Native 共 162 例。
 - 6.6 型号规则改为配置参数：`camera_protocol_profile.cpp` 中按代际分支的策略改为读取 `CameraProtocolProfile` 的新参数——`securityProfile`、`wifiRequiresOperationModeRead`、`waitsInBleStartupMode`、`wifiRequiresAuthenticatedLink`、`discoveryConnectionPromotable`；`protocolAllowsBleSideEffect` 改看 `capabilities.hasBle`。各型号配置表、安全配置与 GR III 凭据校验移到 `brands/ricoh/{gr2,gr3,gr4}/Gr*Profile.cpp`（函数内静态对象，避免跨文件静态初始化顺序问题）。驱动的 GR III 安全门控改看 `wifiRequiresAuthenticatedLink`（日志改用代际名，输出仍为 `GR3_FAMILY`），配对引导默认机型改取注册表默认项；`RicohDriver.cpp` 不再出现 GR III / GR IV 代际常量。旧配置表与策略函数逐字保存在测试参考文件中：配置表逐字段比较一致；策略对 4 个代际 × 256 个模式字节 × 读取成败 × 全部副作用 / 安全配置穷举比较一致；人为修改 GR IV 参数会立即失败。Native 共 165 例。GR III 启动模式等待与快门 `BLE_STARTUP` 重试本身已由 `waitsInBleStartupMode` 驱动，流程代码留在驱动内（与驱动状态紧耦合），日志文字保留 “GR3”。
-- 尚未下沉：GR II Wi-Fi-only 路径（`isGr2WifiOnlyProfile()` 分支，留待有实机时）。共用代码中剩余的按代际 `switch` 仅为注册表式查表（代际 → 配置 / 名称、安全配置 ID → 配置），阶段 5 接入编译开关。
+- 尚未下沉：GR II Wi-Fi-only 路径（`isGr2WifiOnlyProfile()` 分支，留待有实机时）。
+
+**2026-10-14 阶段 5（编译期选择型号）**
+
+- 开关：[`brands/ricoh/RicohModelSelection.h`](../../src/brands/ricoh/RicohModelSelection.h) 定义 `RVF_RICOH_GR2/GR3/GR4`，默认全开（全量固件），全关时编译报错。注册表、协议路由、配置与安全配置查表、配对策略均按开关编入；未编入型号的配置查表返回 Unknown 配置，所有 BLE 副作用被阻断。
+- 安全：GR IV 暴露全部 GR III 标记，若单 GR III 固件丢掉 GR IV 的识别规则，会把 GR IV 当 GR III 驱动。因此识别规则拆为纯函数 `gr3/Gr3Detection`、`gr4/Gr4Detection`，**所有固件都编入**；路由器对所有已知型号做识别，胜出者未编入时判为未知。全量构建下与 6.3 结果一致（6.3 的 229,376 组合穷举测试仍通过）。
+- 未识别相机前使用的安全基线（即 GR IV legacy 配置，逐字不变）移到 `common/RicohDiscoverySecurityBaseline`，GR IV 的配对策略调用它，单 GR III 固件也保有该基线。
+- 构建：`platformio.ini` 新增 `sticks3-ricoh-gr3`、`sticks3-ricoh-gr4`（排除其他型号源码，仅保留其识别规则），能独立链接即证明型号间无链接级耦合；native 拆为可组合的源码清单，新增 `native-gr3` / `native-gr4` 运行 `test_native_model_selection`（注册表、选择、未知配置、未编入型号的相机被拒绝而非误认）。新增 `scripts/check_model_includes.py` 检查型号目录不 include 其他型号、`app/`、`ui/`、`main`（人为违规可检出）。CI 构建矩阵与 native 任务同步加入。发布流程仍只发布全量固件，是否发布单型号固件待产品决定。
+- 依赖固定：新环境暴露出 `lib_deps` 未固定版本的问题——M5Unified 跟随 GitHub 默认分支、M5GFX 只有 `>=0.2.25` 约束，每次全新安装（含 CI）都会取最新版（新环境拿到 M5Unified 0.2.26 / M5GFX 0.2.32，而实机验证用的是 0.2.18 / 0.2.25）。已固定为实机验证版本：M5GFX `#0.2.25`、M5Unified `#0.2.18`、M5PM1 `#1.0.7`（均为 Git 标签；PlatformIO 注册表已无 M5GFX 0.2.25）。全量固件字节数与固定前完全一致。`esp_new_jpeg` 下载链接无版本，但两次安装均为 v1.0.2，暂不处理。
+- 共用代码中剩余的按代际 `switch` 均为注册表式查表并已接入开关。
 
 ### 执行注意事项
 
