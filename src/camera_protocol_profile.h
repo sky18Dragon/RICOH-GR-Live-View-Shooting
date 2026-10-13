@@ -138,7 +138,6 @@ struct ProtocolDetectionEvidence {
 };
 
 const CameraProtocolProfile& cameraProtocolProfile(RicohProtocolGeneration generation);
-RicohProtocolGeneration detectRicohProtocol(const ProtocolDetectionEvidence& evidence);
 const char* ricohProtocolGenerationName(RicohProtocolGeneration generation);
 RicohSecurityProfileId securityProfileForGeneration(RicohProtocolGeneration generation);
 bool canPromoteDiscoveryConnectionInPlace(RicohSecurityProfileId activeProfile,

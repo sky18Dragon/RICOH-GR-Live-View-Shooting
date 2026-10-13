@@ -4,8 +4,14 @@
 #include "../gr3/Gr3BleProtocol.h"
 #include "../gr4/Gr4LegacyBleProtocol.h"
 
+// detect() over every compiled-in model.
+RicohProtocolGeneration detectRicohProtocol(const ProtocolDetectionEvidence& evidence);
+
 class RicohBleProtocolRouter {
 public:
+  // Classifies a read-only GATT discovery across the compiled-in models.
+  RicohProtocolGeneration detect(const ProtocolDetectionEvidence& evidence) const;
+
   bool select(RicohProtocolGeneration generation);
   void clear();
 

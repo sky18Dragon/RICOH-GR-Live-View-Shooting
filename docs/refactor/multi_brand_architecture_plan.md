@@ -299,7 +299,9 @@ GR III 与 GR IV 约 60–70% 的流程相同（电源门控、HTTP 预览、恢
 - 6.1 BLE 操作下沉到型号：新增 [`RicohGattSession`](../../src/brands/ricoh/common/RicohGattSession.h)（handle / UUID 读写、受保护读取、订阅、通知路由、链路安全、日志；无 NimBLE / Arduino 类型），`RicohBleClient` 内的 `NimBleGattSession` 在 NimBLE 上实现。`openWifi`、`closeWifi`、`readPowerState`（读取部分）、`enablePowerStateNotify`、`requestCaptureOperationMode` 的按传输方式 `switch` 改为调用 `Gr3BleProtocol` / `Gr4LegacyBleProtocol` 的同名行为，错误文本与日志逐字保留（仅删去 4 个不可达的 `transport unavailable` 默认分支）；`IRicohBleProtocol` 去掉三个传输方式枚举。新套件 `test_native_ricoh_gatt` 用记录型 `FakeGattSession` 断言各型号写入的 handle / UUID / 字节、日志与失败文本（13 例，Native 共 147 例）。
   - 实机回归（2026-10-14）：GR III 系列与 GR IV 均通过（用户确认）。
 - 6.2 Wi-Fi 凭据读取下沉：`IRicohBleProtocol::readWifiCredentials()` 负责一次轮询（GR IV 读 5 个固定 handle，GR III 读 3 个 UUID），超时轮询与日志仍在 `RicohBleClient`。GR IV 的约 270 行 `String` 文本解析逐语句移植为标准 C++ 的 [`gr4/Gr4WifiCredentialParser`](../../src/brands/ricoh/gr4/Gr4WifiCredentialParser.h)（`trim` / 大小写 / `indexOf` / `substring` 按 Arduino `String` 语义实现）；新增与 Arduino 无关的 `RicohWifiCredentials`，返回前转换为驱动使用的 `RicohBleWifiCredentials`。`RicohGattSession` 增加 `pause()` 以保留原读取间隔（GR IV 每个 handle 后、GR III 仅成功读取后）。字符串字面量逐条核对一致。`ricoh_ble_client.cpp` 2732 → 2337 行；`test_native_ricoh_gatt` 增至 22 例（解析器各输入形态 + 两型号轮询顺序 / 停顿 / 中止），Native 共 156 例。解析器测试依据对原 `String` 语义的理解编写、未与原实现直接比对，GR IV 实机凭据读取为最终验证。
-- 尚未下沉：协议识别（`collectProtocolEvidence`）、状态通知订阅、连接与配对流程中的型号分支、驱动流程层（GR III 启动模式等待 / 安全门控、GR II Wi-Fi-only）。
+  - 实机回归（2026-10-14）：GR III 系列与 GR IV 重新配对后凭据读取均正常（用户确认）。
+- 6.3 协议识别下沉：证据收集 `collectProtocolEvidence()` 不拆（其 GATT 访问顺序与刷新次数影响相机是否中途断开），只把判定移入型号：`IRicohBleProtocol::matchEvidence()` 返回 None / Partial / Full，`detectionPriority()` 表示特异度（GR IV 2 > GR III 1）。`RicohBleProtocolRouter::detect()` 用通用规则：取特异度最高的 Full；若有更高特异度的型号出现 Partial 则判为未知。原 `detectRicohProtocol()` 从 `camera_protocol_profile` 移除，同名函数改由路由器提供。新测试把原判定函数逐字保留为参照，对 15 个布尔证据 × 计数 0–6 共 229,376 种组合逐一比较，全部一致；人为把 GR IV 特异度改低会立即失败。阶段 5 只编入部分型号时，路由器只询问已编入型号，其他相机会被判为未知。
+- 尚未下沉：状态通知订阅、连接与配对流程中的型号分支、驱动流程层（GR III 启动模式等待 / 安全门控、GR II Wi-Fi-only）。
 
 ### 执行注意事项
 

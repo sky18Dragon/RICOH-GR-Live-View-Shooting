@@ -1503,7 +1503,7 @@ bool RicohBleClient::connect(const RicohBleDeviceInfo& info, const RicohBleConne
     const ProtocolDetectionEvidence discoveryEvidence =
         collectProtocolEvidence(client);
     const RicohProtocolGeneration detected =
-        detectRicohProtocol(discoveryEvidence);
+        _protocolRouter.detect(discoveryEvidence);
 #if RICOH_BLE_GATT_DIAGNOSTICS
     logGattTable(client);
 #endif

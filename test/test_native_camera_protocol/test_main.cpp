@@ -1,4 +1,5 @@
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -184,6 +185,88 @@ void testProtocolRouterSelectsExactlyOneImplementation() {
 
   TEST_ASSERT_FALSE(router.select(RicohProtocolGeneration::Gr2Family));
   TEST_ASSERT_FALSE(router.hasProtocol());
+}
+
+// detectRicohProtocol() as it was before detection moved into the models
+// (stage 6.3). Kept verbatim as the reference for the exhaustive check below.
+RicohProtocolGeneration referenceDetectBeforeStage6(const ProtocolDetectionEvidence& evidence) {
+  const bool gr3Evidence =
+      evidence.gattDiscoveryComplete &&
+      evidence.hasGr3WlanService &&
+      evidence.hasGr3NetworkTypeCharacteristic &&
+      evidence.hasGr3SsidCharacteristic &&
+      evidence.hasGr3PassphraseCharacteristic &&
+      evidence.hasCameraService &&
+      evidence.hasOperationModeCharacteristic &&
+      evidence.hasShootingService &&
+      evidence.hasShootingFlavorCharacteristic &&
+      evidence.hasOperationRequestCharacteristic &&
+      evidence.hasControlService;
+  const bool gr4Evidence =
+      evidence.hasCameraService &&
+      evidence.hasOperationModeCharacteristic &&
+      evidence.hasShootingService &&
+      evidence.hasShootingFlavorCharacteristic &&
+      evidence.hasOperationRequestCharacteristic &&
+      evidence.hasControlService &&
+      evidence.hasGr4PowerCharacteristicAtExpectedHandle &&
+      evidence.gr4WlanHandlesInExpectedService &&
+      evidence.gr4KnownWlanUuidHandleMapping &&
+      evidence.gr4ExpectedWlanCharacteristicCount == 6;
+  const bool partialGr4FixedHandleEvidence =
+      evidence.hasGr4PowerCharacteristicAtExpectedHandle ||
+      evidence.gr4WlanHandlesInExpectedService ||
+      evidence.gr4KnownWlanUuidHandleMapping ||
+      evidence.gr4ExpectedWlanCharacteristicCount > 0;
+
+  // GR IV also exposes the WLAN service/Network Type UUIDs used by GR III.
+  // Never classify those shared UUIDs as GR III after an interrupted GATT
+  // discovery. GR III requires a complete, coherent read-only profile.
+  // GR IV requires all six WLAN handles inside the WLAN service, the Power
+  // handle inside Camera service, and known UUIDs at their expected handles.
+  if (gr4Evidence) {
+    return RicohProtocolGeneration::Gr4Family;
+  }
+  if (gr3Evidence && !partialGr4FixedHandleEvidence) {
+    return RicohProtocolGeneration::Gr3Family;
+  }
+  return RicohProtocolGeneration::Unknown;
+}
+
+void testPerModelDetectionMatchesTheOriginalRuleExhaustively() {
+  // Every combination of the 15 boolean markers and the 0-6 handle count.
+  uint32_t checked = 0;
+  for (uint32_t bits = 0; bits < (1u << 15); ++bits) {
+    for (uint8_t count = 0; count <= 6; ++count) {
+      ProtocolDetectionEvidence e;
+      e.gattDiscoveryComplete = bits & (1u << 0);
+      e.hasGr3WlanService = bits & (1u << 1);
+      e.hasGr3NetworkTypeCharacteristic = bits & (1u << 2);
+      e.hasGr3SsidCharacteristic = bits & (1u << 3);
+      e.hasGr3PassphraseCharacteristic = bits & (1u << 4);
+      e.hasGr3ChannelCharacteristic = bits & (1u << 5);
+      e.hasCameraService = bits & (1u << 6);
+      e.hasOperationModeCharacteristic = bits & (1u << 7);
+      e.hasShootingService = bits & (1u << 8);
+      e.hasShootingFlavorCharacteristic = bits & (1u << 9);
+      e.hasOperationRequestCharacteristic = bits & (1u << 10);
+      e.hasControlService = bits & (1u << 11);
+      e.hasGr4PowerCharacteristicAtExpectedHandle = bits & (1u << 12);
+      e.gr4WlanHandlesInExpectedService = bits & (1u << 13);
+      e.gr4KnownWlanUuidHandleMapping = bits & (1u << 14);
+      e.gr4ExpectedWlanCharacteristicCount = count;
+      const RicohProtocolGeneration expected = referenceDetectBeforeStage6(e);
+      const RicohProtocolGeneration actual = detectRicohProtocol(e);
+      if (expected != actual) {
+        char message[64];
+        std::snprintf(message, sizeof(message), "bits=0x%04X count=%u", static_cast<unsigned>(bits),
+                      static_cast<unsigned>(count));
+        TEST_FAIL_MESSAGE(message);
+      }
+      ++checked;
+    }
+  }
+  TEST_ASSERT_EQUAL_UINT32(229376, checked);
 }
 
 void testUnknownAndGr2ProfilesBlockBleSideEffects() {
@@ -458,6 +541,7 @@ int main() {
   RUN_TEST(testSecurityProfilesKeepGr4LegacyFrozen);
   RUN_TEST(testOnlyGr4DiscoveryCanReuseTheLegacyConnection);
   RUN_TEST(testProtocolRouterSelectsExactlyOneImplementation);
+  RUN_TEST(testPerModelDetectionMatchesTheOriginalRuleExhaustively);
   RUN_TEST(testUnknownAndGr2ProfilesBlockBleSideEffects);
   RUN_TEST(testGr3AndGr4AllowProfileScopedWifiDeactivation);
   RUN_TEST(testOperationModeSafetyIsGenerationSpecific);
