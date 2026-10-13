@@ -180,82 +180,9 @@ constexpr uint32_t RICOH_BLE_WIFI_CREDENTIAL_WAIT_MS = 10000;
 constexpr uint32_t RICOH_BLE_WIFI_CREDENTIAL_POLL_MS = 500;
 constexpr uint8_t WIFI_OPEN_ATTEMPTS = 3;
 
-// Handle mapping and AP value were verified from RICOH GR Android app BLE
-// traffic captured on 2026-06-27. OFF follows the Network Type characteristic
-// value mapping at the same strictly detected GR IV handle; keep write-with-
-// response and validate the transition on GR IV hardware.
-constexpr uint16_t RICOH_BLE_GR4_WLAN_POWER_HANDLE = 0x0135;
-constexpr uint8_t RICOH_BLE_GR4_WLAN_ON_VALUE = 0x01;
-constexpr uint8_t RICOH_BLE_GR4_WLAN_OFF_VALUE = 0x00;
-constexpr uint16_t RICOH_BLE_GR4_WLAN_SSID_HANDLE = 0x0138;
-constexpr uint16_t RICOH_BLE_GR4_WLAN_PASSPHRASE_HANDLE = 0x013A;
-constexpr uint16_t RICOH_BLE_GR4_WLAN_SECURITY_HANDLE = 0x013C;
-constexpr uint16_t RICOH_BLE_GR4_WLAN_FREQUENCY_HANDLE = 0x013E;
-constexpr uint16_t RICOH_BLE_GR4_WLAN_BSSID_HANDLE = 0x0140;
-
-// Verified from Android HCI logs captured on 2026-06-28.
-// 0x01: camera powered on / controllable, 0x00: power-off or shutting down.
-constexpr uint16_t RICOH_BLE_GR4_POWER_STATE_HANDLE = 0x00EB;
-constexpr uint16_t RICOH_BLE_GR4_POWER_STATE_CCCD_HANDLE = 0x00EC;
-constexpr uint8_t RICOH_BLE_GR4_POWER_STATE_ON_VALUE = 0x01;
-constexpr uint8_t RICOH_BLE_GR4_POWER_STATE_OFF_VALUE = 0x00;
-
-
-#ifndef RICOH_BLE_INFO_SERVICE_UUID
-#define RICOH_BLE_INFO_SERVICE_UUID "9A5ED1C5-74CC-4C50-B5B6-66A48E7CCFF1"
-#endif
-#ifndef RICOH_BLE_CAMERA_SERVICE_UUID
-#define RICOH_BLE_CAMERA_SERVICE_UUID "4B445988-CAA0-4DD3-941D-37B4F52ACA86"
-#endif
-#ifndef RICOH_BLE_OPERATION_MODE_UUID
-#define RICOH_BLE_OPERATION_MODE_UUID "1452335A-EC7F-4877-B8AB-0F72E18BB295"
-#endif
-#ifndef RICOH_BLE_OPERATION_MODE_LIST_UUID
-#define RICOH_BLE_OPERATION_MODE_LIST_UUID "430B80A3-CC2E-4EC2-AACD-08610281FF38"
-
-// Camera Service BatteryLevel (R/N, 1 byte) and Shooting service
-// CaptureStatus (R/N, 4 bytes) / ShotCount (R/N, 2 bytes). Registered with
-// the same UUIDs on GR IIIx V1.60 and GR IV V1.11. Value encodings are not
-// recovered yet, so only "a notification arrived" is relied on for shots.
-#define RICOH_BLE_BATTERY_LEVEL_UUID "875FC41D-4980-434C-A653-FD4A4D4410C4"
-#define RICOH_BLE_CAPTURE_STATUS_UUID "B5589C08-B5FD-46F5-BE7D-AB1B8C074CAA"
-#define RICOH_BLE_SHOT_COUNT_UUID "12D262BA-D8BF-44B0-8E85-C414A40230A9"
-// Kill switch for the three subscriptions above, for A/B testing camera
-// stability. Off restores the power-notify-only behaviour.
-#define RICOH_BLE_SUBSCRIBE_CAMERA_STATUS 1
-#endif
-#ifndef RICOH_BLE_SHOOTING_SERVICE_UUID
-#define RICOH_BLE_SHOOTING_SERVICE_UUID "9F00F387-8345-4BBC-8B92-B87B52E3091A"
-#endif
-#ifndef RICOH_BLE_SHOOTING_FLAVOR_UUID
-#define RICOH_BLE_SHOOTING_FLAVOR_UUID "B29E6DE3-1AEC-48C1-9D05-02CEA57CE664"
-#endif
-#ifndef RICOH_BLE_OPERATION_REQUEST_UUID
-#define RICOH_BLE_OPERATION_REQUEST_UUID "559644B8-E0BC-4011-929B-5CF9199851E7"
-#endif
-#ifndef RICOH_BLE_CONTROL_SERVICE_UUID
-#define RICOH_BLE_CONTROL_SERVICE_UUID "0F291746-0C80-4726-87A7-3C501FD3B4B6"
-#endif
-#ifndef RICOH_BLE_CAMERA_POWER_UUID
-#define RICOH_BLE_CAMERA_POWER_UUID "B58CE84C-0666-4DE9-BEC8-2D27B27B3211"
-#endif
-#ifndef RICOH_BLE_GR3_WLAN_SERVICE_UUID
-#define RICOH_BLE_GR3_WLAN_SERVICE_UUID "F37F568F-9071-445D-A938-5441F2E82399"
-#endif
-#ifndef RICOH_BLE_GR3_WLAN_NETWORK_TYPE_UUID
-#define RICOH_BLE_GR3_WLAN_NETWORK_TYPE_UUID "9111CDD0-9F01-45C4-A2D4-E09E8FB0424D"
-#endif
-constexpr uint8_t RICOH_BLE_GR3_WLAN_OFF_VALUE = 0x00;
-constexpr uint8_t RICOH_BLE_GR3_WLAN_AP_VALUE = 0x01;
-#ifndef RICOH_BLE_GR3_WLAN_SSID_UUID
-#define RICOH_BLE_GR3_WLAN_SSID_UUID "90638E5A-E77D-409D-B550-78F7E1CA5AB4"
-#endif
-#ifndef RICOH_BLE_GR3_WLAN_PASSPHRASE_UUID
-#define RICOH_BLE_GR3_WLAN_PASSPHRASE_UUID "0F38279C-FE9E-461B-8596-81287E8C9A81"
-#endif
-#ifndef RICOH_BLE_GR3_WLAN_CHANNEL_UUID
-#define RICOH_BLE_GR3_WLAN_CHANNEL_UUID "51DE6EBC-0F22-4357-87E4-B1FA1D385AB8"
-#endif
+#include "brands/ricoh/common/RicohBleUuids.h"
+#include "brands/ricoh/gr3/Gr3BleConfig.h"
+#include "brands/ricoh/gr4/Gr4BleConfig.h"
 
 #ifndef RICOH_BLE_GATT_DIAGNOSTICS
 #define RICOH_BLE_GATT_DIAGNOSTICS 0

@@ -46,7 +46,8 @@ platformio test -e native      # host-side 纯逻辑单元测试
 | `src/services/` | `BleCameraService`（`RicohBleClient` 门面）、`WifiPreviewService`、`CameraPowerPolicy`、`PreviewFrameBuffer` |
 | `src/supervisor/` | `SystemSupervisor` 健康检查事件 |
 | `src/ui/` | 按键命令、姿态、配对引导、UI 协调/动画/音效 |
-| `src/ricoh/` | 理光 BLE 协议描述符与 GR3 / GR4 配对策略 |
+| `src/brands/ricoh/common/` | 理光各型号共用：`IRicohBleProtocol`（型号协议接口）、`RicohGattSession`（GATT 原语，由 `RicohBleClient` 在 NimBLE 上实现）、协议路由、安全配置、共用 GATT UUID |
+| `src/brands/ricoh/gr3/` · `gr4/` | 各型号 BLE 协议：开关相机 Wi-Fi、读电源、订阅电源通知、请求拍摄模式、配对策略、型号专用 handle / UUID（`Gr3BleConfig.h` / `Gr4BleConfig.h`）；native 用 `FakeGattSession` 测试 |
 
 **平铺模块（旧，仍是主要实现）**：
 

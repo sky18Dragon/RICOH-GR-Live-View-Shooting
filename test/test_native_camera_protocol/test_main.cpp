@@ -173,8 +173,6 @@ void testProtocolRouterSelectsExactlyOneImplementation() {
                         static_cast<int>(router.generation()));
   TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohSecurityProfileId::Gr4Legacy),
                         static_cast<int>(router.securityProfile()));
-  TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohWifiActivationTransport::FixedHandle),
-                        static_cast<int>(router.protocol()->wifiActivationTransport()));
   TEST_ASSERT_FALSE(router.protocol()->requireAuthenticatedBond());
 
   TEST_ASSERT_TRUE(router.select(RicohProtocolGeneration::Gr3Family));
@@ -182,8 +180,6 @@ void testProtocolRouterSelectsExactlyOneImplementation() {
                         static_cast<int>(router.profile().generation));
   TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohSecurityProfileId::Gr3Passkey),
                         static_cast<int>(router.securityProfile()));
-  TEST_ASSERT_EQUAL_INT(static_cast<int>(RicohWifiActivationTransport::NetworkTypeUuid),
-                        static_cast<int>(router.protocol()->wifiActivationTransport()));
   TEST_ASSERT_TRUE(router.protocol()->requireAuthenticatedBond());
 
   TEST_ASSERT_FALSE(router.select(RicohProtocolGeneration::Gr2Family));

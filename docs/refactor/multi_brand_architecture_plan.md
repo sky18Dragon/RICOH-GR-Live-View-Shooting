@@ -292,6 +292,13 @@ GR III 与 GR IV 约 60–70% 的流程相同（电源门控、HTTP 预览、恢
 - `CameraBinding`（记录相机归属哪个驱动）推迟到阶段 5：目前只有一个驱动，没有可选项，提前加只是无人读取的代码。
 - 测试：删除两个只覆盖旧格式迁移的用例；Native 134 例。实机验证（2026-10-14，GR III 系列，整片擦除后）：首次配对与 Wi-Fi 缓存写入、重启后档案读回并快速重连、缓存 Wi-Fi 参数命中（开机直接横屏 0.36 s 连上）、镜像设置重启后保持、长按 B 重置后档案清空而镜像保留、重新配对均通过。
 
+**2026-10-14 阶段 6（进行中）**
+
+- 顺序调整：GR II 暂无实机，最后拆；BLE 层每个操作的 `switch` 同时含 GR III / GR IV 两个分支，搬迁必然两者同步，因此 BLE 层改动需两台相机都回归，驱动流程层再按型号分步。
+- 6.0 纯移动：`src/ricoh/` → `brands/ricoh/{common,gr3,gr4}`（固件字节数不变）。`config.h` 中理光 GATT 常量按型号拆到 `common/RicohBleUuids.h`、`gr3/Gr3BleConfig.h`、`gr4/Gr4BleConfig.h`，由 `config.h` 继续 include（固件字节数不变）。
+- 6.1 BLE 操作下沉到型号：新增 [`RicohGattSession`](../../src/brands/ricoh/common/RicohGattSession.h)（handle / UUID 读写、受保护读取、订阅、通知路由、链路安全、日志；无 NimBLE / Arduino 类型），`RicohBleClient` 内的 `NimBleGattSession` 在 NimBLE 上实现。`openWifi`、`closeWifi`、`readPowerState`（读取部分）、`enablePowerStateNotify`、`requestCaptureOperationMode` 的按传输方式 `switch` 改为调用 `Gr3BleProtocol` / `Gr4LegacyBleProtocol` 的同名行为，错误文本与日志逐字保留（仅删去 4 个不可达的 `transport unavailable` 默认分支）；`IRicohBleProtocol` 去掉三个传输方式枚举。新套件 `test_native_ricoh_gatt` 用记录型 `FakeGattSession` 断言各型号写入的 handle / UUID / 字节、日志与失败文本（13 例，Native 共 147 例）。
+- 尚未下沉：Wi-Fi 凭据读取（GR IV 的文本解析基于 Arduino `String`，需改写为可 native 测试的版本）、协议识别（`collectProtocolEvidence`）、状态通知订阅、连接与配对流程中的型号分支、驱动流程层（GR III 启动模式等待 / 安全门控、GR II Wi-Fi-only）。
+
 ### 执行注意事项
 
 - 阶段 2 是关键且风险最高的一步，必须先完成阶段 0 的行为基线。
