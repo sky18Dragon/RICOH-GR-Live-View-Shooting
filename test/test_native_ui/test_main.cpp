@@ -8,7 +8,7 @@
 void setUp(void) {}
 void tearDown(void) {}
 
-#include "app/AppController.h"
+#include "brands/ricoh/flow/RicohFlowController.h"
 #include "brands/ricoh/RicohCameraPhase.h"
 #include "camera_protocol_profile.h"
 #include "charging_indicator_policy.h"
@@ -20,17 +20,17 @@ namespace {
 
 void testUiMapsAppStatesToScenes() {
   rvf::UiSnapshot snapshot;
-  snapshot.cameraPhase = rvf::ricohCameraPhase(rvf::AppState::BleScan);
+  snapshot.cameraPhase = rvf::ricohCameraPhase(rvf::RicohFlowState::BleScan);
   TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiScene::Pairing),
                         static_cast<int>(rvf::UiCoordinator::selectScene(
                             snapshot, rvf::UiOrientation::Portrait)));
 
-  snapshot.cameraPhase = rvf::ricohCameraPhase(rvf::AppState::ConnectingBle);
+  snapshot.cameraPhase = rvf::ricohCameraPhase(rvf::RicohFlowState::ConnectingBle);
   TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiScene::Connecting),
                         static_cast<int>(rvf::UiCoordinator::selectScene(
                             snapshot, rvf::UiOrientation::Portrait)));
 
-  snapshot.cameraPhase = rvf::ricohCameraPhase(rvf::AppState::PreviewRunning);
+  snapshot.cameraPhase = rvf::ricohCameraPhase(rvf::RicohFlowState::PreviewRunning);
   snapshot.previewRunning = true;
   TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiScene::RemoteReady),
                         static_cast<int>(rvf::UiCoordinator::selectScene(
@@ -44,7 +44,7 @@ void testUiPropagatesDeviceChargingIndicator() {
   rvf::UiCoordinator coordinator;
   rvf::UiSnapshot snapshot;
   rvf::ButtonEvents input;
-  snapshot.cameraPhase = rvf::ricohCameraPhase(rvf::AppState::BleReady);
+  snapshot.cameraPhase = rvf::ricohCameraPhase(rvf::RicohFlowState::BleReady);
   snapshot.deviceBatteryPercent = 68;
   snapshot.deviceCharging = true;
 
@@ -63,7 +63,7 @@ void testConnectingDotsOnlyMergeAfterBleConnects() {
   rvf::UiCoordinator coordinator;
   rvf::UiSnapshot snapshot;
   rvf::ButtonEvents input;
-  snapshot.cameraPhase = rvf::ricohCameraPhase(rvf::AppState::ConnectingBle);
+  snapshot.cameraPhase = rvf::ricohCameraPhase(rvf::RicohFlowState::ConnectingBle);
   snapshot.bleConnected = false;
   coordinator.begin(0);
   coordinator.update(snapshot, input, rvf::UiOrientation::Portrait, 5000);
@@ -78,7 +78,7 @@ void testConnectingDotsOnlyMergeAfterBleConnects() {
 
 void testUiScenePriority() {
   rvf::UiSnapshot snapshot;
-  snapshot.cameraPhase = rvf::ricohCameraPhase(rvf::AppState::PreviewRunning);
+  snapshot.cameraPhase = rvf::ricohCameraPhase(rvf::RicohFlowState::PreviewRunning);
   snapshot.previewRunning = true;
   snapshot.cameraSleepLike = true;
   snapshot.resettingPairing = true;
@@ -88,45 +88,45 @@ void testUiScenePriority() {
 }
 
 void testRicohStatesMapToCameraPhases() {
-  using rvf::AppState;
+  using rvf::RicohFlowState;
   using rvf::CameraPhase;
-  struct Row { AppState state; CameraPhase phase; };
+  struct Row { RicohFlowState state; CameraPhase phase; };
   const Row rows[] = {
-      {AppState::Booting, CameraPhase::Booting},
-      {AppState::Idle, CameraPhase::Idle},
-      {AppState::BleScan, CameraPhase::Searching},
-      {AppState::ScanningCamera, CameraPhase::Searching},
-      {AppState::CameraSleepGuard, CameraPhase::Sleeping},
-      {AppState::CameraPowerOff, CameraPhase::Sleeping},
+      {RicohFlowState::Booting, CameraPhase::Booting},
+      {RicohFlowState::Idle, CameraPhase::Idle},
+      {RicohFlowState::BleScan, CameraPhase::Searching},
+      {RicohFlowState::ScanningCamera, CameraPhase::Searching},
+      {RicohFlowState::CameraSleepGuard, CameraPhase::Sleeping},
+      {RicohFlowState::CameraPowerOff, CameraPhase::Sleeping},
       // BleReady is a step on the way to Wi-Fi, not a resting state.
-      {AppState::BleReady, CameraPhase::Connecting},
-      {AppState::ConnectingBle, CameraPhase::Connecting},
-      {AppState::CheckingCameraPower, CameraPhase::Connecting},
-      {AppState::ActivatingWifi, CameraPhase::Connecting},
-      {AppState::WifiConnecting, CameraPhase::Connecting},
-      {AppState::ConnectingWifi, CameraPhase::Connecting},
-      {AppState::HttpProbe, CameraPhase::Connecting},
-      {AppState::HttpProbing, CameraPhase::Connecting},
-      {AppState::PreviewStarting, CameraPhase::Connecting},
-      {AppState::LiveViewRunning, CameraPhase::Previewing},
-      {AppState::PreviewRunning, CameraPhase::Previewing},
-      {AppState::Shooting, CameraPhase::Previewing},
-      {AppState::PreviewStopped, CameraPhase::Ready},
+      {RicohFlowState::BleReady, CameraPhase::Connecting},
+      {RicohFlowState::ConnectingBle, CameraPhase::Connecting},
+      {RicohFlowState::CheckingCameraPower, CameraPhase::Connecting},
+      {RicohFlowState::ActivatingWifi, CameraPhase::Connecting},
+      {RicohFlowState::WifiConnecting, CameraPhase::Connecting},
+      {RicohFlowState::ConnectingWifi, CameraPhase::Connecting},
+      {RicohFlowState::HttpProbe, CameraPhase::Connecting},
+      {RicohFlowState::HttpProbing, CameraPhase::Connecting},
+      {RicohFlowState::PreviewStarting, CameraPhase::Connecting},
+      {RicohFlowState::LiveViewRunning, CameraPhase::Previewing},
+      {RicohFlowState::PreviewRunning, CameraPhase::Previewing},
+      {RicohFlowState::Shooting, CameraPhase::Previewing},
+      {RicohFlowState::PreviewStopped, CameraPhase::Ready},
       // Portrait rests here; the UI shows the remote from the BLE link flags.
-      {AppState::WifiCredentialsReady, CameraPhase::Idle},
-      {AppState::Disconnected, CameraPhase::Idle},
-      {AppState::Error, CameraPhase::Error},
+      {RicohFlowState::WifiCredentialsReady, CameraPhase::Idle},
+      {RicohFlowState::Disconnected, CameraPhase::Idle},
+      {RicohFlowState::Error, CameraPhase::Error},
   };
   for (const Row& row : rows) {
     TEST_ASSERT_EQUAL_INT_MESSAGE(static_cast<int>(row.phase),
                                   static_cast<int>(rvf::ricohCameraPhase(row.state)),
-                                  rvf::appStateName(row.state));
+                                  rvf::ricohFlowStateName(row.state));
   }
 }
 
 void testPairingGuideOverridesConnectionScene() {
   rvf::UiSnapshot snapshot;
-  snapshot.cameraPhase = rvf::ricohCameraPhase(rvf::AppState::BleScan);
+  snapshot.cameraPhase = rvf::ricohCameraPhase(rvf::RicohFlowState::BleScan);
   snapshot.pairingGuideActive = true;
   snapshot.pairingGuideSelectedIndex =
       static_cast<uint8_t>(rvf::cameraModelIndex(
@@ -145,7 +145,7 @@ void testPairingGuideOverridesConnectionScene() {
 
 void testWifiProvisioningOverridesPairingAndPropagatesPortalDetails() {
   rvf::UiSnapshot snapshot;
-  snapshot.cameraPhase = rvf::ricohCameraPhase(rvf::AppState::WifiCredentialsReady);
+  snapshot.cameraPhase = rvf::ricohCameraPhase(rvf::RicohFlowState::WifiCredentialsReady);
   snapshot.pairingGuideActive = true;
   snapshot.wifiProvisioningActive = true;
   snapshot.provisioningSsid = "GR-II-Setup-1234";
@@ -303,9 +303,9 @@ void testLiveViewLockForcesLandscapeAndUnlockRestoresPosture() {
 }
 
 void testActivePreviewOutlivesPortraitUiForLockHandoff() {
-  rvf::AppController controller(rvf::AppState::PreviewRunning);
+  rvf::RicohFlowController controller(rvf::RicohFlowState::PreviewRunning);
   rvf::UiSnapshot snapshot;
-  snapshot.cameraPhase = rvf::ricohCameraPhase(rvf::AppState::PreviewRunning);
+  snapshot.cameraPhase = rvf::ricohCameraPhase(rvf::RicohFlowState::PreviewRunning);
   snapshot.previewRunning = true;
 
   TEST_ASSERT_EQUAL_INT(
@@ -420,7 +420,7 @@ void testShutterOverlaySuccessAndFailureLifecycles() {
   rvf::UiCoordinator coordinator;
   coordinator.begin(0);
   rvf::UiSnapshot snapshot;
-  snapshot.cameraPhase = rvf::ricohCameraPhase(rvf::AppState::PreviewRunning);
+  snapshot.cameraPhase = rvf::ricohCameraPhase(rvf::RicohFlowState::PreviewRunning);
   snapshot.previewRunning = true;
   rvf::ButtonEvents input;
   coordinator.update(snapshot, input, rvf::UiOrientation::Portrait, 10);
@@ -443,7 +443,7 @@ void testShutterOverlaySuccessAndFailureLifecycles() {
 
 void testSleepSceneOverridesOrientationScene() {
   rvf::UiSnapshot snapshot;
-  snapshot.cameraPhase = rvf::ricohCameraPhase(rvf::AppState::PreviewRunning);
+  snapshot.cameraPhase = rvf::ricohCameraPhase(rvf::RicohFlowState::PreviewRunning);
   snapshot.previewRunning = true;
   snapshot.cameraSleepLike = true;
   TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiScene::CameraSleep),
@@ -453,7 +453,7 @@ void testSleepSceneOverridesOrientationScene() {
 
 void testErrorSceneOverridesEveryOrdinaryScene() {
   rvf::UiSnapshot snapshot;
-  snapshot.cameraPhase = rvf::ricohCameraPhase(rvf::AppState::Error);
+  snapshot.cameraPhase = rvf::ricohCameraPhase(rvf::RicohFlowState::Error);
   snapshot.previewRunning = true;
   snapshot.cameraSleepLike = true;
   snapshot.resettingPairing = true;

@@ -8,7 +8,7 @@
 
 ```mermaid
 flowchart LR
-  APP["AppController / main flow"] --> SVC["BleCameraService unified actions"]
+  APP["RicohDriver / RicohFlowController"] --> SVC["BleCameraService unified actions"]
   SVC --> DET["Protocol detection + capability profile"]
   DET -->|"GR III Family"| G3["UUID-only BLE actions"]
   DET -->|"GR IV Family"| G4["existing fixed-handle actions"]
@@ -29,7 +29,8 @@ flowchart LR
 | `src/camera_profile_schema.*` | 可 Native 测试的 NVS metadata v3→v4 升级/往返规则 |
 | `src/camera_profile_store.*` | NVS 保存 BLE 身份、代际、能力版本、凭据来源与有效性、Wi-Fi 缓存 |
 | `src/gr2_provisioning_portal.*` | GR II 临时热点、DNS/HTTP 配网页面、附近 WLAN 选择与凭据提交 |
-| `src/main.cpp` / `src/app/*` | 状态机、Power/Operation Mode 门控、Sleep Guard、恢复与按键调度 |
+| `src/main.cpp` | 宿主：显示、按键、IMU、配对引导、板级电源、Supervisor，经 `ICameraDriver` 访问相机 |
+| `src/brands/ricoh/RicohDriver.*` / `src/brands/ricoh/flow/*` | 理光工作流状态机、Power/Operation Mode 门控、Sleep Guard、恢复与快门 |
 | `src/gr_wifi.*` / `src/services/WifiPreviewService.*` | STA 连接，成功后回采实际 BSSID/Channel，HTTP LiveView |
 | `src/mjpeg_stream.*` / `src/jpeg_decoder.*` | MJPEG 切帧、JPEG 解码与显示 |
 

@@ -1,8 +1,8 @@
-﻿#pragma once
+#pragma once
 
 namespace rvf {
 
-enum class AppState {
+enum class RicohFlowState {
     Booting,
     Idle,
     BleScan,
@@ -27,6 +27,6 @@ enum class AppState {
     Error,
 };
 
-const char* appStateName(AppState state);
+const char* ricohFlowStateName(RicohFlowState state);
 
 }  // namespace rvf

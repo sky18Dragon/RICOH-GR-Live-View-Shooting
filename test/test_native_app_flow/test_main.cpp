@@ -8,7 +8,7 @@
 void setUp(void) {}
 void tearDown(void) {}
 
-#include "app/AppController.h"
+#include "brands/ricoh/flow/RicohFlowController.h"
 #include "brands/ricoh/RicohCameraPhase.h"
 #include "supervisor/SystemSupervisor.h"
 
@@ -178,8 +178,8 @@ struct FlowHarness {
   static uint32_t getLastRecoveryAt() { return lastRecoveryAt; }
   static void setLastRecoveryAt(uint32_t value) { lastRecoveryAt = value; }
 
-  static rvf::AppFlowActions actions() {
-    rvf::AppFlowActions result;
+  static rvf::RicohFlowActions actions() {
+    rvf::RicohFlowActions result;
     result.cameraSleepGuardBlocksFlow = guardBlocks;
     result.cameraSleepGuardActive = isGuardActive;
     result.isBleConnected = isBleConnected;
@@ -249,9 +249,9 @@ void testRecoveryStopsWhenBleStackResetFails() {
   FlowHarness::reset();
   FlowHarness::bleConnected = false;
   FlowHarness::resetStackSucceeds = false;
-  rvf::AppController controller(rvf::AppState::BleScan);
-  controller.begin(rvf::AppState::BleScan);
-  const rvf::AppFlowActions actions = FlowHarness::actions();
+  rvf::RicohFlowController controller(rvf::RicohFlowState::BleScan);
+  controller.begin(rvf::RicohFlowState::BleScan);
+  const rvf::RicohFlowActions actions = FlowHarness::actions();
 
   controller.recoverCameraConnection(actions, "BLE disconnected");
 
@@ -261,12 +261,12 @@ void testRecoveryStopsWhenBleStackResetFails() {
 
 void testPortraitStartupCachesWifiWithoutConnecting() {
   FlowHarness::reset();
-  rvf::AppController controller(rvf::AppState::BleScan);
-  controller.begin(rvf::AppState::BleScan);
-  const rvf::AppFlowActions actions = FlowHarness::actions();
+  rvf::RicohFlowController controller(rvf::RicohFlowState::BleScan);
+  controller.begin(rvf::RicohFlowState::BleScan);
+  const rvf::RicohFlowActions actions = FlowHarness::actions();
 
   TEST_ASSERT_TRUE(controller.runCameraFlowOnce(actions, 100));
-  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::AppState::WifiCredentialsReady),
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::RicohFlowState::WifiCredentialsReady),
                         static_cast<int>(controller.state()));
   TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::activateCalls);
   TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::deactivateCalls);
@@ -280,12 +280,12 @@ void testPortraitStartupCachesWifiWithoutConnecting() {
 void testPortraitReconnectReusesCacheWithoutTogglingCameraWlan() {
   FlowHarness::reset();
   FlowHarness::cachedCredentials = true;
-  rvf::AppController controller(rvf::AppState::BleScan);
-  controller.begin(rvf::AppState::BleScan);
-  const rvf::AppFlowActions actions = FlowHarness::actions();
+  rvf::RicohFlowController controller(rvf::RicohFlowState::BleScan);
+  controller.begin(rvf::RicohFlowState::BleScan);
+  const rvf::RicohFlowActions actions = FlowHarness::actions();
 
   TEST_ASSERT_TRUE(controller.runCameraFlowOnce(actions, 100));
-  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::AppState::WifiCredentialsReady),
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::RicohFlowState::WifiCredentialsReady),
                         static_cast<int>(controller.state()));
   TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::activateCalls);
   TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::ensurePowerReadyCalls);
@@ -303,12 +303,12 @@ void testPortraitCachedResumeStaysOffWhenCameraPowerIsOff() {
   FlowHarness::reset();
   FlowHarness::cachedCredentials = true;
   FlowHarness::powerReadySucceeds = false;
-  rvf::AppController controller(rvf::AppState::BleScan);
-  controller.begin(rvf::AppState::BleScan);
-  const rvf::AppFlowActions actions = FlowHarness::actions();
+  rvf::RicohFlowController controller(rvf::RicohFlowState::BleScan);
+  controller.begin(rvf::RicohFlowState::BleScan);
+  const rvf::RicohFlowActions actions = FlowHarness::actions();
 
   TEST_ASSERT_FALSE(controller.runCameraFlowOnce(actions, 100));
-  TEST_ASSERT_NOT_EQUAL_INT(static_cast<int>(rvf::AppState::WifiCredentialsReady),
+  TEST_ASSERT_NOT_EQUAL_INT(static_cast<int>(rvf::RicohFlowState::WifiCredentialsReady),
                             static_cast<int>(controller.state()));
   TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::ensurePowerReadyCalls);
   TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::activateCalls);
@@ -319,13 +319,13 @@ void testPortraitCachedResumeStaysOffWhenCameraPowerIsOff() {
 
 void testLandscapeStartupOpensLiveViewWithoutPropsProbe() {
   FlowHarness::reset();
-  rvf::AppController controller(rvf::AppState::BleScan);
-  controller.begin(rvf::AppState::BleScan);
+  rvf::RicohFlowController controller(rvf::RicohFlowState::BleScan);
+  controller.begin(rvf::RicohFlowState::BleScan);
   controller.setPreviewRequested(true);
-  const rvf::AppFlowActions actions = FlowHarness::actions();
+  const rvf::RicohFlowActions actions = FlowHarness::actions();
 
   TEST_ASSERT_TRUE(controller.runCameraFlowOnce(actions, 100));
-  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::AppState::PreviewRunning),
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::RicohFlowState::PreviewRunning),
                         static_cast<int>(controller.state()));
   TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::activateCalls);
   TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::deactivateCalls);
@@ -337,15 +337,15 @@ void testLandscapeStartupOpensLiveViewWithoutPropsProbe() {
 
 void testPortraitToLandscapeResumesAfterCredentialCache() {
   FlowHarness::reset();
-  rvf::AppController controller(rvf::AppState::BleScan);
-  controller.begin(rvf::AppState::BleScan);
-  const rvf::AppFlowActions actions = FlowHarness::actions();
+  rvf::RicohFlowController controller(rvf::RicohFlowState::BleScan);
+  controller.begin(rvf::RicohFlowState::BleScan);
+  const rvf::RicohFlowActions actions = FlowHarness::actions();
   TEST_ASSERT_TRUE(controller.runCameraFlowOnce(actions, 100));
   TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::connectCalls);
 
   controller.setPreviewRequested(true);
   controller.serviceCameraFlowIfNeeded(actions, 200);
-  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::AppState::PreviewRunning),
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::RicohFlowState::PreviewRunning),
                         static_cast<int>(controller.state()));
   TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::connectCalls);
   TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::reactivateCalls);
@@ -354,15 +354,15 @@ void testPortraitToLandscapeResumesAfterCredentialCache() {
 
 void testLandscapeToPortraitDisconnectsWifiAndKeepsBleReady() {
   FlowHarness::reset();
-  rvf::AppController controller(rvf::AppState::BleScan);
-  controller.begin(rvf::AppState::BleScan);
+  rvf::RicohFlowController controller(rvf::RicohFlowState::BleScan);
+  controller.begin(rvf::RicohFlowState::BleScan);
   controller.setPreviewRequested(true);
-  const rvf::AppFlowActions actions = FlowHarness::actions();
+  const rvf::RicohFlowActions actions = FlowHarness::actions();
   TEST_ASSERT_TRUE(controller.runCameraFlowOnce(actions, 100));
 
   controller.setPreviewRequested(false);
   controller.serviceCameraFlowIfNeeded(actions, 200);
-  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::AppState::WifiCredentialsReady),
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::RicohFlowState::WifiCredentialsReady),
                         static_cast<int>(controller.state()));
   TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::disconnectCalls);
   TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::finishWlanCalls);
@@ -375,16 +375,16 @@ void testLandscapeToPortraitDisconnectsWifiAndKeepsBleReady() {
 
 void testCachedResumeStopsBeforeWifiConnectWhenReactivationFails() {
   FlowHarness::reset();
-  rvf::AppController controller(rvf::AppState::BleScan);
-  controller.begin(rvf::AppState::BleScan);
-  const rvf::AppFlowActions actions = FlowHarness::actions();
+  rvf::RicohFlowController controller(rvf::RicohFlowState::BleScan);
+  controller.begin(rvf::RicohFlowState::BleScan);
+  const rvf::RicohFlowActions actions = FlowHarness::actions();
   TEST_ASSERT_TRUE(controller.runCameraFlowOnce(actions, 100));
 
   FlowHarness::reactivateSucceeds = false;
   controller.setPreviewRequested(true);
   controller.serviceCameraFlowIfNeeded(actions, 200);
 
-  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::AppState::BleReady),
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::RicohFlowState::BleReady),
                         static_cast<int>(controller.state()));
   TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::reactivateCalls);
   TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::connectCalls);
@@ -393,17 +393,17 @@ void testCachedResumeStopsBeforeWifiConnectWhenReactivationFails() {
 
 void testWifiDeactivationFailureDoesNotBreakBleShutterState() {
   FlowHarness::reset();
-  rvf::AppController controller(rvf::AppState::BleScan);
-  controller.begin(rvf::AppState::BleScan);
+  rvf::RicohFlowController controller(rvf::RicohFlowState::BleScan);
+  controller.begin(rvf::RicohFlowState::BleScan);
   controller.setPreviewRequested(true);
-  const rvf::AppFlowActions actions = FlowHarness::actions();
+  const rvf::RicohFlowActions actions = FlowHarness::actions();
   TEST_ASSERT_TRUE(controller.runCameraFlowOnce(actions, 100));
 
   FlowHarness::deactivateSucceeds = false;
   controller.setPreviewRequested(false);
   controller.serviceCameraFlowIfNeeded(actions, 200);
 
-  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::AppState::WifiCredentialsReady),
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::RicohFlowState::WifiCredentialsReady),
                         static_cast<int>(controller.state()));
   TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::deactivateCalls);
   TEST_ASSERT_FALSE(FlowHarness::wifiConnected);
@@ -415,23 +415,23 @@ void testCameraSleepGuardKeepsControllerOutOfScan() {
   FlowHarness::reset();
   FlowHarness::bleConnected = false;
   FlowHarness::guardActive = true;
-  rvf::AppController controller(rvf::AppState::CameraPowerOff);
-  controller.begin(rvf::AppState::CameraPowerOff);
-  const rvf::AppFlowActions actions = FlowHarness::actions();
+  rvf::RicohFlowController controller(rvf::RicohFlowState::CameraPowerOff);
+  controller.begin(rvf::RicohFlowState::CameraPowerOff);
+  const rvf::RicohFlowActions actions = FlowHarness::actions();
 
   controller.serviceCameraFlowIfNeeded(actions, 2000);
 
-  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::AppState::CameraPowerOff),
+  TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::RicohFlowState::CameraPowerOff),
                         static_cast<int>(controller.state()));
   TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::activateCalls);
 }
 
 void testRecoveryRestoresReleasedBleBeforeChoosingPath() {
   FlowHarness::reset();
-  rvf::AppController controller(rvf::AppState::PreviewRunning);
-  controller.begin(rvf::AppState::PreviewRunning);
+  rvf::RicohFlowController controller(rvf::RicohFlowState::PreviewRunning);
+  controller.begin(rvf::RicohFlowState::PreviewRunning);
   controller.setPreviewRequested(true);
-  rvf::AppFlowActions actions = FlowHarness::actions();
+  rvf::RicohFlowActions actions = FlowHarness::actions();
   actions.restoreReleasedBle = FlowHarness::restoreReleasedBle;
   actions.reasonRequiresBleRescan = FlowHarness::recordRescanReason;
 
@@ -445,9 +445,9 @@ void testRecoveryRestoresReleasedBleBeforeChoosingPath() {
 void testRecoveryKeepsReleasedBleDownUnderSleepGuard() {
   FlowHarness::reset();
   FlowHarness::guardActive = true;
-  rvf::AppController controller(rvf::AppState::PreviewRunning);
-  controller.begin(rvf::AppState::PreviewRunning);
-  rvf::AppFlowActions actions = FlowHarness::actions();
+  rvf::RicohFlowController controller(rvf::RicohFlowState::PreviewRunning);
+  controller.begin(rvf::RicohFlowState::PreviewRunning);
+  rvf::RicohFlowActions actions = FlowHarness::actions();
   actions.restoreReleasedBle = FlowHarness::restoreReleasedBle;
 
   controller.recoverCameraConnection(actions, "WiFi disconnected");
@@ -459,10 +459,10 @@ void testLandscapeShutterNotReadyRecoversWithoutBleRescanReason() {
   FlowHarness::reset();
   FlowHarness::shutterReadyValue = false;
   FlowHarness::shutterOverWifiValue = true;
-  rvf::AppController controller(rvf::AppState::BleReady);
-  controller.begin(rvf::AppState::BleReady);
+  rvf::RicohFlowController controller(rvf::RicohFlowState::BleReady);
+  controller.begin(rvf::RicohFlowState::BleReady);
   controller.setPreviewRequested(true);
-  rvf::AppFlowActions actions = FlowHarness::actions();
+  rvf::RicohFlowActions actions = FlowHarness::actions();
   actions.shutterReady = FlowHarness::shutterReady;
   actions.shutterOverWifi = FlowHarness::shutterOverWifi;
   actions.reasonRequiresBleRescan = FlowHarness::recordRescanReason;
@@ -476,9 +476,9 @@ void testLandscapeShutterNotReadyRecoversWithoutBleRescanReason() {
 void testPortraitShutterNotReadyKeepsBleRescanReason() {
   FlowHarness::reset();
   FlowHarness::shutterReadyValue = false;
-  rvf::AppController controller(rvf::AppState::WifiCredentialsReady);
-  controller.begin(rvf::AppState::WifiCredentialsReady);
-  rvf::AppFlowActions actions = FlowHarness::actions();
+  rvf::RicohFlowController controller(rvf::RicohFlowState::WifiCredentialsReady);
+  controller.begin(rvf::RicohFlowState::WifiCredentialsReady);
+  rvf::RicohFlowActions actions = FlowHarness::actions();
   actions.shutterReady = FlowHarness::shutterReady;
   actions.shutterOverWifi = FlowHarness::shutterOverWifi;
   actions.reasonRequiresBleRescan = FlowHarness::recordRescanReason;
@@ -493,10 +493,10 @@ void testLandscapeHttpShutterFailureNamesHttpPath() {
   FlowHarness::reset();
   FlowHarness::shutterOverWifiValue = true;
   FlowHarness::shootSucceeds = false;
-  rvf::AppController controller(rvf::AppState::BleReady);
-  controller.begin(rvf::AppState::BleReady);
+  rvf::RicohFlowController controller(rvf::RicohFlowState::BleReady);
+  controller.begin(rvf::RicohFlowState::BleReady);
   controller.setPreviewRequested(true);
-  rvf::AppFlowActions actions = FlowHarness::actions();
+  rvf::RicohFlowActions actions = FlowHarness::actions();
   actions.shutterReady = FlowHarness::shutterReady;
   actions.shutterOverWifi = FlowHarness::shutterOverWifi;
   actions.shootAutofocus = FlowHarness::shoot;
@@ -513,10 +513,10 @@ void testLandscapeHttpShutterSuccessReopensPreview() {
   FlowHarness::reset();
   FlowHarness::wifiConnected = true;
   FlowHarness::shutterOverWifiValue = true;
-  rvf::AppController controller(rvf::AppState::PreviewRunning);
-  controller.begin(rvf::AppState::PreviewRunning);
+  rvf::RicohFlowController controller(rvf::RicohFlowState::PreviewRunning);
+  controller.begin(rvf::RicohFlowState::PreviewRunning);
   controller.setPreviewRequested(true);
-  rvf::AppFlowActions actions = FlowHarness::actions();
+  rvf::RicohFlowActions actions = FlowHarness::actions();
   actions.shutterReady = FlowHarness::shutterReady;
   actions.shutterOverWifi = FlowHarness::shutterOverWifi;
   actions.shootAutofocus = FlowHarness::shoot;
@@ -536,10 +536,10 @@ void testLandscapeStallRecyclesPreviewWithoutBleRecovery() {
   FlowHarness::reset();
   FlowHarness::wifiConnected = true;
   FlowHarness::previewRunning = true;
-  rvf::AppController controller(rvf::AppState::PreviewRunning);
-  controller.begin(rvf::AppState::PreviewRunning);
+  rvf::RicohFlowController controller(rvf::RicohFlowState::PreviewRunning);
+  controller.begin(rvf::RicohFlowState::PreviewRunning);
   controller.setPreviewRequested(true);
-  rvf::AppFlowActions actions = FlowHarness::actions();
+  rvf::RicohFlowActions actions = FlowHarness::actions();
   actions.liveViewStallTimeoutMs = 0;
   actions.lastFrameAt = FlowHarness::lastFrame;
   actions.recyclePreviewAfterStall = FlowHarness::recycleStall;
@@ -558,10 +558,10 @@ void testLandscapeStallRecycleFailureRecovers() {
   FlowHarness::wifiConnected = true;
   FlowHarness::previewRunning = true;
   FlowHarness::recycleStallSucceeds = false;
-  rvf::AppController controller(rvf::AppState::PreviewRunning);
-  controller.begin(rvf::AppState::PreviewRunning);
+  rvf::RicohFlowController controller(rvf::RicohFlowState::PreviewRunning);
+  controller.begin(rvf::RicohFlowState::PreviewRunning);
   controller.setPreviewRequested(true);
-  rvf::AppFlowActions actions = FlowHarness::actions();
+  rvf::RicohFlowActions actions = FlowHarness::actions();
   actions.liveViewStallTimeoutMs = 0;
   actions.lastFrameAt = FlowHarness::lastFrame;
   actions.recyclePreviewAfterStall = FlowHarness::recycleStall;
@@ -581,10 +581,10 @@ void testLandscapeHttpShutterReopenFailureRecovers() {
   FlowHarness::wifiConnected = true;
   FlowHarness::shutterOverWifiValue = true;
   FlowHarness::reopenPreviewSucceeds = false;
-  rvf::AppController controller(rvf::AppState::PreviewRunning);
-  controller.begin(rvf::AppState::PreviewRunning);
+  rvf::RicohFlowController controller(rvf::RicohFlowState::PreviewRunning);
+  controller.begin(rvf::RicohFlowState::PreviewRunning);
   controller.setPreviewRequested(true);
-  rvf::AppFlowActions actions = FlowHarness::actions();
+  rvf::RicohFlowActions actions = FlowHarness::actions();
   actions.shutterReady = FlowHarness::shutterReady;
   actions.shutterOverWifi = FlowHarness::shutterOverWifi;
   actions.shootAutofocus = FlowHarness::shoot;
@@ -602,7 +602,7 @@ void testLandscapeHttpShutterReopenFailureRecovers() {
 
 rvf::SystemHealthSnapshot healthyPreviewSnapshot() {
   rvf::SystemHealthSnapshot snapshot;
-  snapshot.cameraPhase = rvf::ricohCameraPhase(rvf::AppState::PreviewRunning);
+  snapshot.cameraPhase = rvf::ricohCameraPhase(rvf::RicohFlowState::PreviewRunning);
   snapshot.bleConnected = true;
   snapshot.wifiConnected = true;
   snapshot.previewRunning = true;

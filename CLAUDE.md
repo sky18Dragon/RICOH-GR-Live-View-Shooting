@@ -28,7 +28,7 @@ platformio device monitor      # 串口日志（monitor_speed=115200）
 platformio test -e native      # host-side 纯逻辑单元测试
 ```
 
-`test/` 下的 host-side native 单元测试覆盖各纯逻辑策略模块、`AppController` 状态机与 UI 协调器（CI 中与固件编译一起运行）；完整链路验证仍依赖真实硬件（StickS3 + RICOH GR II/III/IIIx/IV）与串口日志。
+`test/` 下的 host-side native 单元测试覆盖各纯逻辑策略模块、理光工作流状态机 `RicohFlowController` 与 UI 协调器（CI 中与固件编译一起运行）；完整链路验证仍依赖真实硬件（StickS3 + RICOH GR II/III/IIIx/IV）与串口日志。
 
 ## 模块导航
 
@@ -40,7 +40,7 @@ platformio test -e native      # host-side 纯逻辑单元测试
 | --- | --- |
 | `src/camera/` | `ICameraDriver`（App → 相机驱动）/ `ICameraHost`（驱动 → 显示与输入）/ `CameraStatus` / `CameraPhase`（品牌无关连接阶段）/ `CameraRegistry`（配对引导机型列表） |
 | `src/brands/ricoh/` | `RicohDriver`：理光完整工作流（BLE 唤醒、电源门控、保护态、Wi-Fi 凭据缓存、LiveView、快门、GR II 配网），由 `main.cpp` 迁入 |
-| `src/app/` | `AppController` 主状态机（目前即理光工作流，仅在 `RicohDriver` 内使用）；经 `AppFlowActions` 回调驱动具体动作 |
+| `src/brands/ricoh/flow/` | `RicohFlowController` 理光工作流状态机（原 `app/AppController`），经 `RicohFlowActions` 回调驱动 `RicohDriver` 中的具体动作；`RicohFlowState` 由 `ricohCameraPhase()` 映射为 `CameraPhase` |
 | `src/core/` | `AppMessage`/`AppEvent`、`Logger`、`Result`、`PeriodicTask` |
 | `src/services/` | `BleCameraService`（`RicohBleClient` 门面）、`WifiPreviewService`、`CameraPowerPolicy`、`PreviewFrameBuffer` |
 | `src/supervisor/` | `SystemSupervisor` 健康检查事件 |
@@ -94,7 +94,7 @@ flowchart TD
 
 ## 核心状态机
 
-`RicohDriver.cpp` 的 `CameraFlowState`（即 `rvf::AppState`，由 `AppController` 推进）：`BleScan → BleReady → WifiConnecting → HttpProbe → LiveViewRunning`，外加保护态 `CameraSleepGuard`。
+`RicohDriver.cpp` 的 `CameraFlowState`（即 `rvf::RicohFlowState`，由 `RicohFlowController` 推进）：`BleScan → BleReady → WifiConnecting → HttpProbe → LiveViewRunning`，外加保护态 `CameraSleepGuard`。
 
 - 收到相机主动断连（reason `0x213`/`0x215`）或 BLE 电源通知 `0x00` → 进入 `CameraSleepGuard`，15s 冷却期内禁止扫描/重连/Wi-Fi ON，冷却后**仍不自动唤醒**，须用户按键。
 - `loop()` 周期：`handleButtons → serviceCameraFlowIfNeeded → ensureWiFi → refreshPropsIfDue → ensureLiveView → updateStatusUiIfDue`。

@@ -9,7 +9,7 @@
 #include "../../camera_identity.h"
 #include "../../camera_sleep_policy.h"
 #include "../../config.h"
-#include "../../app/AppController.h"
+#include "flow/RicohFlowController.h"
 #include "../../core/Logger.h"
 #include "../../gr_api.h"
 #include "../../gr2_provisioning_portal.h"
@@ -31,7 +31,7 @@
 
 namespace {
 
-using CameraFlowState = rvf::AppState;
+using CameraFlowState = rvf::RicohFlowState;
 
 rvf::ICameraHost* g_host = nullptr;
 CameraProfileStore* g_profileStore = nullptr;
@@ -46,8 +46,8 @@ rvf::BleCameraService bleCamera(ricohBle);
 rvf::CameraPowerPolicy cameraPowerPolicy;
 rvf::WifiPreviewService wifiPreview(grWifi, grApi, mjpeg);
 rvf::PreviewFrameBuffer previewFrameBuffer;
-rvf::AppController appController(CameraFlowState::BleScan);
-rvf::AppTickPlan tickPlan;
+rvf::RicohFlowController flowController(CameraFlowState::BleScan);
+rvf::RicohTickPlan tickPlan;
 uint8_t streamReadBuffer[STREAM_READ_BUFFER_SIZE];
 CameraProps cameraProps;
 RicohBleWifiCredentials pendingFreshWifiCredentials;
@@ -124,7 +124,7 @@ WifiCacheRefreshState wifiCacheRefresh;
 void requestManualCameraWake(const char* source);
 void unparkBleIfNeeded(const char* reason);
 void resetBlePairingFromKey2();
-rvf::AppFlowActions makeAppFlowActions();
+rvf::RicohFlowActions makeAppFlowActions();
 bool beginSelectedCameraPairing(RicohProtocolGeneration generation);
 
 // --- Host glue: the moved code keeps calling these names. ---
@@ -228,7 +228,7 @@ rvf::CameraOperationStatus toPolicyOperationStatus(RicohCameraOperationMode mode
 }
 
 void setCameraFlowState(CameraFlowState state, const char* reason) {
-  appController.transitionTo(state, reason, millis());
+  flowController.transitionTo(state, reason, millis());
 }
 
 void restoreLiveViewFocusSettingIfNeeded() {
@@ -238,7 +238,7 @@ void restoreLiveViewFocusSettingIfNeeded() {
   // Spot is the landscape-session AF mode. Recycled MJPEG after a shot, or a
   // landscape recover that will open LiveView again, must not PUT the old
   // mode back while the camera is still writing the file (GR III 412).
-  if (appController.previewRequested()) {
+  if (flowController.previewRequested()) {
     return;
   }
   const String previous = liveViewSavedFocusSetting;
@@ -396,7 +396,7 @@ bool consumeCameraPowerOffDisconnectAfterReady(const char* source) {
     return false;
   }
 
-  if (appController.isPowerProtectedFlowState()) {
+  if (flowController.isPowerProtectedFlowState()) {
     enterCameraSleepGuard(source, reason);
     return true;
   }
@@ -1430,7 +1430,7 @@ bool cameraSupportsWifiOnlyLandscape() {
 // up bringing the access point online.
 bool shutterUsesHttp() {
   return isGr2WifiOnlyProfile() || bleParkedForPreview ||
-         (appController.previewRequested() && cameraSupportsWifiOnlyLandscape());
+         (flowController.previewRequested() && cameraSupportsWifiOnlyLandscape());
 }
 
 void unparkBleIfNeeded(const char* reason) {
@@ -1459,7 +1459,7 @@ bool restoreBleAfterPreviewPark(const char* reason) {
   if (tryDirectStoredBleReconnect(true)) {
     bleCamera.clearDisconnectReason();
     unparkBleIfNeeded("parked BLE restored");
-    if (!appController.previewRequested() && hasUsableCachedWifiCredentials()) {
+    if (!flowController.previewRequested() && hasUsableCachedWifiCredentials()) {
       setCameraFlowState(CameraFlowState::WifiCredentialsReady,
                          "portrait BLE restored after preview park");
     }
@@ -1488,7 +1488,7 @@ bool cameraWifiConnectGuard() {
   // GrWifi polls this guard during a blocking STA connection attempt. Keep the
   // IMU/UI sampler alive so a stable turn to portrait can cancel the attempt.
   updateUi();
-  return bleStillConnectedForWifi() && appController.previewRequested();
+  return bleStillConnectedForWifi() && flowController.previewRequested();
 }
 
 bool wifiStillConnectedForController() {
@@ -1860,7 +1860,7 @@ bool reopenPreviewAfterHttpShutterForController() {
 }
 
 bool recyclePreviewAfterStallForController() {
-  if (!grWifi.isConnected() || !appController.previewRequested()) {
+  if (!grWifi.isConnected() || !flowController.previewRequested()) {
     return false;
   }
   constexpr uint8_t kMaxStallRecycles = 2;
@@ -1942,7 +1942,7 @@ void onShutterFailedForController() {
 }
 
 bool previewKeptAfterShutterFailureForController() {
-  return appController.isPreviewActive() && grWifi.isConnected() && wifiPreview.isPreviewRunning();
+  return flowController.isPreviewActive() && grWifi.isConnected() && wifiPreview.isPreviewRunning();
 }
 
 void showCameraSleepGuardStatusForController() {
@@ -2167,8 +2167,8 @@ void onFreshWifiConnectedForController() {
   saveConnectedWifiBssidToCache("fresh BLE connect");
 }
 
-rvf::AppFlowActions makeAppFlowActions() {
-  rvf::AppFlowActions actions;
+rvf::RicohFlowActions makeAppFlowActions() {
+  rvf::RicohFlowActions actions;
   actions.cameraSleepGuardBlocksFlow = cameraSleepGuardBlocksFlow;
   actions.runBleDiscovery = runBleDiscoveryAtBoot;
   actions.cameraSleepGuardActive = cameraSleepGuardActive;
@@ -2378,7 +2378,7 @@ bool beginSelectedCameraPairing(RicohProtocolGeneration generation) {
 
   if (generation == RicohProtocolGeneration::Gr2Family) {
     gr2ProvisioningPreparing = true;
-    appController.setPreviewRequested(false);
+    flowController.setPreviewRequested(false);
     setCameraFlowState(CameraFlowState::WifiCredentialsReady, "GR II setup preparing");
     showStatusIfChanged("GR II WiFi setup", "Scanning camera WiFi",
                         "Please wait...", "No Bluetooth", true);
@@ -2422,7 +2422,7 @@ bool beginSelectedCameraPairing(RicohProtocolGeneration generation) {
     cameraProps.model = "RICOH GR II";
     cameraProps.battery = "";
     pairingModelConfirmed = true;
-    appController.setPreviewRequested(false);
+    flowController.setPreviewRequested(false);
     setCameraFlowState(CameraFlowState::WifiCredentialsReady, "GR II web setup");
     showStatusIfChanged("GR II WiFi setup", gr2Provisioning.accessPointSsid(),
                         String("http://") + gr2Provisioning.accessPointIp(),
@@ -2448,7 +2448,7 @@ bool beginSelectedCameraPairing(RicohProtocolGeneration generation) {
                       "Scanning...",
                       "",
                       true);
-  const bool online = appController.runCameraFlowOnce(makeAppFlowActions(), millis());
+  const bool online = flowController.runCameraFlowOnce(makeAppFlowActions(), millis());
   lastFrameAt = millis();
   lastCameraRecoveryAt = online ? millis() : 0;
   return online;
@@ -2494,11 +2494,11 @@ bool handleGr2ProvisioningInput(bool resetRequested) {
     gr2Provisioning.stop();
     grWifi.begin();
     wifiPreview.setEndpoint(cameraProfile.wifi.cameraIp.c_str(), GR_PORT);
-    appController.setPreviewRequested(true);
+    flowController.setPreviewRequested(true);
     setCameraFlowState(CameraFlowState::BleScan, "GR II web setup complete");
     showStatusIfChanged("Connecting GR II", cameraProfile.wifi.ssid,
                         "Camera WiFi", "No Bluetooth", true);
-    const bool online = appController.runCameraFlowOnce(makeAppFlowActions(), millis());
+    const bool online = flowController.runCameraFlowOnce(makeAppFlowActions(), millis());
     lastFrameAt = millis();
     lastLiveViewActivityAt = lastFrameAt;
     lastCameraRecoveryAt = online ? millis() : 0;
@@ -2530,7 +2530,7 @@ void requestManualCameraWake(const char* source) {
   yield();
 
   showStatusIfChanged("Manual retry", "Checking camera...", preferredBleName(), "", true);
-  const bool online = appController.runCameraFlowOnce(makeAppFlowActions(), millis());
+  const bool online = flowController.runCameraFlowOnce(makeAppFlowActions(), millis());
   lastFrameAt = millis();
   lastCameraRecoveryAt = online ? millis() : 0;
 }
@@ -2575,18 +2575,18 @@ void serviceBleParking(uint32_t nowMs) {
   }
 
   const bool previewStreaming =
-      appController.isPreviewActive() && grWifi.isConnected() && wifiPreview.isPreviewRunning();
+      flowController.isPreviewActive() && grWifi.isConnected() && wifiPreview.isPreviewRunning();
 
   if (!previewStreaming) {
     if (bleParkedForPreview) {
-      restoreBleAfterPreviewPark(appController.previewRequested()
+      restoreBleAfterPreviewPark(flowController.previewRequested()
                                      ? "preview transport stopped"
                                      : "portrait handoff");
     }
     return;
   }
 
-  if (bleParkedForPreview || !appController.previewRequested()) {
+  if (bleParkedForPreview || !flowController.previewRequested()) {
     // A portrait turn leaves the stream up for one tick before the flow
     // closes it; releasing BLE then would only force an extra reconnect.
     return;
@@ -2614,7 +2614,7 @@ void serviceBleParking(uint32_t nowMs) {
 
 void serviceBleLinkMode(uint32_t nowMs) {
   const bool streaming =
-      appController.isPreviewActive() && grWifi.isConnected() && wifiPreview.isPreviewRunning();
+      flowController.isPreviewActive() && grWifi.isConnected() && wifiPreview.isPreviewRunning();
   if (streaming && !bleLinkMode.previewStreaming) {
     bleLinkMode.previewStreamingSinceMs = nowMs;
   }
@@ -2641,7 +2641,7 @@ void serviceBleLinkMode(uint32_t nowMs) {
 
   BleLinkModeInputs inputs;
   inputs.bleConnected = true;
-  inputs.previewRequested = appController.previewRequested();
+  inputs.previewRequested = flowController.previewRequested();
   inputs.previewStreaming = streaming;
   inputs.streamingSinceMs = bleLinkMode.previewStreamingSinceMs;
   inputs.nowMs = nowMs;
@@ -2695,7 +2695,7 @@ RicohDriver::RicohDriver(CameraProfileStore& profileStore) {
 
 void RicohDriver::begin(ICameraHost& host) {
   g_host = &host;
-  appController.begin(CameraFlowState::BleScan);
+  flowController.begin(CameraFlowState::BleScan);
   ricohBle.setServiceCallback(serviceButtonsDuringBleOperation);
   ricohBle.setPasskeyPoller(pollPasskeyButtonEntry);
   grWifi.begin();
@@ -2708,7 +2708,7 @@ void RicohDriver::begin(ICameraHost& host) {
                             : RicohProtocolGeneration::Gr3Family);
   }
   if (isGr2WifiOnlyProfile()) {
-    appController.setPreviewRequested(true);
+    flowController.setPreviewRequested(true);
     cameraProps.ok = true;
     cameraProps.model = "RICOH GR II";
   }
@@ -2728,7 +2728,7 @@ void RicohDriver::runStartupFlow(bool modelSelectionActive) {
   setupCameraFlowActive = true;
   const bool startupOnline = modelSelectionActive
                                  ? false
-                                 : appController.runCameraFlowOnce(makeAppFlowActions(), millis());
+                                 : flowController.runCameraFlowOnce(makeAppFlowActions(), millis());
   setupCameraFlowActive = false;
   lastCameraRecoveryAt = startupOnline ? millis() : 0;
   lastFrameAt = millis();
@@ -2743,7 +2743,7 @@ void RicohDriver::onModelSelectionShown() {
 bool RicohDriver::beginTick(uint32_t nowMs) {
   serviceBleParking(nowMs);
   serviceBleLinkMode(nowMs);
-  tickPlan = appController.planTick(nowMs);
+  tickPlan = flowController.planTick(nowMs);
   return tickPlan.handleButtons;
 }
 
@@ -2756,12 +2756,12 @@ bool RicohDriver::autoPowerOffDue() const {
 
 void RicohDriver::serviceFlowTick() {
   const uint32_t controllerNow = millis();
-  const AppFlowActions actions = makeAppFlowActions();
+  const RicohFlowActions actions = makeAppFlowActions();
   if (tickPlan.serviceCameraFlow) {
-    appController.serviceCameraFlowIfNeeded(actions, controllerNow);
+    flowController.serviceCameraFlowIfNeeded(actions, controllerNow);
   }
   if (tickPlan.monitorWifi) {
-    appController.monitorWifi(actions);
+    flowController.monitorWifi(actions);
   }
   serviceCameraStatusNotify();
   serviceShotConfirmation(millis());
@@ -2769,7 +2769,7 @@ void RicohDriver::serviceFlowTick() {
     refreshPropsIfDue();
   }
   if (tickPlan.monitorLiveView) {
-    appController.monitorLiveView(actions, controllerNow);
+    flowController.monitorLiveView(actions, controllerNow);
   }
 }
 
@@ -2786,7 +2786,7 @@ void RicohDriver::setUiPreviewIntent(bool landscape, bool modelSelectionActive) 
   // GR II has no low-power BLE shutter plane. Keep its Wi-Fi/HTTP stream alive
   // in portrait too so Button A remains usable; the UI already skips JPEG
   // decode while portrait and resumes rendering immediately after rotation.
-  appController.setPreviewRequested(!modelSelectionActive &&
+  flowController.setPreviewRequested(!modelSelectionActive &&
                                     !gr2ProvisioningPreparing &&
                                     !gr2Provisioning.active() &&
                                     (isGr2WifiOnlyProfile() || landscape));
@@ -2801,7 +2801,7 @@ void RicohDriver::resetPairing() {
 }
 
 void RicohDriver::shoot() {
-  appController.handleUserCommand(makeAppFlowActions(), UserCommand::Shoot);
+  flowController.handleUserCommand(makeAppFlowActions(), UserCommand::Shoot);
 }
 
 void RicohDriver::shutdown() {
@@ -2832,13 +2832,13 @@ bool RicohDriver::previewRunning() const {
 }
 
 bool RicohDriver::previewActive() const {
-  return appController.isPreviewActive();
+  return flowController.isPreviewActive();
 }
 
 CameraStatus RicohDriver::status() const {
   CameraStatus status;
-  status.phase = ricohCameraPhase(appController.state());
-  status.stateName = appStateName(appController.state());
+  status.phase = ricohCameraPhase(flowController.state());
+  status.stateName = ricohFlowStateName(flowController.state());
   status.linkHealthy = bleLinkHealthy();
   status.wifiConnected = grWifi.isConnected();
   status.previewRunning = wifiPreview.isPreviewRunning();

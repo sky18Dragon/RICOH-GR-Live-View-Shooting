@@ -1,4 +1,4 @@
-#include "AppController.h"
+#include "RicohFlowController.h"
 
 #if !defined(RVF_NATIVE_BUILD)
 #include <Arduino.h>
@@ -16,7 +16,7 @@ uint32_t controllerMillis() {
 #endif
 }
 
-void stopCameraWifiForPortrait(const AppFlowActions& actions, bool wifiConnected) {
+void stopCameraWifiForPortrait(const RicohFlowActions& actions, bool wifiConnected) {
     // Send the HTTP shutdown while the AP is still reachable. The camera may
     // drop TCP before returning a complete response, so BLE OFF remains the
     // idempotent fallback after the local STA is disconnected.
@@ -37,66 +37,66 @@ uint32_t elapsedSince(uint32_t nowMs, uint32_t timestampMs) {
     return (timestampMs - nowMs) < 0x80000000UL ? 0 : nowMs - timestampMs;
 }
 
-const char* appStateName(AppState state) {
+const char* ricohFlowStateName(RicohFlowState state) {
     switch (state) {
-        case AppState::Booting:
+        case RicohFlowState::Booting:
             return "BOOTING";
-        case AppState::Idle:
+        case RicohFlowState::Idle:
             return "IDLE";
-        case AppState::BleScan:
+        case RicohFlowState::BleScan:
             return "BLE_SCAN";
-        case AppState::ScanningCamera:
+        case RicohFlowState::ScanningCamera:
             return "SCANNING_CAMERA";
-        case AppState::CameraSleepGuard:
+        case RicohFlowState::CameraSleepGuard:
             return "CAMERA_SLEEP_GUARD";
-        case AppState::CameraPowerOff:
+        case RicohFlowState::CameraPowerOff:
             return "CAMERA_POWER_OFF";
-        case AppState::BleReady:
+        case RicohFlowState::BleReady:
             return "BLE_READY";
-        case AppState::WifiConnecting:
+        case RicohFlowState::WifiConnecting:
             return "WIFI_CONNECTING";
-        case AppState::ConnectingWifi:
+        case RicohFlowState::ConnectingWifi:
             return "CONNECTING_WIFI";
-        case AppState::HttpProbe:
+        case RicohFlowState::HttpProbe:
             return "HTTP_PROBE";
-        case AppState::HttpProbing:
+        case RicohFlowState::HttpProbing:
             return "HTTP_PROBING";
-        case AppState::LiveViewRunning:
+        case RicohFlowState::LiveViewRunning:
             return "LIVEVIEW_RUNNING";
-        case AppState::PreviewRunning:
+        case RicohFlowState::PreviewRunning:
             return "PREVIEW_RUNNING";
-        case AppState::ConnectingBle:
+        case RicohFlowState::ConnectingBle:
             return "CONNECTING_BLE";
-        case AppState::CheckingCameraPower:
+        case RicohFlowState::CheckingCameraPower:
             return "CHECKING_CAMERA_POWER";
-        case AppState::ActivatingWifi:
+        case RicohFlowState::ActivatingWifi:
             return "ACTIVATING_WIFI";
-        case AppState::WifiCredentialsReady:
+        case RicohFlowState::WifiCredentialsReady:
             return "WIFI_CREDENTIALS_READY";
-        case AppState::PreviewStarting:
+        case RicohFlowState::PreviewStarting:
             return "PREVIEW_STARTING";
-        case AppState::PreviewStopped:
+        case RicohFlowState::PreviewStopped:
             return "PREVIEW_STOPPED";
-        case AppState::Shooting:
+        case RicohFlowState::Shooting:
             return "SHOOTING";
-        case AppState::Disconnected:
+        case RicohFlowState::Disconnected:
             return "DISCONNECTED";
-        case AppState::Error:
+        case RicohFlowState::Error:
             return "ERROR";
     }
     return "UNKNOWN";
 }
 
-void AppController::begin(AppState initialState) {
+void RicohFlowController::begin(RicohFlowState initialState) {
     _state = initialState;
     _previewRequested = false;
     _previewRequestChanged = false;
 }
 
-AppTickPlan AppController::planTick(uint32_t nowMs) const {
+RicohTickPlan RicohFlowController::planTick(uint32_t nowMs) const {
     (void)nowMs;
 
-    AppTickPlan plan;
+    RicohTickPlan plan;
     const bool previewActive = isPreviewActive();
     plan.monitorWifi = previewActive;
     plan.refreshProps = previewActive;
@@ -104,14 +104,14 @@ AppTickPlan AppController::planTick(uint32_t nowMs) const {
     return plan;
 }
 
-bool AppController::runCameraFlowOnce(const AppFlowActions& actions, uint32_t nowMs) {
+bool RicohFlowController::runCameraFlowOnce(const RicohFlowActions& actions, uint32_t nowMs) {
     const uint32_t flowStartMs = nowMs != 0 ? nowMs : controllerMillis();
     if (actions.cameraSleepGuardBlocksFlow != nullptr &&
         actions.cameraSleepGuardBlocksFlow("camera flow")) {
         return false;
     }
 
-    transitionTo(AppState::BleScan, "enter BLE scan mode", flowStartMs);
+    transitionTo(RicohFlowState::BleScan, "enter BLE scan mode", flowStartMs);
     if (actions.runBleDiscovery == nullptr || !actions.runBleDiscovery()) {
         return false;
     }
@@ -126,7 +126,7 @@ bool AppController::runCameraFlowOnce(const AppFlowActions& actions, uint32_t no
                 const bool wifiConnected =
                     actions.isWifiConnected != nullptr && actions.isWifiConnected();
                 stopCameraWifiForPortrait(actions, wifiConnected);
-                transitionTo(AppState::WifiCredentialsReady,
+                transitionTo(RicohFlowState::WifiCredentialsReady,
                              "portrait requested after WiFi connect",
                              controllerMillis());
                 return true;
@@ -149,7 +149,7 @@ bool AppController::runCameraFlowOnce(const AppFlowActions& actions, uint32_t no
             return false;
         }
 
-        if (_state == AppState::WifiCredentialsReady) {
+        if (_state == RicohFlowState::WifiCredentialsReady) {
             return true;
         }
 
@@ -164,7 +164,7 @@ bool AppController::runCameraFlowOnce(const AppFlowActions& actions, uint32_t no
     return false;
 }
 
-bool AppController::resumeFromBleReady(const AppFlowActions& actions, const char* reason) {
+bool RicohFlowController::resumeFromBleReady(const RicohFlowActions& actions, const char* reason) {
     if (actions.cameraSleepGuardBlocksFlow != nullptr &&
         actions.cameraSleepGuardBlocksFlow("BLE_READY resume")) {
         return false;
@@ -175,7 +175,7 @@ bool AppController::resumeFromBleReady(const AppFlowActions& actions, const char
             actions.consumePowerOffDisconnect("BLE lost before BLE_READY resume")) {
             return false;
         }
-        transitionTo(AppState::BleScan, "BLE lost before BLE_READY resume", controllerMillis());
+        transitionTo(RicohFlowState::BleScan, "BLE lost before BLE_READY resume", controllerMillis());
         return false;
     }
 
@@ -193,7 +193,7 @@ bool AppController::resumeFromBleReady(const AppFlowActions& actions, const char
                 actions.consumePowerOffDisconnect("BLE lost during WiFi retry")) {
                 return false;
             }
-            transitionTo(AppState::BleScan, "BLE lost during WiFi retry", controllerMillis());
+            transitionTo(RicohFlowState::BleScan, "BLE lost during WiFi retry", controllerMillis());
             return false;
         }
 
@@ -202,7 +202,7 @@ bool AppController::resumeFromBleReady(const AppFlowActions& actions, const char
                 const bool wifiConnected =
                     actions.isWifiConnected != nullptr && actions.isWifiConnected();
                 stopCameraWifiForPortrait(actions, wifiConnected);
-                transitionTo(AppState::WifiCredentialsReady,
+                transitionTo(RicohFlowState::WifiCredentialsReady,
                              "portrait requested after WiFi retry",
                              controllerMillis());
                 return true;
@@ -214,7 +214,7 @@ bool AppController::resumeFromBleReady(const AppFlowActions& actions, const char
             if (actions.disconnectWifiLiveViewToBleReady != nullptr) {
                 actions.disconnectWifiLiveViewToBleReady("LiveView retry from BLE_READY");
             }
-        } else if (_state == AppState::WifiCredentialsReady) {
+        } else if (_state == RicohFlowState::WifiCredentialsReady) {
             return true;
         } else if (actions.cameraSleepGuardActive != nullptr && actions.cameraSleepGuardActive()) {
             return false;
@@ -228,7 +228,7 @@ bool AppController::resumeFromBleReady(const AppFlowActions& actions, const char
     return false;
 }
 
-bool AppController::resumeFromWifiCredentialsReady(const AppFlowActions& actions) {
+bool RicohFlowController::resumeFromWifiCredentialsReady(const RicohFlowActions& actions) {
     if (!_previewRequested) {
         return true;
     }
@@ -237,22 +237,22 @@ bool AppController::resumeFromWifiCredentialsReady(const AppFlowActions& actions
         return false;
     }
     if (actions.isBleConnected == nullptr || !actions.isBleConnected()) {
-        transitionTo(AppState::BleScan, "BLE lost before cached WiFi resume", controllerMillis());
+        transitionTo(RicohFlowState::BleScan, "BLE lost before cached WiFi resume", controllerMillis());
         return false;
     }
     if (actions.hasUsableCachedWifiCredentials == nullptr ||
         !actions.hasUsableCachedWifiCredentials()) {
-        transitionTo(AppState::BleReady, "cached WiFi params missing", controllerMillis());
+        transitionTo(RicohFlowState::BleReady, "cached WiFi params missing", controllerMillis());
         return false;
     }
 
     if (actions.reactivateCameraWifiForCachedResume == nullptr ||
         !actions.reactivateCameraWifiForCachedResume()) {
-        transitionTo(AppState::BleReady, "camera WiFi reactivation failed", controllerMillis());
+        transitionTo(RicohFlowState::BleReady, "camera WiFi reactivation failed", controllerMillis());
         return false;
     }
 
-    transitionTo(AppState::ConnectingWifi, "landscape resumes cached WiFi params", controllerMillis());
+    transitionTo(RicohFlowState::ConnectingWifi, "landscape resumes cached WiFi params", controllerMillis());
     if (actions.connectFreshWifiFromProfile == nullptr ||
         !actions.connectFreshWifiFromProfile()) {
         if (actions.disconnectWifi != nullptr) {
@@ -261,7 +261,7 @@ bool AppController::resumeFromWifiCredentialsReady(const AppFlowActions& actions
         if (actions.deactivateCameraWifiOverBle != nullptr) {
             (void)actions.deactivateCameraWifiOverBle();
         }
-        transitionTo(_previewRequested ? AppState::BleReady : AppState::WifiCredentialsReady,
+        transitionTo(_previewRequested ? RicohFlowState::BleReady : RicohFlowState::WifiCredentialsReady,
                      _previewRequested ? "WiFi resume failed" : "portrait cancelled WiFi resume",
                      controllerMillis());
         return false;
@@ -280,18 +280,18 @@ bool AppController::resumeFromWifiCredentialsReady(const AppFlowActions& actions
         (void)actions.deactivateCameraWifiOverBle();
     }
     if (actions.isBleConnected != nullptr && actions.isBleConnected()) {
-        transitionTo(AppState::WifiCredentialsReady,
+        transitionTo(RicohFlowState::WifiCredentialsReady,
                      "LiveView failed after posture resume",
                      controllerMillis());
     } else {
-        transitionTo(AppState::BleScan,
+        transitionTo(RicohFlowState::BleScan,
                      "BLE lost after posture resume",
                      controllerMillis());
     }
     return false;
 }
 
-bool AppController::connectWifiAfterBleReady(const AppFlowActions& actions) {
+bool RicohFlowController::connectWifiAfterBleReady(const RicohFlowActions& actions) {
     if (actions.cameraSleepGuardBlocksFlow != nullptr &&
         actions.cameraSleepGuardBlocksFlow("connect WiFi")) {
         return false;
@@ -302,7 +302,7 @@ bool AppController::connectWifiAfterBleReady(const AppFlowActions& actions) {
             actions.consumePowerOffDisconnect("BLE lost before WiFi open")) {
             return false;
         }
-        transitionTo(AppState::BleScan, "BLE lost before WiFi open", controllerMillis());
+        transitionTo(RicohFlowState::BleScan, "BLE lost before WiFi open", controllerMillis());
         return false;
     }
 
@@ -321,13 +321,13 @@ bool AppController::connectWifiAfterBleReady(const AppFlowActions& actions) {
         if (actions.deactivateCameraWifiOverBle != nullptr) {
             (void)actions.deactivateCameraWifiOverBle();
         }
-        transitionTo(AppState::WifiCredentialsReady,
+        transitionTo(RicohFlowState::WifiCredentialsReady,
                      "portrait reused cached WiFi params; WLAN kept off",
                      controllerMillis());
         return false;
     }
 
-    transitionTo(AppState::BleReady, "open WiFi via BLE", controllerMillis());
+    transitionTo(RicohFlowState::BleReady, "open WiFi via BLE", controllerMillis());
     if (actions.activateCameraWifiOverBle == nullptr || !actions.activateCameraWifiOverBle()) {
         return false;
     }
@@ -343,7 +343,7 @@ bool AppController::connectWifiAfterBleReady(const AppFlowActions& actions) {
         if (actions.clearBleDisconnectReason != nullptr) {
             actions.clearBleDisconnectReason();
         }
-        transitionTo(AppState::BleScan, "BLE lost after WiFi open", controllerMillis());
+        transitionTo(RicohFlowState::BleScan, "BLE lost after WiFi open", controllerMillis());
         return false;
     }
 
@@ -357,13 +357,13 @@ bool AppController::connectWifiAfterBleReady(const AppFlowActions& actions) {
             credentialsReady = true;
         }
         if (!credentialsReady) {
-            transitionTo(AppState::BleReady, "WiFi params unavailable while portrait", controllerMillis());
+            transitionTo(RicohFlowState::BleReady, "WiFi params unavailable while portrait", controllerMillis());
             return false;
         }
         if (actions.deactivateCameraWifiOverBle != nullptr) {
             (void)actions.deactivateCameraWifiOverBle();
         }
-        transitionTo(AppState::WifiCredentialsReady,
+        transitionTo(RicohFlowState::WifiCredentialsReady,
                      "portrait cached WiFi params; connection paused",
                      controllerMillis());
         return false;
@@ -371,7 +371,7 @@ bool AppController::connectWifiAfterBleReady(const AppFlowActions& actions) {
 
     if (actions.hasUsableCachedWifiCredentials != nullptr &&
         actions.hasUsableCachedWifiCredentials()) {
-        transitionTo(AppState::ConnectingWifi, "cached WiFi params", controllerMillis());
+        transitionTo(RicohFlowState::ConnectingWifi, "cached WiFi params", controllerMillis());
         if (actions.connectCachedWifiFromProfile != nullptr &&
             actions.connectCachedWifiFromProfile()) {
             if (actions.onCachedWifiConnected != nullptr) {
@@ -394,11 +394,11 @@ bool AppController::connectWifiAfterBleReady(const AppFlowActions& actions) {
             if (actions.clearBleDisconnectReason != nullptr) {
                 actions.clearBleDisconnectReason();
             }
-            transitionTo(AppState::BleScan, "BLE lost during cached WiFi connect", controllerMillis());
+            transitionTo(RicohFlowState::BleScan, "BLE lost during cached WiFi connect", controllerMillis());
             return false;
         }
         if (!_previewRequested) {
-            transitionTo(AppState::WifiCredentialsReady,
+            transitionTo(RicohFlowState::WifiCredentialsReady,
                          "portrait cancelled cached WiFi connect",
                          controllerMillis());
             return false;
@@ -417,10 +417,10 @@ bool AppController::connectWifiAfterBleReady(const AppFlowActions& actions) {
             if (actions.clearBleDisconnectReason != nullptr) {
                 actions.clearBleDisconnectReason();
             }
-            transitionTo(AppState::BleScan, "BLE lost waiting WiFi params", controllerMillis());
+            transitionTo(RicohFlowState::BleScan, "BLE lost waiting WiFi params", controllerMillis());
             return false;
         }
-        transitionTo(AppState::BleReady, "BLE WiFi params unavailable", controllerMillis());
+        transitionTo(RicohFlowState::BleReady, "BLE WiFi params unavailable", controllerMillis());
         return false;
     }
 
@@ -428,7 +428,7 @@ bool AppController::connectWifiAfterBleReady(const AppFlowActions& actions) {
         actions.applyFreshWifiCredentials();
     }
 
-    transitionTo(AppState::ConnectingWifi, "BLE returned WiFi params", controllerMillis());
+    transitionTo(RicohFlowState::ConnectingWifi, "BLE returned WiFi params", controllerMillis());
     if (actions.connectFreshWifiFromProfile == nullptr || !actions.connectFreshWifiFromProfile()) {
         if (actions.disconnectWifi != nullptr) {
             actions.disconnectWifi();
@@ -441,10 +441,10 @@ bool AppController::connectWifiAfterBleReady(const AppFlowActions& actions) {
             if (actions.clearBleDisconnectReason != nullptr) {
                 actions.clearBleDisconnectReason();
             }
-            transitionTo(AppState::BleScan, "BLE lost during WiFi connect", controllerMillis());
+            transitionTo(RicohFlowState::BleScan, "BLE lost during WiFi connect", controllerMillis());
             return false;
         }
-        transitionTo(_previewRequested ? AppState::BleReady : AppState::WifiCredentialsReady,
+        transitionTo(_previewRequested ? RicohFlowState::BleReady : RicohFlowState::WifiCredentialsReady,
                      _previewRequested ? "WiFi connect failed" : "portrait cancelled WiFi connect",
                      controllerMillis());
         return false;
@@ -456,7 +456,7 @@ bool AppController::connectWifiAfterBleReady(const AppFlowActions& actions) {
     return true;
 }
 
-bool AppController::startLiveView(const AppFlowActions& actions) {
+bool RicohFlowController::startLiveView(const RicohFlowActions& actions) {
     if (!actions.liveviewEnabled) {
         return true;
     }
@@ -467,7 +467,7 @@ bool AppController::startLiveView(const AppFlowActions& actions) {
     if (actions.showStartingLiveView != nullptr) {
         actions.showStartingLiveView();
     }
-    transitionTo(AppState::PreviewStarting, "WiFi connected", controllerMillis());
+    transitionTo(RicohFlowState::PreviewStarting, "WiFi connected", controllerMillis());
     if (actions.openLiveView == nullptr || !actions.openLiveView()) {
         if (actions.onLiveViewOpenFailed != nullptr) {
             actions.onLiveViewOpenFailed();
@@ -478,11 +478,11 @@ bool AppController::startLiveView(const AppFlowActions& actions) {
     if (actions.onLiveViewOpened != nullptr) {
         actions.onLiveViewOpened();
     }
-    transitionTo(AppState::PreviewRunning, "LiveView opened", controllerMillis());
+    transitionTo(RicohFlowState::PreviewRunning, "LiveView opened", controllerMillis());
     return true;
 }
 
-void AppController::recoverCameraConnection(const AppFlowActions& actions, const char* reason) {
+void RicohFlowController::recoverCameraConnection(const RicohFlowActions& actions, const char* reason) {
     const char* recoveryReason = reason != nullptr ? reason : "camera recovery";
     if (actions.cameraRecoveryInProgress != nullptr && actions.cameraRecoveryInProgress()) {
         return;
@@ -568,7 +568,7 @@ void AppController::recoverCameraConnection(const AppFlowActions& actions, const
     }
 }
 
-void AppController::serviceCameraFlowIfNeeded(const AppFlowActions& actions, uint32_t nowMs) {
+void RicohFlowController::serviceCameraFlowIfNeeded(const RicohFlowActions& actions, uint32_t nowMs) {
     const uint32_t now = nowMs != 0 ? nowMs : controllerMillis();
 
     if (actions.consumePowerOffNotification != nullptr &&
@@ -587,7 +587,7 @@ void AppController::serviceCameraFlowIfNeeded(const AppFlowActions& actions, uin
 
     if (!_previewRequested && (isPreviewActive() || wifiConnected)) {
         stopCameraWifiForPortrait(actions, wifiConnected);
-        transitionTo(bleConnected ? AppState::WifiCredentialsReady : AppState::BleScan,
+        transitionTo(bleConnected ? RicohFlowState::WifiCredentialsReady : RicohFlowState::BleScan,
                      "portrait disconnects camera WiFi",
                      now);
         if (actions.setLastCameraRecoveryAt != nullptr) {
@@ -600,7 +600,7 @@ void AppController::serviceCameraFlowIfNeeded(const AppFlowActions& actions, uin
         return;
     }
 
-    if (_state == AppState::WifiCredentialsReady && bleConnected) {
+    if (_state == RicohFlowState::WifiCredentialsReady && bleConnected) {
         if (!_previewRequested) {
             return;
         }
@@ -643,14 +643,14 @@ void AppController::serviceCameraFlowIfNeeded(const AppFlowActions& actions, uin
     }
 }
 
-void AppController::monitorWifi(const AppFlowActions& actions) {
+void RicohFlowController::monitorWifi(const RicohFlowActions& actions) {
     if (isPreviewActive() &&
         (actions.isWifiConnected == nullptr || !actions.isWifiConnected())) {
         recoverCameraConnection(actions, "WiFi disconnected");
     }
 }
 
-void AppController::monitorLiveView(const AppFlowActions& actions, uint32_t nowMs) {
+void RicohFlowController::monitorLiveView(const RicohFlowActions& actions, uint32_t nowMs) {
     (void)nowMs;
 
     if (actions.consumePowerOffNotification != nullptr &&
@@ -725,7 +725,7 @@ void AppController::monitorLiveView(const AppFlowActions& actions, uint32_t nowM
     }
 }
 
-void AppController::handleUserCommand(const AppFlowActions& actions, UserCommand command) {
+void RicohFlowController::handleUserCommand(const RicohFlowActions& actions, UserCommand command) {
     switch (command) {
         case UserCommand::Shoot:
             triggerShutterFromButtonA(actions);
@@ -740,7 +740,7 @@ void AppController::handleUserCommand(const AppFlowActions& actions, UserCommand
     }
 }
 
-void AppController::triggerShutterFromButtonA(const AppFlowActions& actions) {
+void RicohFlowController::triggerShutterFromButtonA(const RicohFlowActions& actions) {
     if (actions.cameraSleepGuardActive != nullptr && actions.cameraSleepGuardActive()) {
         if (actions.requestManualCameraWake != nullptr) {
             actions.requestManualCameraWake("Button A manual wake");
@@ -784,32 +784,32 @@ void AppController::triggerShutterFromButtonA(const AppFlowActions& actions) {
                                      : "Button A BLE shutter failed");
 }
 
-void AppController::dispatch(const AppMessage& message) {
+void RicohFlowController::dispatch(const AppMessage& message) {
     switch (message.type) {
         case AppEventType::BleConnected:
-            transitionTo(AppState::BleReady, "BLE event connected", message.timestampMs);
+            transitionTo(RicohFlowState::BleReady, "BLE event connected", message.timestampMs);
             break;
         case AppEventType::BleDisconnected:
-            transitionTo(AppState::Disconnected, "BLE event disconnected", message.timestampMs);
+            transitionTo(RicohFlowState::Disconnected, "BLE event disconnected", message.timestampMs);
             break;
         case AppEventType::CameraPowerOff:
-            transitionTo(AppState::CameraPowerOff, "camera power off event", message.timestampMs);
+            transitionTo(RicohFlowState::CameraPowerOff, "camera power off event", message.timestampMs);
             break;
         case AppEventType::WifiConnected:
-            transitionTo(AppState::WifiConnecting, "WiFi event connected", message.timestampMs);
+            transitionTo(RicohFlowState::WifiConnecting, "WiFi event connected", message.timestampMs);
             break;
         case AppEventType::PreviewStarted:
-            transitionTo(AppState::PreviewRunning, "preview event started", message.timestampMs);
+            transitionTo(RicohFlowState::PreviewRunning, "preview event started", message.timestampMs);
             break;
         case AppEventType::ErrorRaised:
-            transitionTo(AppState::Error, "error event", message.timestampMs);
+            transitionTo(RicohFlowState::Error, "error event", message.timestampMs);
             break;
         default:
             break;
     }
 }
 
-bool AppController::transitionTo(AppState nextState, const char* reason, uint32_t nowMs) {
+bool RicohFlowController::transitionTo(RicohFlowState nextState, const char* reason, uint32_t nowMs) {
     if (_state == nextState) {
         return false;
     }
@@ -817,8 +817,8 @@ bool AppController::transitionTo(AppState nextState, const char* reason, uint32_
     const uint32_t stamp = nowMs != 0 ? nowMs : controllerMillis();
 #if !defined(RVF_NATIVE_BUILD)
     Serial.printf("Flow: %s -> %s (%s) uptime=%lums\n",
-                  appStateName(_state),
-                  appStateName(nextState),
+                  ricohFlowStateName(_state),
+                  ricohFlowStateName(nextState),
                   reason != nullptr ? reason : "",
                   static_cast<unsigned long>(stamp));
 #else
@@ -829,7 +829,7 @@ bool AppController::transitionTo(AppState nextState, const char* reason, uint32_
     return true;
 }
 
-void AppController::setPreviewRequested(bool requested) {
+void RicohFlowController::setPreviewRequested(bool requested) {
     if (_previewRequested == requested) {
         return;
     }
@@ -837,39 +837,39 @@ void AppController::setPreviewRequested(bool requested) {
     _previewRequestChanged = true;
 }
 
-bool AppController::previewRequested() const {
+bool RicohFlowController::previewRequested() const {
     return _previewRequested;
 }
 
-AppState AppController::state() const {
+RicohFlowState RicohFlowController::state() const {
     return _state;
 }
 
-bool AppController::isBleReady() const {
-    return _state == AppState::BleReady || _state == AppState::WifiCredentialsReady;
+bool RicohFlowController::isBleReady() const {
+    return _state == RicohFlowState::BleReady || _state == RicohFlowState::WifiCredentialsReady;
 }
 
-bool AppController::isPowerProtectedFlowState() const {
+bool RicohFlowController::isPowerProtectedFlowState() const {
     switch (_state) {
-        case AppState::BleReady:
-        case AppState::CheckingCameraPower:
-        case AppState::ActivatingWifi:
-        case AppState::WifiCredentialsReady:
-        case AppState::WifiConnecting:
-        case AppState::ConnectingWifi:
-        case AppState::HttpProbe:
-        case AppState::HttpProbing:
-        case AppState::PreviewStarting:
-        case AppState::LiveViewRunning:
-        case AppState::PreviewRunning:
+        case RicohFlowState::BleReady:
+        case RicohFlowState::CheckingCameraPower:
+        case RicohFlowState::ActivatingWifi:
+        case RicohFlowState::WifiCredentialsReady:
+        case RicohFlowState::WifiConnecting:
+        case RicohFlowState::ConnectingWifi:
+        case RicohFlowState::HttpProbe:
+        case RicohFlowState::HttpProbing:
+        case RicohFlowState::PreviewStarting:
+        case RicohFlowState::LiveViewRunning:
+        case RicohFlowState::PreviewRunning:
             return true;
         default:
             return false;
     }
 }
 
-bool AppController::isPreviewActive() const {
-    return _state == AppState::LiveViewRunning || _state == AppState::PreviewRunning;
+bool RicohFlowController::isPreviewActive() const {
+    return _state == RicohFlowState::LiveViewRunning || _state == RicohFlowState::PreviewRunning;
 }
 
 }  // namespace rvf

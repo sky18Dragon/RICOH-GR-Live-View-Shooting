@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../app/AppState.h"
+#include "flow/RicohFlowState.h"
 #include "../../camera/CameraPhase.h"
 
 namespace rvf {
@@ -8,37 +8,37 @@ namespace rvf {
 // Ricoh workflow state -> brand-neutral phase. BleReady counts as Connecting:
 // the workflow passes through it on its way to Wi-Fi, and portrait rests in
 // WifiCredentialsReady (Idle), where the UI shows the remote from the link flags.
-inline CameraPhase ricohCameraPhase(AppState state) {
+inline CameraPhase ricohCameraPhase(RicohFlowState state) {
     switch (state) {
-        case AppState::Booting:
+        case RicohFlowState::Booting:
             return CameraPhase::Booting;
-        case AppState::BleScan:
-        case AppState::ScanningCamera:
+        case RicohFlowState::BleScan:
+        case RicohFlowState::ScanningCamera:
             return CameraPhase::Searching;
-        case AppState::ConnectingBle:
-        case AppState::CheckingCameraPower:
-        case AppState::BleReady:
-        case AppState::ActivatingWifi:
-        case AppState::WifiConnecting:
-        case AppState::ConnectingWifi:
-        case AppState::HttpProbe:
-        case AppState::HttpProbing:
-        case AppState::PreviewStarting:
+        case RicohFlowState::ConnectingBle:
+        case RicohFlowState::CheckingCameraPower:
+        case RicohFlowState::BleReady:
+        case RicohFlowState::ActivatingWifi:
+        case RicohFlowState::WifiConnecting:
+        case RicohFlowState::ConnectingWifi:
+        case RicohFlowState::HttpProbe:
+        case RicohFlowState::HttpProbing:
+        case RicohFlowState::PreviewStarting:
             return CameraPhase::Connecting;
-        case AppState::LiveViewRunning:
-        case AppState::PreviewRunning:
-        case AppState::Shooting:
+        case RicohFlowState::LiveViewRunning:
+        case RicohFlowState::PreviewRunning:
+        case RicohFlowState::Shooting:
             return CameraPhase::Previewing;
-        case AppState::PreviewStopped:
+        case RicohFlowState::PreviewStopped:
             return CameraPhase::Ready;
-        case AppState::CameraSleepGuard:
-        case AppState::CameraPowerOff:
+        case RicohFlowState::CameraSleepGuard:
+        case RicohFlowState::CameraPowerOff:
             return CameraPhase::Sleeping;
-        case AppState::Error:
+        case RicohFlowState::Error:
             return CameraPhase::Error;
-        case AppState::Idle:
-        case AppState::WifiCredentialsReady:
-        case AppState::Disconnected:
+        case RicohFlowState::Idle:
+        case RicohFlowState::WifiCredentialsReady:
+        case RicohFlowState::Disconnected:
             return CameraPhase::Idle;
     }
     return CameraPhase::Idle;

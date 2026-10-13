@@ -4,7 +4,7 @@
 
 namespace rvf {
 
-struct AppFlowActions {
+struct RicohFlowActions {
     bool (*cameraSleepGuardBlocksFlow)(const char* reason) = nullptr;
     bool (*cameraSleepGuardActive)() = nullptr;
     void (*showCameraSleepGuardStatus)() = nullptr;
