@@ -220,7 +220,7 @@ pio run -e m5stack-sticks3
 
 当前提交基线：
 
-- Native：86 / 86 通过。
+- Native：93 / 93 通过。
 - StickS3：构建成功。
 - RAM：66,444 / 327,680 bytes（20.3%）。
 - Flash：1,455,789 / 3,342,336 bytes（43.6%）。
