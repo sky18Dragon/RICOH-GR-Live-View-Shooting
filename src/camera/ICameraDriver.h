@@ -5,15 +5,11 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "../app/AppState.h"
 #include "../services/PreviewFrameBuffer.h"
+#include "CameraModel.h"
+#include "CameraPhase.h"
 
 namespace rvf {
-
-// Brand-defined model id. The registry (multi-brand plan stage 3) will give
-// these brand-neutral names; until then the Ricoh driver uses
-// RicohProtocolGeneration values.
-using CameraModelId = uint8_t;
 
 enum class PasskeyPollAction : uint8_t {
     Start,
@@ -64,7 +60,9 @@ public:
 // Snapshot of driver state for the UI and the supervisor. Pointers stay valid
 // until the next driver call.
 struct CameraStatus {
-    AppState appState = AppState::Booting;
+    CameraPhase phase = CameraPhase::Booting;
+    // Driver-specific workflow state, for logs only.
+    const char* stateName = "";
     bool linkHealthy = false;
     bool wifiConnected = false;
     bool previewRunning = false;

@@ -9,6 +9,7 @@ void setUp(void) {}
 void tearDown(void) {}
 
 #include "app/AppController.h"
+#include "brands/ricoh/RicohCameraPhase.h"
 #include "supervisor/SystemSupervisor.h"
 
 namespace {
@@ -601,7 +602,7 @@ void testLandscapeHttpShutterReopenFailureRecovers() {
 
 rvf::SystemHealthSnapshot healthyPreviewSnapshot() {
   rvf::SystemHealthSnapshot snapshot;
-  snapshot.appState = rvf::AppState::PreviewRunning;
+  snapshot.cameraPhase = rvf::ricohCameraPhase(rvf::AppState::PreviewRunning);
   snapshot.bleConnected = true;
   snapshot.wifiConnected = true;
   snapshot.previewRunning = true;

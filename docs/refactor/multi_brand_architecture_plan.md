@@ -272,6 +272,13 @@ GR III 与 GR IV 约 60–70% 的流程相同（电源门控、HTTP 预览、恢
   - 回归中发现 GR IV 的 AP 每次 WLAN ON 可能换信道（6 / 11 交替），按缓存信道连接常需约 14 s；已加 `wifiChannelChangesOnRestart` 能力位缩短信道猜测，并让全信道扫描不再被重连打断，GR IV 进入 LiveView 降到约 4–7 s。
   - 驱动接口暂时包含 `beginTick / serviceFlowTick / serviceBackgroundTick` 三段式 tick，用来保持原主循环的调用顺序（Supervisor 夹在中间）。驱动改为非阻塞（阶段 8）后合并为单个 `tick()`。
 
+**2026-10-14 阶段 3（进行中）**
+
+- 3a 机型注册表：[`camera/CameraRegistry`](../../src/camera/CameraRegistry.h) 提供配对引导的机型列表（`CameraModelDescriptor`：id、显示名、配对前提示），理光的列表在 [`brands/ricoh/RicohModels.h`](../../src/brands/ricoh/RicohModels.h)。`PairingGuide`、`UiSnapshot`、`display.cpp` 改为按注册表索引工作，不再写死 GR II / III / IV；列表顺序、默认项（GR III）、B 键循环顺序与提示文案均与之前一致。
+- 3b 相机阶段：新增品牌无关的 [`CameraPhase`](../../src/camera/CameraPhase.h)。`RicohDriver` 经 [`ricohCameraPhase()`](../../src/brands/ricoh/RicohCameraPhase.h) 把工作流状态映射过去，`CameraStatus` 只暴露 `phase` 和仅用于日志的 `stateName`。`UiCoordinator::selectScene()` 与 `SystemSupervisor` 改用 `CameraPhase`；未使用的 `connectionPhaseFloor()` 与 `_stateChangedAtMs` 删除。原 UI / Supervisor 测试保持原断言，改为经映射函数构造输入，另加覆盖全部 22 个状态的映射表测试。
+- 结果：`main.cpp`、`ui/`、`supervisor/`、`camera/` 不再引用 `AppState` 或 `RicohProtocolGeneration`。`app/` 目录里的 `AppController` 实际只被 `RicohDriver` 使用，下一步移入 `brands/ricoh/`，再在 `app/` 放品牌无关的应用逻辑与 `SimCameraDriver`（3c）。
+- 未实机验证：画面选择逻辑经 124 个 native 用例确认等价；配对引导绘制改为循环绘制，需在设备上目视确认一次。
+
 ### 执行注意事项
 
 - 阶段 2 是关键且风险最高的一步，必须先完成阶段 0 的行为基线。

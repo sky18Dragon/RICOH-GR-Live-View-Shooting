@@ -8,9 +8,7 @@ namespace rvf {
 
 void UiCoordinator::begin(uint32_t nowMs) {
     _view = UiViewModel{};
-    _lastAppState = AppState::Booting;
     _lastScene = UiScene::Boot;
-    _stateChangedAtMs = nowMs;
     _sceneChangedAtMs = nowMs;
     _focusTickPlayed = false;
     _shutterPreparing = false;
@@ -21,48 +19,22 @@ void UiCoordinator::begin(uint32_t nowMs) {
     _pendingSound = UiSound::None;
 }
 
-bool UiCoordinator::isConnectionState(AppState state) {
-    switch (state) {
-        case AppState::BleScan:
-        case AppState::ScanningCamera:
-        case AppState::ConnectingBle:
-        case AppState::CheckingCameraPower:
-        case AppState::BleReady:
-        case AppState::ActivatingWifi:
-        case AppState::WifiConnecting:
-        case AppState::ConnectingWifi:
-        case AppState::HttpProbe:
-        case AppState::HttpProbing:
-        case AppState::PreviewStarting:
-            return true;
-        default:
-            return false;
-    }
-}
-
 UiScene UiCoordinator::selectScene(const UiSnapshot& snapshot,
                                    UiOrientation orientation,
                                    bool resetVisualActive) {
-    if (snapshot.appState == AppState::Error) return UiScene::Error;
+    const CameraPhase phase = snapshot.cameraPhase;
+    if (phase == CameraPhase::Error) return UiScene::Error;
     if (snapshot.resettingPairing || resetVisualActive) return UiScene::ResetPairing;
     if (snapshot.wifiProvisioningActive) return UiScene::WifiProvisioning;
     if (snapshot.pairingGuideActive) return UiScene::PairingGuide;
-    if (snapshot.cameraSleepLike || snapshot.appState == AppState::CameraSleepGuard ||
-        snapshot.appState == AppState::CameraPowerOff) {
-        return UiScene::CameraSleep;
-    }
-    if (snapshot.appState == AppState::Booting) return UiScene::Boot;
-    if (isConnectionState(snapshot.appState)) {
-        return (snapshot.appState == AppState::BleScan || snapshot.appState == AppState::ScanningCamera)
-                   ? UiScene::Pairing
-                   : UiScene::Connecting;
-    }
-    if (snapshot.previewRunning || snapshot.appState == AppState::LiveViewRunning ||
-        snapshot.appState == AppState::PreviewRunning || snapshot.appState == AppState::Shooting) {
+    if (snapshot.cameraSleepLike || phase == CameraPhase::Sleeping) return UiScene::CameraSleep;
+    if (phase == CameraPhase::Booting) return UiScene::Boot;
+    if (phase == CameraPhase::Searching) return UiScene::Pairing;
+    if (phase == CameraPhase::Connecting) return UiScene::Connecting;
+    if (snapshot.previewRunning || phase == CameraPhase::Previewing) {
         return orientation == UiOrientation::Landscape ? UiScene::LivePreview : UiScene::RemoteReady;
     }
-    if (snapshot.bleConnected || snapshot.shutterReady || snapshot.appState == AppState::BleReady ||
-        snapshot.appState == AppState::PreviewStopped) {
+    if (snapshot.bleConnected || snapshot.shutterReady || phase == CameraPhase::Ready) {
         return UiScene::RemoteReady;
     }
     return UiScene::Disconnected;
@@ -71,23 +43,6 @@ UiScene UiCoordinator::selectScene(const UiSnapshot& snapshot,
 UiOrientation UiCoordinator::resolvePreviewOrientation(UiOrientation sensedOrientation,
                                                        bool liveViewLocked) {
     return liveViewLocked ? UiOrientation::Landscape : sensedOrientation;
-}
-
-float UiCoordinator::connectionPhaseFloor(AppState state) {
-    switch (state) {
-        case AppState::BleScan: return 0.0f;
-        case AppState::ScanningCamera: return 0.10f;
-        case AppState::ConnectingBle: return 0.28f;
-        case AppState::CheckingCameraPower: return 0.42f;
-        case AppState::BleReady: return 0.52f;
-        case AppState::ActivatingWifi: return 0.62f;
-        case AppState::WifiConnecting:
-        case AppState::ConnectingWifi: return 0.72f;
-        case AppState::HttpProbe:
-        case AppState::HttpProbing: return 0.84f;
-        case AppState::PreviewStarting: return 0.94f;
-        default: return 1.0f;
-    }
 }
 
 UiOrientation UiCoordinator::desiredOrientation(UiScene scene, UiOrientation sensed) {
@@ -133,11 +88,6 @@ void UiCoordinator::update(const UiSnapshot& snapshot,
                            const ButtonEvents& input,
                            UiOrientation sensedOrientation,
                            uint32_t nowMs) {
-    if (snapshot.appState != _lastAppState) {
-        _lastAppState = snapshot.appState;
-        _stateChangedAtMs = nowMs;
-    }
-
     if (input.buttonADown) {
         _focusTickPlayed = false;
         _lastFocusTickAtMs = nowMs;
@@ -180,8 +130,7 @@ void UiCoordinator::update(const UiSnapshot& snapshot,
     _view.resetSplitActive = _resetSplit.active;
     _view.resetSplitProgress = _resetSplit.progress(nowMs);
     _view.bleConnected = snapshot.bleConnected;
-    _view.pairingGuideGr2Selected = snapshot.pairingGuideGr2Selected;
-    _view.pairingGuideGr4Selected = snapshot.pairingGuideGr4Selected;
+    _view.pairingGuideSelectedIndex = snapshot.pairingGuideSelectedIndex;
     _view.wifiProvisioningPreparing = snapshot.wifiProvisioningPreparing;
     _view.provisioningSsid = snapshot.provisioningSsid;
     _view.provisioningPassword = snapshot.provisioningPassword;

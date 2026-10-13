@@ -9,6 +9,8 @@ void setUp(void) {}
 void tearDown(void) {}
 
 #include "app/AppController.h"
+#include "brands/ricoh/RicohCameraPhase.h"
+#include "camera_protocol_profile.h"
 #include "charging_indicator_policy.h"
 #include "ui/OrientationTracker.h"
 #include "ui/PairingGuide.h"
@@ -18,17 +20,17 @@ namespace {
 
 void testUiMapsAppStatesToScenes() {
   rvf::UiSnapshot snapshot;
-  snapshot.appState = rvf::AppState::BleScan;
+  snapshot.cameraPhase = rvf::ricohCameraPhase(rvf::AppState::BleScan);
   TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiScene::Pairing),
                         static_cast<int>(rvf::UiCoordinator::selectScene(
                             snapshot, rvf::UiOrientation::Portrait)));
 
-  snapshot.appState = rvf::AppState::ConnectingBle;
+  snapshot.cameraPhase = rvf::ricohCameraPhase(rvf::AppState::ConnectingBle);
   TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiScene::Connecting),
                         static_cast<int>(rvf::UiCoordinator::selectScene(
                             snapshot, rvf::UiOrientation::Portrait)));
 
-  snapshot.appState = rvf::AppState::PreviewRunning;
+  snapshot.cameraPhase = rvf::ricohCameraPhase(rvf::AppState::PreviewRunning);
   snapshot.previewRunning = true;
   TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiScene::RemoteReady),
                         static_cast<int>(rvf::UiCoordinator::selectScene(
@@ -42,7 +44,7 @@ void testUiPropagatesDeviceChargingIndicator() {
   rvf::UiCoordinator coordinator;
   rvf::UiSnapshot snapshot;
   rvf::ButtonEvents input;
-  snapshot.appState = rvf::AppState::BleReady;
+  snapshot.cameraPhase = rvf::ricohCameraPhase(rvf::AppState::BleReady);
   snapshot.deviceBatteryPercent = 68;
   snapshot.deviceCharging = true;
 
@@ -61,7 +63,7 @@ void testConnectingDotsOnlyMergeAfterBleConnects() {
   rvf::UiCoordinator coordinator;
   rvf::UiSnapshot snapshot;
   rvf::ButtonEvents input;
-  snapshot.appState = rvf::AppState::ConnectingBle;
+  snapshot.cameraPhase = rvf::ricohCameraPhase(rvf::AppState::ConnectingBle);
   snapshot.bleConnected = false;
   coordinator.begin(0);
   coordinator.update(snapshot, input, rvf::UiOrientation::Portrait, 5000);
@@ -76,7 +78,7 @@ void testConnectingDotsOnlyMergeAfterBleConnects() {
 
 void testUiScenePriority() {
   rvf::UiSnapshot snapshot;
-  snapshot.appState = rvf::AppState::PreviewRunning;
+  snapshot.cameraPhase = rvf::ricohCameraPhase(rvf::AppState::PreviewRunning);
   snapshot.previewRunning = true;
   snapshot.cameraSleepLike = true;
   snapshot.resettingPairing = true;
@@ -85,11 +87,50 @@ void testUiScenePriority() {
                             snapshot, rvf::UiOrientation::Landscape)));
 }
 
+void testRicohStatesMapToCameraPhases() {
+  using rvf::AppState;
+  using rvf::CameraPhase;
+  struct Row { AppState state; CameraPhase phase; };
+  const Row rows[] = {
+      {AppState::Booting, CameraPhase::Booting},
+      {AppState::Idle, CameraPhase::Idle},
+      {AppState::BleScan, CameraPhase::Searching},
+      {AppState::ScanningCamera, CameraPhase::Searching},
+      {AppState::CameraSleepGuard, CameraPhase::Sleeping},
+      {AppState::CameraPowerOff, CameraPhase::Sleeping},
+      // BleReady is a step on the way to Wi-Fi, not a resting state.
+      {AppState::BleReady, CameraPhase::Connecting},
+      {AppState::ConnectingBle, CameraPhase::Connecting},
+      {AppState::CheckingCameraPower, CameraPhase::Connecting},
+      {AppState::ActivatingWifi, CameraPhase::Connecting},
+      {AppState::WifiConnecting, CameraPhase::Connecting},
+      {AppState::ConnectingWifi, CameraPhase::Connecting},
+      {AppState::HttpProbe, CameraPhase::Connecting},
+      {AppState::HttpProbing, CameraPhase::Connecting},
+      {AppState::PreviewStarting, CameraPhase::Connecting},
+      {AppState::LiveViewRunning, CameraPhase::Previewing},
+      {AppState::PreviewRunning, CameraPhase::Previewing},
+      {AppState::Shooting, CameraPhase::Previewing},
+      {AppState::PreviewStopped, CameraPhase::Ready},
+      // Portrait rests here; the UI shows the remote from the BLE link flags.
+      {AppState::WifiCredentialsReady, CameraPhase::Idle},
+      {AppState::Disconnected, CameraPhase::Idle},
+      {AppState::Error, CameraPhase::Error},
+  };
+  for (const Row& row : rows) {
+    TEST_ASSERT_EQUAL_INT_MESSAGE(static_cast<int>(row.phase),
+                                  static_cast<int>(rvf::ricohCameraPhase(row.state)),
+                                  rvf::appStateName(row.state));
+  }
+}
+
 void testPairingGuideOverridesConnectionScene() {
   rvf::UiSnapshot snapshot;
-  snapshot.appState = rvf::AppState::BleScan;
+  snapshot.cameraPhase = rvf::ricohCameraPhase(rvf::AppState::BleScan);
   snapshot.pairingGuideActive = true;
-  snapshot.pairingGuideGr2Selected = true;
+  snapshot.pairingGuideSelectedIndex =
+      static_cast<uint8_t>(rvf::cameraModelIndex(
+          static_cast<rvf::CameraModelId>(RicohProtocolGeneration::Gr2Family)));
   TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiScene::PairingGuide),
                         static_cast<int>(rvf::UiCoordinator::selectScene(
                             snapshot, rvf::UiOrientation::Landscape)));
@@ -98,13 +139,13 @@ void testPairingGuideOverridesConnectionScene() {
   coordinator.begin(0);
   rvf::ButtonEvents input;
   coordinator.update(snapshot, input, rvf::UiOrientation::Portrait, 1);
-  TEST_ASSERT_TRUE(coordinator.viewModel().pairingGuideGr2Selected);
-  TEST_ASSERT_FALSE(coordinator.viewModel().pairingGuideGr4Selected);
+  TEST_ASSERT_EQUAL_UINT8(snapshot.pairingGuideSelectedIndex,
+                          coordinator.viewModel().pairingGuideSelectedIndex);
 }
 
 void testWifiProvisioningOverridesPairingAndPropagatesPortalDetails() {
   rvf::UiSnapshot snapshot;
-  snapshot.appState = rvf::AppState::WifiCredentialsReady;
+  snapshot.cameraPhase = rvf::ricohCameraPhase(rvf::AppState::WifiCredentialsReady);
   snapshot.pairingGuideActive = true;
   snapshot.wifiProvisioningActive = true;
   snapshot.provisioningSsid = "GR-II-Setup-1234";
@@ -158,6 +199,28 @@ void testPairingGuideUsesBToSelectAndAToConfirm() {
   TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::PairingGuideAction::Confirmed),
                         static_cast<int>(guide.handle(confirm)));
   TEST_ASSERT_FALSE(guide.active());
+}
+
+void testPairingGuideListsRegistryModelsInOrder() {
+  // The guide shows exactly the registry; the Ricoh build keeps GR II, GR III,
+  // GR IV with GR III preselected and per-model setup hints.
+  TEST_ASSERT_EQUAL_UINT32(3, rvf::cameraModelCount());
+  TEST_ASSERT_EQUAL_STRING("GR II", rvf::cameraModelAt(0).label);
+  TEST_ASSERT_EQUAL_STRING("GR III", rvf::cameraModelAt(1).label);
+  TEST_ASSERT_EQUAL_STRING("GR IV", rvf::cameraModelAt(2).label);
+  TEST_ASSERT_EQUAL_STRING("Enable camera WiFi first", rvf::cameraModelAt(0).setupHint);
+  TEST_ASSERT_EQUAL_STRING("Power on camera first", rvf::cameraModelAt(1).setupHint);
+  TEST_ASSERT_EQUAL_STRING("Power on camera first", rvf::cameraModelAt(2).setupHint);
+  TEST_ASSERT_EQUAL_UINT32(1, rvf::defaultCameraModelIndex());
+
+  rvf::PairingGuide guide;
+  guide.activate(static_cast<rvf::CameraModelId>(RicohProtocolGeneration::Gr2Family));
+  TEST_ASSERT_EQUAL_UINT32(0, guide.selectedIndex());
+  guide.activate(static_cast<rvf::CameraModelId>(RicohProtocolGeneration::Gr4Family));
+  TEST_ASSERT_EQUAL_UINT32(2, guide.selectedIndex());
+  // An id this firmware does not include falls back to the default model.
+  guide.activate(static_cast<rvf::CameraModelId>(RicohProtocolGeneration::Unknown));
+  TEST_ASSERT_EQUAL_UINT32(1, guide.selectedIndex());
 }
 
 void testPairingGuideConsumesLongBWithoutResettingOrSelecting() {
@@ -242,7 +305,7 @@ void testLiveViewLockForcesLandscapeAndUnlockRestoresPosture() {
 void testActivePreviewOutlivesPortraitUiForLockHandoff() {
   rvf::AppController controller(rvf::AppState::PreviewRunning);
   rvf::UiSnapshot snapshot;
-  snapshot.appState = rvf::AppState::PreviewRunning;
+  snapshot.cameraPhase = rvf::ricohCameraPhase(rvf::AppState::PreviewRunning);
   snapshot.previewRunning = true;
 
   TEST_ASSERT_EQUAL_INT(
@@ -357,7 +420,7 @@ void testShutterOverlaySuccessAndFailureLifecycles() {
   rvf::UiCoordinator coordinator;
   coordinator.begin(0);
   rvf::UiSnapshot snapshot;
-  snapshot.appState = rvf::AppState::PreviewRunning;
+  snapshot.cameraPhase = rvf::ricohCameraPhase(rvf::AppState::PreviewRunning);
   snapshot.previewRunning = true;
   rvf::ButtonEvents input;
   coordinator.update(snapshot, input, rvf::UiOrientation::Portrait, 10);
@@ -380,7 +443,7 @@ void testShutterOverlaySuccessAndFailureLifecycles() {
 
 void testSleepSceneOverridesOrientationScene() {
   rvf::UiSnapshot snapshot;
-  snapshot.appState = rvf::AppState::PreviewRunning;
+  snapshot.cameraPhase = rvf::ricohCameraPhase(rvf::AppState::PreviewRunning);
   snapshot.previewRunning = true;
   snapshot.cameraSleepLike = true;
   TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::UiScene::CameraSleep),
@@ -390,7 +453,7 @@ void testSleepSceneOverridesOrientationScene() {
 
 void testErrorSceneOverridesEveryOrdinaryScene() {
   rvf::UiSnapshot snapshot;
-  snapshot.appState = rvf::AppState::Error;
+  snapshot.cameraPhase = rvf::ricohCameraPhase(rvf::AppState::Error);
   snapshot.previewRunning = true;
   snapshot.cameraSleepLike = true;
   snapshot.resettingPairing = true;
@@ -447,9 +510,11 @@ int main() {
   RUN_TEST(testUiPropagatesDeviceChargingIndicator);
   RUN_TEST(testConnectingDotsOnlyMergeAfterBleConnects);
   RUN_TEST(testUiScenePriority);
+  RUN_TEST(testRicohStatesMapToCameraPhases);
   RUN_TEST(testPairingGuideOverridesConnectionScene);
   RUN_TEST(testWifiProvisioningOverridesPairingAndPropagatesPortalDetails);
   RUN_TEST(testPairingGuideUsesBToSelectAndAToConfirm);
+  RUN_TEST(testPairingGuideListsRegistryModelsInOrder);
   RUN_TEST(testPairingGuideConsumesLongBWithoutResettingOrSelecting);
   RUN_TEST(testPairingSelectionRejectsTheOtherProtocolGeneration);
   RUN_TEST(testOrientationRequiresStableCandidate);

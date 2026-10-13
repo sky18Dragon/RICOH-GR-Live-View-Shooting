@@ -23,6 +23,7 @@
 #include "../../services/PreviewFrameBuffer.h"
 #include "../../services/WifiPreviewService.h"
 #include "../../ui/UserCommand.h"
+#include "RicohCameraPhase.h"
 
 // The Ricoh workflow moved here verbatim from main.cpp (multi-brand plan,
 // stage 2). It still runs on file-scope state; splitting it per model is
@@ -2836,7 +2837,8 @@ bool RicohDriver::previewActive() const {
 
 CameraStatus RicohDriver::status() const {
   CameraStatus status;
-  status.appState = appController.state();
+  status.phase = ricohCameraPhase(appController.state());
+  status.stateName = appStateName(appController.state());
   status.linkHealthy = bleLinkHealthy();
   status.wifiConnected = grWifi.isConnected();
   status.previewRunning = wifiPreview.isPreviewRunning();

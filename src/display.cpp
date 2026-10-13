@@ -6,6 +6,7 @@
 
 #include <esp_heap_caps.h>
 
+#include "camera/CameraRegistry.h"
 #include "ui/UiTheme.h"
 
 namespace {
@@ -253,11 +254,10 @@ void DisplayUi::drawPairingGuide(const rvf::UiViewModel& view) {
     constexpr int16_t optionX = 12;
     constexpr int16_t optionWidth = 111;
     constexpr int16_t optionHeight = 28;
-    constexpr int16_t gr2Y = 70;
-    constexpr int16_t gr3Y = 105;
-    constexpr int16_t gr4Y = 140;
-    const bool gr2Selected = view.pairingGuideGr2Selected;
-    const bool gr4Selected = view.pairingGuideGr4Selected;
+    // Rows at 70 / 105 / 140 leave room for three models above "A: CONFIRM";
+    // a fourth needs a tighter pitch or a scrolling list.
+    constexpr int16_t firstOptionY = 70;
+    constexpr int16_t optionPitch = 35;
 
     const auto drawOption = [this, optionX, optionWidth, optionHeight](
                                 const char* label, int16_t y, bool selected) {
@@ -269,11 +269,13 @@ void DisplayUi::drawPairingGuide(const rvf::UiViewModel& view) {
         drawCenteredText(label, y + 13, selected ? rvf::UiTheme::kGreen : rvf::UiTheme::kWhite);
     };
 
-    drawOption("GR II", gr2Y, gr2Selected);
-    drawOption("GR III", gr3Y, !gr2Selected && !gr4Selected);
-    drawOption("GR IV", gr4Y, gr4Selected);
+    for (size_t i = 0; i < rvf::cameraModelCount(); ++i) {
+        drawOption(rvf::cameraModelAt(i).label,
+                   static_cast<int16_t>(firstOptionY + optionPitch * i),
+                   i == view.pairingGuideSelectedIndex);
+    }
     drawCenteredText("A: CONFIRM", 181, rvf::UiTheme::kWhite);
-    drawCenteredText(gr2Selected ? "Enable camera WiFi first" : "Power on camera first",
+    drawCenteredText(rvf::cameraModelAt(view.pairingGuideSelectedIndex).setupHint,
                      207,
                      rvf::UiTheme::kGray);
 }

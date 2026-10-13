@@ -6,10 +6,6 @@ namespace rvf {
 
 namespace {
 
-bool isPreviewState(AppState state) {
-    return state == AppState::LiveViewRunning || state == AppState::PreviewRunning;
-}
-
 uint32_t elapsedSince(uint32_t nowMs, uint32_t timestampMs) {
     return (timestampMs - nowMs) < 0x80000000UL ? 0 : nowMs - timestampMs;
 }
@@ -41,7 +37,7 @@ bool SystemSupervisor::check(uint32_t nowMs,
         return false;
     }
 
-    if (!isPreviewState(snapshot.appState) || !snapshot.liveviewEnabled) {
+    if (snapshot.cameraPhase != CameraPhase::Previewing || !snapshot.liveviewEnabled) {
         return false;
     }
 

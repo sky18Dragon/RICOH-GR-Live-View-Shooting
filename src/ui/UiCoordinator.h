@@ -24,8 +24,7 @@ struct UiViewModel {
     bool shutterFailed = false;
     bool resetSplitActive = false;
     bool bleConnected = false;
-    bool pairingGuideGr2Selected = false;
-    bool pairingGuideGr4Selected = false;
+    uint8_t pairingGuideSelectedIndex = 0;
     bool wifiProvisioningPreparing = false;
     const char* provisioningSsid = nullptr;
     const char* provisioningPassword = nullptr;
@@ -60,17 +59,13 @@ public:
                                bool resetVisualActive = false);
     static UiOrientation resolvePreviewOrientation(UiOrientation sensedOrientation,
                                                    bool liveViewLocked);
-    static float connectionPhaseFloor(AppState state);
 
 private:
-    static bool isConnectionState(AppState state);
     static UiOrientation desiredOrientation(UiScene scene, UiOrientation sensed);
     void requestSound(UiSound sound);
 
     UiViewModel _view;
-    AppState _lastAppState = AppState::Booting;
     UiScene _lastScene = UiScene::Boot;
-    uint32_t _stateChangedAtMs = 0;
     uint32_t _sceneChangedAtMs = 0;
     bool _focusTickPlayed = false;
     bool _shutterPreparing = false;

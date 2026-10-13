@@ -38,7 +38,7 @@ platformio test -e native      # host-side 纯逻辑单元测试
 
 | 目录 | 职责 |
 | --- | --- |
-| `src/camera/` | `ICameraDriver`（App → 相机驱动）/ `ICameraHost`（驱动 → 显示与输入）/ `CameraStatus` |
+| `src/camera/` | `ICameraDriver`（App → 相机驱动）/ `ICameraHost`（驱动 → 显示与输入）/ `CameraStatus` / `CameraPhase`（品牌无关连接阶段）/ `CameraRegistry`（配对引导机型列表） |
 | `src/brands/ricoh/` | `RicohDriver`：理光完整工作流（BLE 唤醒、电源门控、保护态、Wi-Fi 凭据缓存、LiveView、快门、GR II 配网），由 `main.cpp` 迁入 |
 | `src/app/` | `AppController` 主状态机（目前即理光工作流，仅在 `RicohDriver` 内使用）；经 `AppFlowActions` 回调驱动具体动作 |
 | `src/core/` | `AppMessage`/`AppEvent`、`Logger`、`Result`、`PeriodicTask` |

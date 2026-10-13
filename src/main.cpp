@@ -362,20 +362,16 @@ void updateFps() {
 rvf::UiSnapshot makeUiSnapshot() {
   const rvf::CameraStatus status = camera.status();
   rvf::UiSnapshot snapshot;
-  snapshot.appState = status.appState;
+  snapshot.cameraPhase = status.phase;
   snapshot.bleConnected = status.linkHealthy;
   snapshot.wifiConnected = status.wifiConnected;
   snapshot.previewRunning = status.previewRunning;
   snapshot.shutterReady = status.shutterReady;
   snapshot.cameraSleepLike = status.sleepGuardActive ||
-                             snapshot.appState == rvf::AppState::CameraSleepGuard ||
-                             snapshot.appState == rvf::AppState::CameraPowerOff;
+                             status.phase == rvf::CameraPhase::Sleeping;
   snapshot.resettingPairing = status.resettingPairing;
   snapshot.pairingGuideActive = pairingGuide.active();
-  snapshot.pairingGuideGr2Selected =
-      pairingGuide.selection() == RicohProtocolGeneration::Gr2Family;
-  snapshot.pairingGuideGr4Selected =
-      pairingGuide.selection() == RicohProtocolGeneration::Gr4Family;
+  snapshot.pairingGuideSelectedIndex = static_cast<uint8_t>(pairingGuide.selectedIndex());
   snapshot.wifiProvisioningActive = status.provisioningActive;
   snapshot.wifiProvisioningPreparing = status.provisioningPreparing;
   snapshot.hasFrame = fpsStats.decodedFrames > 0;
@@ -549,7 +545,7 @@ void handleButtons() {
     // Never forward guide A/B input into the global UI command/animation
     // pipeline. This prevents shutter, mirror, LiveView lock and reset actions.
     if (action == rvf::PairingGuideAction::Confirmed) {
-      (void)camera.confirmModel(static_cast<rvf::CameraModelId>(pairingGuide.selection()));
+      (void)camera.confirmModel(pairingGuide.selection());
     } else {
       updateUi(ButtonEvents{});
     }
@@ -607,7 +603,7 @@ const char* appEventTypeName(rvf::AppEventType type) {
 
 rvf::SystemHealthSnapshot makeSystemHealthSnapshot(const rvf::CameraStatus& status) {
   rvf::SystemHealthSnapshot snapshot;
-  snapshot.appState = status.appState;
+  snapshot.cameraPhase = status.phase;
   snapshot.bleConnected = status.linkHealthy;
   snapshot.wifiConnected = status.wifiConnected;
   snapshot.previewRunning = status.previewRunning;
@@ -629,7 +625,7 @@ void serviceSystemSupervisor(uint32_t nowMs) {
 
   Serial.printf("Supervisor: event=%s state=%s code=%d detail=%s\n",
                 appEventTypeName(message.type),
-                rvf::appStateName(cameraStatus.appState),
+                cameraStatus.stateName,
                 message.code,
                 message.detail != nullptr ? message.detail : "");
 }
@@ -655,7 +651,7 @@ public:
   }
 
   void requestModelSelection(rvf::CameraModelId defaultModel) override {
-    pairingGuide.activate(static_cast<RicohProtocolGeneration>(defaultModel));
+    pairingGuide.activate(defaultModel);
   }
 
   void onShutterStarted() override { uiCoordinator.notifyShutterStarted(millis()); }
