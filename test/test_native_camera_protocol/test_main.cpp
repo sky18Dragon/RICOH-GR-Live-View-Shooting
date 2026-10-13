@@ -10,7 +10,7 @@ void tearDown(void) {}
 
 #include "gr2_provisioning_logic.h"
 #include "gr2_shutter_policy.h"
-#include "ricoh/RicohBleProtocolRouter.h"
+#include "brands/ricoh/common/RicohBleProtocolRouter.h"
 #include "camera_sleep_policy.h"
 
 namespace {

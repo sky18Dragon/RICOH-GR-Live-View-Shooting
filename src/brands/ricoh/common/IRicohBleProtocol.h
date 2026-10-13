@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../camera_protocol_profile.h"
+#include "../../../camera_protocol_profile.h"
 
 enum class RicohWifiActivationTransport : uint8_t {
   None,

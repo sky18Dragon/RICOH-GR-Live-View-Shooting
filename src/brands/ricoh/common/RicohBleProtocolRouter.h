@@ -1,8 +1,8 @@
 #pragma once
 
 #include "IRicohBleProtocol.h"
-#include "gr3/Gr3BleProtocol.h"
-#include "gr4/Gr4LegacyBleProtocol.h"
+#include "../gr3/Gr3BleProtocol.h"
+#include "../gr4/Gr4LegacyBleProtocol.h"
 
 class RicohBleProtocolRouter {
 public:

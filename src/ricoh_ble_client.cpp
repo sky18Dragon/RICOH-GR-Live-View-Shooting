@@ -5,7 +5,7 @@
 #include "ble_pairing_policy.h"
 #include "ble_reconnect_policy.h"
 #include "ble_scan_lifecycle_policy.h"
-#include "ricoh/BleSecurityProfile.h"
+#include "brands/ricoh/common/BleSecurityProfile.h"
 
 #include <algorithm>
 #include <atomic>

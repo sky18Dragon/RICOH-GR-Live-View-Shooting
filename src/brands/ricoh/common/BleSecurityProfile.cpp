@@ -1,7 +1,7 @@
 #include "BleSecurityProfile.h"
 
-#include "gr3/Gr3PairingStrategy.h"
-#include "gr4/Gr4LegacyPairingStrategy.h"
+#include "../gr3/Gr3PairingStrategy.h"
+#include "../gr4/Gr4LegacyPairingStrategy.h"
 
 void applyRicohSecurityProfile(RicohSecurityProfileId profile) {
   if (profile == RicohSecurityProfileId::Gr3Passkey) {

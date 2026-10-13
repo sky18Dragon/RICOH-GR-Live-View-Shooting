@@ -5,7 +5,7 @@
 #include "ble_link_mode_policy.h"
 #include "ble_pairing_policy.h"
 #include "camera_protocol_profile.h"
-#include "ricoh/RicohBleProtocolRouter.h"
+#include "brands/ricoh/common/RicohBleProtocolRouter.h"
 
 struct RicohBleDeviceInfo {
   bool found = false;

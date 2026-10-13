@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../IRicohBleProtocol.h"
+#include "../common/IRicohBleProtocol.h"
 
 class Gr4LegacyBleProtocol final : public IRicohBleProtocol {
 public:
