@@ -1,7 +1,6 @@
 #pragma once
 
 #include "../../camera/ICameraDriver.h"
-#include "../../camera_profile_store.h"
 
 namespace rvf {
 
@@ -9,9 +8,6 @@ namespace rvf {
 // State lives in RicohDriver.cpp; only one instance may exist.
 class RicohDriver : public ICameraDriver {
 public:
-    // The store is shared with the app, which keeps its display setting there.
-    explicit RicohDriver(CameraProfileStore& profileStore);
-
     void begin(ICameraHost& host) override;
     bool attachPreviewBuffer(uint8_t* buffer,
                              size_t capacity,

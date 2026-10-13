@@ -7,6 +7,7 @@
 #include "../../ble_pairing_policy.h"
 #include "../../ble_reconnect_policy.h"
 #include "../../camera_identity.h"
+#include "../../camera_profile_store.h"
 #include "../../camera_sleep_policy.h"
 #include "../../config.h"
 #include "flow/RicohFlowController.h"
@@ -34,12 +35,12 @@ namespace {
 using CameraFlowState = rvf::RicohFlowState;
 
 rvf::ICameraHost* g_host = nullptr;
-CameraProfileStore* g_profileStore = nullptr;
 
 GrWifi grWifi;
 GrApi grApi;
 Gr2ProvisioningPortal gr2Provisioning;
 MjpegStream mjpeg;
+CameraProfileStore profileStore;
 CameraProfile cameraProfile;
 RicohBleClient ricohBle;
 rvf::BleCameraService bleCamera(ricohBle);
@@ -463,7 +464,7 @@ void saveWifiCredentialCache(const char* source) {
   }
   if (isGr2WifiOnlyProfile()) {
     cameraProfile.wifi.cached = true;
-    if (g_profileStore->save(cameraProfile)) {
+    if (profileStore.save(cameraProfile)) {
       Serial.printf("WiFi cache: saved manual GR II profile (%s) ssid='%s' bssid='%s' channel=%u\n",
                     source != nullptr ? source : "update",
                     cameraProfile.wifi.ssid.c_str(),
@@ -475,7 +476,7 @@ void saveWifiCredentialCache(const char* source) {
   if (cameraProfile.bleAddress.length() == 0) {
     return;
   }
-  if (g_profileStore->saveWifiCredentials(cameraProfile.bleAddress, cameraProfile.wifi)) {
+  if (profileStore.saveWifiCredentials(cameraProfile.bleAddress, cameraProfile.wifi)) {
     cameraProfile.wifi.cached = true;
     Serial.printf("WiFi cache: saved (%s) ssid='%s' bssid='%s' channel=%u freq=%u\n",
                   source != nullptr ? source : "update",
@@ -572,7 +573,7 @@ void refreshWifiCacheIfDue() {
 }
 
 void applyDefaultProfile() {
-  if (!g_profileStore->load(cameraProfile)) {
+  if (!profileStore.load(cameraProfile)) {
     Serial.println("Profile: NVS open failed; using runtime defaults");
     cameraProfile = CameraProfile{};
   }
@@ -591,7 +592,7 @@ void applyDefaultProfile() {
     cameraProfile.securityProfile = securityProfile;
     cameraProfile.securityProfileKnown =
         securityProfile != RicohSecurityProfileId::Unknown;
-    (void)g_profileStore->save(cameraProfile);
+    (void)profileStore.save(cameraProfile);
   }
   const rvf::Result profileResult = bleCamera.setSecurityProfile(securityProfile);
   if (profileResult.failed()) {
@@ -1067,11 +1068,7 @@ void saveConnectedBleIdentity(const String& connectedName,
     cameraProfile.peerIdentityKnown = true;
   }
   cameraProfile.profileVersion = CAMERA_PROFILE_SCHEMA_VERSION;
-  g_profileStore->saveBleIdentity(cameraProfile.cameraName,
-                               cameraProfile.bleAddress,
-                               cameraProfile.bleAddressType,
-                               cameraProfile.bleBonded);
-  g_profileStore->save(cameraProfile);
+  profileStore.save(cameraProfile);
   bleCamera.setBindingState(CameraBindingState::Locked);
 }
 
@@ -2306,7 +2303,7 @@ void resetBlePairingFromKey2() {
   }
   clearCameraSleepGuard("Reset pairing");
 
-  const bool profileCleared = g_profileStore->clearBlePairing();
+  const bool profileCleared = profileStore.clearProfile();
   Serial.printf("Profile: BLE pairing keys cleared ok=%d\n", profileCleared ? 1 : 0);
 
   const String cameraIp = cameraProfile.wifi.cameraIp.length() > 0 ? cameraProfile.wifi.cameraIp : String(GR_HOST);
@@ -2395,7 +2392,7 @@ bool beginSelectedCameraPairing(RicohProtocolGeneration generation) {
     cameraProfile.wifi.credentialsValid = false;
     cameraProfile.wifi.source = WifiCredentialSource::ManualConfiguration;
     cameraProfile.profileVersion = CAMERA_PROFILE_SCHEMA_VERSION;
-    if (!g_profileStore->save(cameraProfile)) {
+    if (!profileStore.save(cameraProfile)) {
       gr2ProvisioningPreparing = false;
       showStatusIfChanged("GR II profile failed", "Could not save NVS", "Retry selection", "", true);
       requestPairingGuide(generation);
@@ -2461,7 +2458,7 @@ bool handleGr2ProvisioningInput(bool resetRequested) {
     Serial.println("GR II setup: cancelled by Button B hold");
     gr2Provisioning.stop();
     gr2ProvisioningPreparing = false;
-    (void)g_profileStore->clearBlePairing();
+    (void)profileStore.clearProfile();
     cameraProfile = CameraProfile{};
     cameraProfile.wifi.cameraIp = GR_HOST;
     pairingModelConfirmed = false;
@@ -2482,7 +2479,7 @@ bool handleGr2ProvisioningInput(bool resetRequested) {
     cameraProfile.wifi.cached = true;
     cameraProfile.wifi.credentialsValid = true;
     cameraProfile.wifi.source = WifiCredentialSource::ManualConfiguration;
-    if (!g_profileStore->save(cameraProfile)) {
+    if (!profileStore.save(cameraProfile)) {
       Serial.println("GR II setup: failed to save provisioned credentials to NVS");
       showStatusIfChanged("GR II save failed", "Could not save NVS",
                           "Submit again", "", true);
@@ -2688,10 +2685,6 @@ void onMjpegFrame(const uint8_t* data, size_t len, void*) {
 }  // namespace
 
 namespace rvf {
-
-RicohDriver::RicohDriver(CameraProfileStore& profileStore) {
-  g_profileStore = &profileStore;
-}
 
 void RicohDriver::begin(ICameraHost& host) {
   g_host = &host;

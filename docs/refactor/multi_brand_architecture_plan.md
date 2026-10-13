@@ -214,6 +214,8 @@ CAMERA_MODELS=ricoh.gr3,ricoh.gr4 pio run -e sticks3-custom
 
 ### 2.5 存储迁移（不得让现有用户重新配对）
 
+> 2026-10-14 更新：用户升级固件总是整片擦除重烧，**不需要迁移**。阶段 4 已按此简化，见「执行记录」。本节以下内容为原始设想，仅作参考。
+
 - 新结构：`CameraBinding { modelId, driverSchemaVersion }` + 每个驱动的私有 namespace。
 - 理光驱动首次启动时读取旧 `ricoh2` v4 数据，按 `protocolGeneration` 映射为 `ricoh.gr2/gr3/gr4`，迁移完成后写入新位置。
 - NimBLE 的 Bond 由协议栈自行存储，与本次迁移无关，可保留。迁移逻辑沿用现有 schema v3 → v4 的做法，并补充 Native 测试。
@@ -253,7 +255,7 @@ GR III 与 GR IV 约 60–70% 的流程相同（电源门控、HTTP 预览、恢
 | 1 | 新建 `camera/` 接口、Registry、`transport/ble/BleStack` 骨架，只增不改 | 低 | `pio run` 与 Native 测试通过，行为无变化 |
 | 2 | **Strangler 包装**：把 `main.cpp` 的理光流程与 `AppFlowActions` 整体搬入 `brands/ricoh/`，包装成 `RicohDriver` 适配器；`main` / `AppController` 只经 `ICameraDriver` 交互。理光内部暂时仍耦合，但对外已隔离 | **高** | GR II / III / IV 全量实机回归：配对、重连、横竖切换、快门、Sleep Guard |
 | 3 | App 状态机通用化；UI 型号列表改由 Registry 驱动；新增 `SimCameraDriver` 做 Native 测试 | 中 | 状态机测试覆盖主要转移；配对引导行为不变 |
-| 4 | 存储迁移到 `CameraBinding` + 驱动私有 namespace，兼容读取旧 `ricoh2` | 中 | 老用户升级后无需重新配对；Wi-Fi 缓存保留 |
+| 4 | 存储拆分：驱动私有 namespace + 应用设置独立（升级整片擦除，不做迁移；`CameraBinding` 移到阶段 5） | 低 | 擦除后首次配对、重启重连、长按 B 重置、显示镜像保存 |
 | 5 | 构建系统：多 env、生成注册表、CI 按型号矩阵编译（兼作耦合检测器） | 低 | 每个单型号 env 都能独立编译 |
 | 6 | 理光内部拆分：**先 GR II**（本就独立，最容易）→ GR IV → GR III；`ricoh_ble_client.cpp` 拆为 `ricoh/common` 原语 + 各型号流程；`config.h` 按型号拆分 | 中高 | 每拆一个型号即做该型号实机回归 |
 | 7 | 第二品牌样板驱动（如富士），先实现配对 + 快门，用于验证抽象是否足够 | 取决于协议逆向 | 不需要修改 `app/`、`ui/` 即可接入 |
@@ -281,6 +283,15 @@ GR III 与 GR IV 约 60–70% 的流程相同（电源门控、HTTP 预览、恢
 - [`SimCameraDriver`](../../test/test_native_app_runtime/SimCameraDriver.h) + 记录型 `FakeAppPlatform`：新套件 `test_native_app_runtime` 的 12 个用例按调用日志断言主循环顺序（含 Supervisor 位于 flow 与 background tick 之间）、关机 / 自动关机短路、快门 / 重置 / 镜像 / 锁的路由、配对引导吞掉输入并确认选中机型、配网循环。Native 共 136 例。
 - 实机冒烟（2026-10-14，GR III 系列）：选机型界面显示与 B 循环、确认配对、重启快速重连、竖屏 / 横屏快门、横竖切换、LiveView 锁定与解锁、长按电源关机均正常。
 
+**2026-10-14 阶段 4（存储拆分）**
+
+- 前提变更：用户升级固件总是整片擦除重烧，NVS 不会残留旧数据，因此不做迁移，旧格式读取路径全部删除。
+- 理光档案：[`CameraProfileStore`](../../src/camera_profile_store.h) 改为 NVS namespace `cam.ricoh` 中单个 `profile` JSON 快照（schema v4）。删除约 25 个“兼容镜像”逐字段 Key 的写入、v3 → v4 读取与迁移（`StoredCameraProfileMetadata`、`migratedLegacyGr4`、`camera_profile_schema.cpp`）、只写旧 Key 的 `saveBleIdentity()`、未使用的 `clear()` / `clearWifiCredentials()`；`clearBlePairing()` 改名 `clearProfile()`。文件 407 → 139 行，固件 Flash 减少约 4.9 KB。
+- 应用设置：显示镜像移到 [`platform/AppSettingsStore`](../../src/platform/AppSettingsStore.h)（namespace `app`），长按 B 重置配对不影响它，与之前一致。
+- `RicohDriver` 自己持有档案存储，不再由 `main.cpp` 注入，消除阶段 2 记录的“共用 `ricoh2`”耦合。
+- `CameraBinding`（记录相机归属哪个驱动）推迟到阶段 5：目前只有一个驱动，没有可选项，提前加只是无人读取的代码。
+- 测试：删除两个只覆盖旧格式迁移的用例；Native 134 例。待实机验证：从擦除状态配对、重启重连、Wi-Fi 缓存命中、长按 B 重置后重新配对、镜像设置重启后保持。
+
 ### 执行注意事项
 
 - 阶段 2 是关键且风险最高的一步，必须先完成阶段 0 的行为基线。
@@ -294,4 +305,3 @@ GR III 与 GR IV 约 60–70% 的流程相同（电源门控、HTTP 预览、恢
 
 - 富士、尼康的 BLE 配对、Wi-Fi 启动方式与实时取景协议（PTP/IP 等）需抓包或查阅逆向资料确认，再据此定稿 `ICameraDriver` 与 `IFrameSource`。
 - 各单型号 env 的 Flash / RAM 占用（当前全量固件 Flash 约 43.6%）。
-- `ricoh2` → `CameraBinding` 迁移在 GR II / III / IV 上的实机验证。

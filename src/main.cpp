@@ -5,12 +5,12 @@
 
 #include "ble_pairing_policy.h"
 #include "buttons.h"
-#include "camera_profile_store.h"
 #include "charging_indicator_policy.h"
 #include "config.h"
 #include "core/Logger.h"
 #include "display.h"
 #include "jpeg_decoder.h"
+#include "platform/AppSettingsStore.h"
 #include "app/AppRuntime.h"
 #include "brands/ricoh/RicohDriver.h"
 #include "camera/ICameraDriver.h"
@@ -28,9 +28,9 @@ namespace {
 DisplayUi ui;
 Buttons buttons;
 JpegDecoder decoder;
-CameraProfileStore profileStore;
+AppSettingsStore settingsStore;
 M5PM1 stickPower;
-rvf::RicohDriver ricohDriver(profileStore);
+rvf::RicohDriver ricohDriver;
 rvf::ICameraDriver& camera = ricohDriver;
 
 // StickS3 side of the app: buttons, screen, power and serial log.
@@ -268,7 +268,7 @@ void waitForSerialConsole() {
 
 void restoreDisplaySettings() {
   bool mirrored = false;
-  if (profileStore.loadDisplayMirror(mirrored)) {
+  if (settingsStore.loadDisplayMirror(mirrored)) {
     ui.setMirrored(mirrored);
   }
   Serial.printf("Display: restored mirrored=%d\n", ui.mirrored() ? 1 : 0);
@@ -276,7 +276,7 @@ void restoreDisplaySettings() {
 
 void toggleDisplayMirror() {
   const bool mirrored = ui.toggleMirror();
-  const bool persisted = profileStore.saveDisplayMirror(mirrored);
+  const bool persisted = settingsStore.saveDisplayMirror(mirrored);
   Serial.printf("Display: mirrored=%d persisted=%d\n",
                 mirrored ? 1 : 0,
                 persisted ? 1 : 0);

@@ -58,7 +58,7 @@ platformio test -e native      # host-side 纯逻辑单元测试
 | HTTP API | [`src/gr_api.*`](src/gr_api.h) | RICOH HTTP：`GET /v1/props`、`GET /v1/liveview`（MJPEG 流读取） |
 | 相机身份 | [`src/camera_identity.*`](src/camera_identity.h) | 从 RICOH Wi-Fi SSID 推导候选 BLE 名称 |
 | 解码渲染 | [`src/mjpeg_stream.*`](src/mjpeg_stream.h) · [`src/jpeg_decoder.*`](src/jpeg_decoder.h) · [`src/display.*`](src/display.h) | MJPEG 帧切分 → JPEG 解码到 RGB565 → 屏幕 UI/Overlay |
-| 持久化 | [`src/camera_profile_store.*`](src/camera_profile_store.h) | NVS（namespace `ricoh2`）存储相机 BLE 身份、Wi-Fi 缓存与 IP |
+| 持久化 | [`src/camera_profile_store.*`](src/camera_profile_store.h) · [`src/platform/AppSettingsStore.*`](src/platform/AppSettingsStore.h) | 理光相机档案（NVS `cam.ricoh`，单个 JSON 快照：BLE 身份、Wi-Fi 缓存、IP）；应用设置（NVS `app`：显示镜像） |
 | 输入 | [`src/buttons.*`](src/buttons.h) | 仅轮询 `M5.BtnA` |
 | 配置 | [`src/config.h`](src/config.h) | 全局常量：BLE GATT 句柄、超时、扫描次数、缩放策略、Service UUID |
 | 纯逻辑策略 | `src/*_policy.*`、`camera_profile_schema.*`、`camera_protocol_profile.*`、`gr2_*` | 可在 native 环境测试的决策逻辑 |
@@ -90,7 +90,7 @@ flowchart TD
   DISP --> SCREEN[(240×135 LCD)]
 
   BTN[buttons<br/>M5.BtnA] -->|快门 / 手动唤醒| FSM
-  NVS[camera_profile_store<br/>NVS ricoh2] <--> FSM
+  NVS[camera_profile_store<br/>NVS cam.ricoh] <--> FSM
 ```
 
 ## 核心状态机
@@ -108,7 +108,7 @@ flowchart TD
 3. **电源门控** —— 开 Wi-Fi 前必须 `readPowerState()` 确认相机 `On`；竖持复用缓存凭据进入 BLE 快门界面前同样检查（GR IV 关机后仍可能广播 BLE）。`RICOH_BLE_REQUIRE_POWER_ON_BEFORE_WIFI=true`。手动唤醒走 `cameraManualWakeOverride` 旁路。
 4. **帧缓冲在 PSRAM** —— `FRAME_BUFFER_SIZE=256KB`，优先 `MALLOC_CAP_SPIRAM`，回退内部 RAM；无 PSRAM 直接报错停机。
 5. **JPEG 缩放** —— `config.h` 设 `JPEG_SCALE_POLICY=JPEG_SCALE_HALF`（覆盖 `display.h`/`jpeg_decoder.h` 的 `QUARTER` 默认）。
-6. **NVS schema** —— namespace `ricoh2`，`proto_ver`（当前 3）/`cam_name`/`ble_addr`/`ble_addr_type`/`ble_bonded`/`cam_ip`/Wi-Fi cache。保护态只在 RAM 中生效，StickS3 重启后会重新走自动连接流程。已保存 BLE 身份的 `setup()` 启动流只做一轮快速扫描，失败后交给主循环处理 KEY1 和周期重试。
+6. **NVS schema** —— 理光档案在 namespace `cam.ricoh` 的 `profile` 键，一个 JSON 快照（`profileVersion`=4，含 BLE 身份、代际、安全配置、Wi-Fi 缓存、相机 IP）；显示镜像在 namespace `app`。**升级固件总是整片擦除，不做任何旧数据迁移**；版本不符的快照按未配对处理。NimBLE Bond 由协议栈自行存储。保护态只在 RAM 中生效，StickS3 重启后会重新走自动连接流程。已保存 BLE 身份的 `setup()` 启动流只做一轮快速扫描，失败后交给主循环处理 KEY1 和周期重试。
 7. **按键 = 仅 `M5.BtnA`** —— 见下方「文档漂移」。
 8. **姿态决定链路** —— 竖持只用 BLE（相机 AP 关闭，快门走 BLE）；横持 BLE 唤醒相机 AP 后 **LiveView 期间保持 BLE 连接，快门仍走 BLE**。释放 BLE + HTTP `POST /v1/camera/shoot` 的路径（`serviceBleParking` / `shutterUsesHttp()`）代码保留，由能力位 `supportsHttpShutter && allowBlePreviewParking` 控制；因 GR III 横屏 HTTP 快门出现断连，GR III/IV 目前均关闭 `allowBlePreviewParking`。`LIVEVIEW_MAX_FPS=7`（BLE 共存下已验证的取值）。BLE 低占空比（`BLE_LIVEVIEW_LOW_DUTY_ENABLED`）默认关闭，GR IIIx 实测更差；相机状态通知在 BLE WLAN ON 之前订阅，避免阻塞取流；预览期间每 5 s 输出 `LINK:` 链路日志。详见 `docs/wifi_preview_flow.md`「BLE / Wi-Fi 共存」。
 

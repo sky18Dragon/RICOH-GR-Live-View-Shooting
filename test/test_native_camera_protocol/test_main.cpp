@@ -8,7 +8,6 @@
 void setUp(void) {}
 void tearDown(void) {}
 
-#include "camera_profile_schema.h"
 #include "gr2_provisioning_logic.h"
 #include "gr2_shutter_policy.h"
 #include "ricoh/RicohBleProtocolRouter.h"
@@ -451,48 +450,6 @@ void testGr3CredentialShapeAllowsOptionalChannel() {
   TEST_ASSERT_FALSE(validGr3WifiCredentials("GR_TEST", "", 1));
 }
 
-void testOldGr4ProfileMetadataMigratesWithoutRepairing() {
-  StoredCameraProfileMetadata old;
-  old.schemaVersion = 3;
-  old.legacyBleIdentityPresent = true;
-  old.legacyWifiValid = true;
-  const CameraProfileMetadata decoded = decodeCameraProfileMetadata(old);
-  TEST_ASSERT_EQUAL_UINT32(CAMERA_PROFILE_SCHEMA_VERSION, decoded.schemaVersion);
-  TEST_ASSERT_TRUE(decoded.protocolGenerationKnown);
-  TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(RicohProtocolGeneration::Gr4Family),
-                          decoded.protocolGeneration);
-  TEST_ASSERT_TRUE(decoded.securityProfileKnown);
-  TEST_ASSERT_EQUAL_UINT8(static_cast<uint8_t>(RicohSecurityProfileId::Gr4Legacy),
-                          decoded.securityProfile);
-  TEST_ASSERT_TRUE(decoded.migratedLegacyGr4);
-  TEST_ASSERT_TRUE(decoded.wifiCredentialsValid);
-  TEST_ASSERT_EQUAL_INT(static_cast<int>(WifiCredentialSource::BleFixedHandles),
-                        static_cast<int>(decoded.wifiSource));
-}
-
-void testNewProfileMetadataRoundTrips() {
-  CameraProfileMetadata metadata;
-  metadata.protocolGeneration = static_cast<uint8_t>(RicohProtocolGeneration::Gr3Family);
-  metadata.protocolGenerationKnown = true;
-  metadata.securityProfile = static_cast<uint8_t>(RicohSecurityProfileId::Gr3Passkey);
-  metadata.securityProfileKnown = true;
-  metadata.bleAuthenticated = true;
-  metadata.capabilityVersion = CAMERA_CAPABILITY_SCHEMA_VERSION;
-  metadata.wifiSource = WifiCredentialSource::BleUuidCharacteristics;
-  metadata.wifiCredentialsValid = true;
-
-  const StoredCameraProfileMetadata stored = encodeCameraProfileMetadata(metadata);
-  const CameraProfileMetadata decoded = decodeCameraProfileMetadata(stored);
-  TEST_ASSERT_TRUE(decoded.protocolGenerationKnown);
-  TEST_ASSERT_EQUAL_UINT8(metadata.protocolGeneration, decoded.protocolGeneration);
-  TEST_ASSERT_EQUAL_UINT8(metadata.securityProfile, decoded.securityProfile);
-  TEST_ASSERT_TRUE(decoded.securityProfileKnown);
-  TEST_ASSERT_TRUE(decoded.bleAuthenticated);
-  TEST_ASSERT_EQUAL_UINT16(metadata.capabilityVersion, decoded.capabilityVersion);
-  TEST_ASSERT_EQUAL_INT(static_cast<int>(metadata.wifiSource), static_cast<int>(decoded.wifiSource));
-  TEST_ASSERT_TRUE(decoded.wifiCredentialsValid);
-}
-
 }  // namespace
 
 int main() {
@@ -523,7 +480,5 @@ int main() {
   RUN_TEST(testLandscapeKeepsBleShutterForAllGenerations);
   RUN_TEST(testOnlyGr4TreatsCachedWifiChannelAsAGuess);
   RUN_TEST(testGr3CredentialShapeAllowsOptionalChannel);
-  RUN_TEST(testOldGr4ProfileMetadataMigratesWithoutRepairing);
-  RUN_TEST(testNewProfileMetadataRoundTrips);
   return UNITY_END();
 }

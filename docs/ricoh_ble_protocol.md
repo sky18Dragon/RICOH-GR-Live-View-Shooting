@@ -94,7 +94,7 @@ GR III 凭据只要求非空 SSID + Passphrase；Channel `0` 或 `1..11` 有效�
 
 Locked 状态出现新的 Passkey Entry、Numeric Comparison 或明确的 ATT Insufficient Authentication/Authorization/Encryption 时进入 `BondInvalid`。固件不删除 Bond、不覆盖 Profile、不连接其他相机，也不自动重新配对；只有用户先从相机端删除 StickS3，再长按 Button B，才会清 Profile、Wi-Fi 缓存和全部 NimBLE Bond。
 
-Profile v4 使用单个 `profile_v4` NVS 字符串保存完整权威快照；旧的逐字段 Key 仅作为向后兼容镜像。权威快照写成功后才更新镜像，避免配对未完成或多 Key 写入中途掉电时覆盖原单相机 Profile。
+Profile v4 是 NVS namespace `cam.ricoh` 中单个 `profile` 字符串保存的完整快照，一次写入即生效，掉电不会留下半套字段。固件升级总是整片擦除，因此不再读取或镜像旧的逐字段 Key。
 
 ## GR IV 固定 Handle 协议
 

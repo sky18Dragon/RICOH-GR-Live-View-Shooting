@@ -174,8 +174,7 @@ Espressif `esp_new_jpeg` 库解码单帧到 RGB565 buffer，再裁剪到画布�
 
 `CameraProfileStore` 基于 `Preferences`（NVS）。
 
-- namespace `"ricoh2"`，`profileVersion=3`。
-- 键：`proto_ver`/`cam_name`/`ble_addr`/`ble_addr_type`/`ble_bonded`/`cam_ip`。
+- （已过时，见根目录 CLAUDE.md「关键约定」第 6 条）现为 namespace `"cam.ricoh"` 单个 `profile` JSON 快照；显示镜像在 namespace `"app"`。
 - `load()`/`save()`/`saveBleIdentity(name, addr[, type, bonded])`/`clear()`；`getStringIfPresent` 缺键返回空串。
 - 持久化 BLE 身份、相机 IP 和 Wi-Fi 缓存；保护态不写 NVS。
 
