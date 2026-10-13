@@ -150,3 +150,18 @@ RicohEvidenceMatch Gr4LegacyBleProtocol::matchEvidence(const ProtocolDetectionEv
 uint8_t Gr4LegacyBleProtocol::detectionPriority() const {
   return 2;
 }
+
+// GR IV pairs on its own (legacy security); nothing to provoke.
+bool Gr4LegacyBleProtocol::armPairing(RicohGattSession&) const {
+  return false;
+}
+
+bool Gr4LegacyBleProtocol::statusNotifyAllowed(const RicohGattSession&, std::string& error) const {
+  error.clear();
+  return true;
+}
+
+// Not reached: GR IV does not require an authenticated bond.
+int Gr4LegacyBleProtocol::probeAuthenticationError(RicohGattSession&, int lastError) const {
+  return lastError;
+}

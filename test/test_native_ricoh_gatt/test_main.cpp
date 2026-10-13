@@ -36,6 +36,10 @@ public:
   std::string rejectedError = "BLE protected read requires authenticated encryption";
   int failedRc = 0;
   bool subscribeOk = true;
+  RicohGattStart startResult = RicohGattStart::Started;
+  int startRc = 0;
+  bool probeFound = true;
+  int probeRc = 0;
   uint16_t routedHandle = 0xFFFF;
 
   bool writeHandle(uint16_t handle, const uint8_t* data, size_t length, std::string& error) override {
@@ -91,6 +95,19 @@ public:
     const RicohGattWrite result = writeResults.count(uuid) ? writeResults[uuid] : RicohGattWrite::Ok;
     if (result == RicohGattWrite::Failed) error = std::string("BLE ") + label + " write failed";
     return result;
+  }
+
+  bool probeRead(const char* service, const char* uuid, int& rc) override {
+    calls.push_back(std::string("probeRead ") + uuid + " @" + service);
+    if (!probeFound) return false;
+    rc = probeRc;
+    return true;
+  }
+
+  RicohGattStart startRead(const char* service, const char* uuid, int& rc) override {
+    calls.push_back(std::string("startRead ") + uuid + " @" + service);
+    if (startResult == RicohGattStart::Failed) rc = startRc;
+    return startResult;
   }
 
   bool subscribe(const char* service, const char* uuid, RicohNotifyTarget) override {
@@ -521,6 +538,87 @@ void testGr3PollSkipsMissingValuesAndStopsOnAuthFailure() {
   TEST_ASSERT_EQUAL_UINT32(3, rejected.calls.size());  // read, pause, read; channel never read
 }
 
+// ---- Pairing and status notifications ----
+
+void testGr3ArmsPairingWithAnUnwaitedSsidRead() {
+  Gr3BleProtocol gr3;
+  const std::string ssid = RICOH_BLE_GR3_WLAN_SSID_UUID;
+  TEST_ASSERT_TRUE(gr3.triggerPairingWithProtectedRead());
+
+  FakeGattSession started;
+  TEST_ASSERT_TRUE(gr3.armPairing(started));
+  const std::string expected = "startRead " + ssid + " @" + kGr3Wlan + " | pause 300";
+  TEST_ASSERT_EQUAL_STRING(expected.c_str(), join(started.calls).c_str());
+  TEST_ASSERT_EQUAL_STRING("BLE pairing: armed by protected SSID read\r\n", started.out.c_str());
+
+  FakeGattSession refused;
+  refused.startResult = RicohGattStart::Failed;
+  refused.startRc = 14;
+  TEST_ASSERT_FALSE(gr3.armPairing(refused));
+  TEST_ASSERT_EQUAL_STRING("BLE pairing: protected SSID read start failed rc=14\n", refused.out.c_str());
+  TEST_ASSERT_EQUAL_UINT32(1, refused.calls.size());  // no pause
+
+  FakeGattSession missing;
+  missing.startResult = RicohGattStart::Unavailable;
+  TEST_ASSERT_FALSE(gr3.armPairing(missing));
+  TEST_ASSERT_TRUE(missing.out.empty());
+}
+
+void testGr4NeedsNoPairingProvocation() {
+  Gr4LegacyBleProtocol gr4;
+  TEST_ASSERT_FALSE(gr4.triggerPairingWithProtectedRead());
+  FakeGattSession gatt;
+  TEST_ASSERT_FALSE(gr4.armPairing(gatt));
+  TEST_ASSERT_TRUE(gatt.calls.empty());
+}
+
+void testAuthenticationProbeReadsTheGr3Ssid() {
+  Gr3BleProtocol gr3;
+  FakeGattSession gatt;
+  gatt.probeRc = 261;
+  TEST_ASSERT_EQUAL_INT(261, gr3.probeAuthenticationError(gatt, 5));
+  const std::string expected = std::string("probeRead ") + RICOH_BLE_GR3_WLAN_SSID_UUID + " @" + kGr3Wlan;
+  TEST_ASSERT_EQUAL_STRING(expected.c_str(), join(gatt.calls).c_str());
+
+  FakeGattSession missing;
+  missing.probeFound = false;
+  TEST_ASSERT_EQUAL_INT(5, gr3.probeAuthenticationError(missing, 5));
+
+  Gr4LegacyBleProtocol gr4;
+  FakeGattSession untouched;
+  TEST_ASSERT_EQUAL_INT(5, gr4.probeAuthenticationError(untouched, 5));
+  TEST_ASSERT_TRUE(untouched.calls.empty());
+}
+
+void testStatusNotifyNeedsAuthenticationOnGr3Only() {
+  Gr3BleProtocol gr3;
+  Gr4LegacyBleProtocol gr4;
+  std::string error;
+  FakeGattSession open;
+  open.link = RicohLinkSecurity{};
+  TEST_ASSERT_FALSE(gr3.statusNotifyAllowed(open, error));
+  TEST_ASSERT_EQUAL_STRING("BLE status notify requires authenticated encryption", error.c_str());
+  TEST_ASSERT_TRUE(gr4.statusNotifyAllowed(open, error));
+  TEST_ASSERT_TRUE(error.empty());
+
+  FakeGattSession secure;
+  TEST_ASSERT_TRUE(gr3.statusNotifyAllowed(secure, error));
+}
+
+void testHandleRoutedPowerNotifyDecodesLikeTheOldConstants() {
+  // The GAP handler now decodes routed notifications with the routing
+  // model's decodePowerState(); for GR IV that must equal the old
+  // ON 0x01 / OFF 0x00 constants and ignore everything else.
+  Gr4LegacyBleProtocol gr4;
+  for (int value = 0; value <= 0xFF; ++value) {
+    bool on = false;
+    bool off = false;
+    const bool known = gr4.decodePowerState(static_cast<uint8_t>(value), on, off);
+    TEST_ASSERT_EQUAL(value == RICOH_BLE_GR4_POWER_STATE_ON_VALUE, known && on);
+    TEST_ASSERT_EQUAL(value == RICOH_BLE_GR4_POWER_STATE_OFF_VALUE, known && off);
+  }
+}
+
 void testHexFormattingMatchesTheLogFormat() {
   const uint8_t bytes[] = {0x00, 0x0A, 0xFF};
   TEST_ASSERT_EQUAL_STRING("00 0A FF", ricohHexBytes(bytes, sizeof(bytes)).c_str());
@@ -552,6 +650,11 @@ int main() {
   RUN_TEST(testGr4PollReadsEveryHandleWithPauses);
   RUN_TEST(testGr3PollReadsTheWlanCharacteristics);
   RUN_TEST(testGr3PollSkipsMissingValuesAndStopsOnAuthFailure);
+  RUN_TEST(testGr3ArmsPairingWithAnUnwaitedSsidRead);
+  RUN_TEST(testGr4NeedsNoPairingProvocation);
+  RUN_TEST(testAuthenticationProbeReadsTheGr3Ssid);
+  RUN_TEST(testStatusNotifyNeedsAuthenticationOnGr3Only);
+  RUN_TEST(testHandleRoutedPowerNotifyDecodesLikeTheOldConstants);
   RUN_TEST(testHexFormattingMatchesTheLogFormat);
   return UNITY_END();
 }

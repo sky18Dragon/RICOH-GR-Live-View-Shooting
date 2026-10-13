@@ -19,6 +19,12 @@ enum class RicohGattWrite : uint8_t {
   Failed,       // `error` explains
 };
 
+enum class RicohGattStart : uint8_t {
+  Started,
+  Unavailable,  // characteristic missing
+  Failed,       // host refused to start; `rc` holds the error
+};
+
 enum class RicohNotifyTarget : uint8_t {
   PowerState,
 };
@@ -58,6 +64,12 @@ public:
                                              size_t length,
                                              const char* label,
                                              std::string& error) = 0;
+  // Reads a characteristic only for the host error it produces; the value is
+  // discarded. False when the characteristic is missing.
+  virtual bool probeRead(const char* serviceUuid, const char* characteristicUuid, int& rc) = 0;
+  // Starts a read and returns without waiting for or using the result. Used to
+  // make a camera that guards a characteristic start pairing.
+  virtual RicohGattStart startRead(const char* serviceUuid, const char* characteristicUuid, int& rc) = 0;
   // Enables notifications on a characteristic.
   virtual bool subscribe(const char* serviceUuid, const char* characteristicUuid, RicohNotifyTarget target) = 0;
   // Routes raw notifications on a fixed handle; 0 stops routing.

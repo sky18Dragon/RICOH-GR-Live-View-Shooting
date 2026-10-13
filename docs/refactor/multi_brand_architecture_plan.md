@@ -301,7 +301,8 @@ GR III 与 GR IV 约 60–70% 的流程相同（电源门控、HTTP 预览、恢
 - 6.2 Wi-Fi 凭据读取下沉：`IRicohBleProtocol::readWifiCredentials()` 负责一次轮询（GR IV 读 5 个固定 handle，GR III 读 3 个 UUID），超时轮询与日志仍在 `RicohBleClient`。GR IV 的约 270 行 `String` 文本解析逐语句移植为标准 C++ 的 [`gr4/Gr4WifiCredentialParser`](../../src/brands/ricoh/gr4/Gr4WifiCredentialParser.h)（`trim` / 大小写 / `indexOf` / `substring` 按 Arduino `String` 语义实现）；新增与 Arduino 无关的 `RicohWifiCredentials`，返回前转换为驱动使用的 `RicohBleWifiCredentials`。`RicohGattSession` 增加 `pause()` 以保留原读取间隔（GR IV 每个 handle 后、GR III 仅成功读取后）。字符串字面量逐条核对一致。`ricoh_ble_client.cpp` 2732 → 2337 行；`test_native_ricoh_gatt` 增至 22 例（解析器各输入形态 + 两型号轮询顺序 / 停顿 / 中止），Native 共 156 例。解析器测试依据对原 `String` 语义的理解编写、未与原实现直接比对，GR IV 实机凭据读取为最终验证。
   - 实机回归（2026-10-14）：GR III 系列与 GR IV 重新配对后凭据读取均正常（用户确认）。
 - 6.3 协议识别下沉：证据收集 `collectProtocolEvidence()` 不拆（其 GATT 访问顺序与刷新次数影响相机是否中途断开），只把判定移入型号：`IRicohBleProtocol::matchEvidence()` 返回 None / Partial / Full，`detectionPriority()` 表示特异度（GR IV 2 > GR III 1）。`RicohBleProtocolRouter::detect()` 用通用规则：取特异度最高的 Full；若有更高特异度的型号出现 Partial 则判为未知。原 `detectRicohProtocol()` 从 `camera_protocol_profile` 移除，同名函数改由路由器提供。新测试把原判定函数逐字保留为参照，对 15 个布尔证据 × 计数 0–6 共 229,376 种组合逐一比较，全部一致；人为把 GR IV 特异度改低会立即失败。阶段 5 只编入部分型号时，路由器只询问已编入型号，其他相机会被判为未知。
-- 尚未下沉：状态通知订阅、连接与配对流程中的型号分支、驱动流程层（GR III 启动模式等待 / 安全门控、GR II Wi-Fi-only）。
+- 6.4 / 6.5 状态通知与连接 / 配对中的型号分支：`statusNotifyAllowed()`（GR III 要求认证加密，订阅过程本身两型号相同、留在共用代码）；GR III 的“异步读 SSID 触发配对”移为 `armPairing()`（会话新增 `startRead()`），`triggerPairingWithProtectedRead()` 保留为门控，因为它还决定配对前是否做完整服务发现；认证失败后的探测读移为 `probeAuthenticationError()`（会话新增 `probeRead()`）；GAP 事件处理器不再使用 GR IV 的开 / 关常量，改用路由该 handle 的型号的 `decodePowerState()`（路由时一并记录型号，断开时随 handle 清零），对 GR IV 的 256 个取值逐一验证与旧常量一致。`ricoh_ble_client.cpp` 中除证据收集与快门日志外不再出现型号常量。Native 共 162 例。
+- 尚未下沉：驱动流程层（GR III 启动模式等待 / 安全门控、快门 `BLE_STARTUP` 重试、GR II Wi-Fi-only）。
 
 ### 执行注意事项
 

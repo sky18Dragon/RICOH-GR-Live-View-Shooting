@@ -257,3 +257,40 @@ RicohEvidenceMatch Gr3BleProtocol::matchEvidence(const ProtocolDetectionEvidence
 uint8_t Gr3BleProtocol::detectionPriority() const {
   return 1;
 }
+
+// A GR III family camera only asks for a passkey once something reads a
+// protected characteristic; read the WLAN SSID and ignore the result.
+bool Gr3BleProtocol::armPairing(RicohGattSession& gatt) const {
+  int rc = 0;
+  switch (gatt.startRead(RICOH_BLE_GR3_WLAN_SERVICE_UUID, RICOH_BLE_GR3_WLAN_SSID_UUID, rc)) {
+    case RicohGattStart::Unavailable:
+      return false;
+    case RicohGattStart::Failed: {
+      const std::string line = "BLE pairing: protected SSID read start failed rc=" + std::to_string(rc) + "\n";
+      gatt.print(line.c_str());
+      return false;
+    }
+    case RicohGattStart::Started:
+      break;
+  }
+  gatt.println("BLE pairing: armed by protected SSID read");
+  gatt.pause(300);
+  return true;
+}
+
+bool Gr3BleProtocol::statusNotifyAllowed(const RicohGattSession& gatt, std::string& error) const {
+  if (!authenticated(gatt)) {
+    error = "BLE status notify requires authenticated encryption";
+    return false;
+  }
+  error.clear();
+  return true;
+}
+
+int Gr3BleProtocol::probeAuthenticationError(RicohGattSession& gatt, int lastError) const {
+  int rc = lastError;
+  if (gatt.probeRead(RICOH_BLE_GR3_WLAN_SERVICE_UUID, RICOH_BLE_GR3_WLAN_SSID_UUID, rc)) {
+    return rc;
+  }
+  return lastError;
+}

@@ -54,6 +54,8 @@ std::atomic<int> g_powerOffDisconnectReason{0};
 std::atomic<int> g_powerStateNotifyValue{-1};
 std::atomic<bool> g_powerOffNotifyPending{false};
 std::atomic<uint16_t> g_powerStateNotifyHandle{0};
+// Model that routed g_powerStateNotifyHandle; decodes its notifications.
+std::atomic<const IRicohBleProtocol*> g_powerStateNotifyProtocol{nullptr};
 std::atomic<uint32_t> g_shotEventSequence{0};
 std::atomic<int> g_batteryLevel{-1};
 std::atomic<bool> g_batteryNotifyActive{false};
@@ -156,10 +158,15 @@ int ricohGapEventHandler(ble_gap_event* event, void*) {
   Serial.printf("BLE: power notify handle=0x%04X value=0x%02X\n",
                 g_powerStateNotifyHandle.load(),
                 value);
-  if (value == RICOH_BLE_GR4_POWER_STATE_OFF_VALUE) {
-    g_powerOffNotifyPending.store(true);
-  } else if (value == RICOH_BLE_GR4_POWER_STATE_ON_VALUE) {
-    g_powerOffNotifyPending.store(false);
+  const IRicohBleProtocol* protocol = g_powerStateNotifyProtocol.load();
+  bool isOn = false;
+  bool isOff = false;
+  if (protocol != nullptr && protocol->decodePowerState(value, isOn, isOff)) {
+    if (isOff) {
+      g_powerOffNotifyPending.store(true);
+    } else if (isOn) {
+      g_powerOffNotifyPending.store(false);
+    }
   }
   return 0;
 }
@@ -928,23 +935,6 @@ int ignoreGattReadResult(uint16_t, const ble_gatt_error*, ble_gatt_attr*, void*)
   return 0;
 }
 
-bool armGr3PairingWithProtectedRead(NimBLEClient* client) {
-  NimBLERemoteCharacteristic* ssid =
-      findCharacteristic(client, RICOH_BLE_GR3_WLAN_SERVICE_UUID, RICOH_BLE_GR3_WLAN_SSID_UUID);
-  if (ssid == nullptr) {
-    return false;
-  }
-  const int rc = ble_gattc_read(client->getConnHandle(), ssid->getHandle(), ignoreGattReadResult, nullptr);
-  if (rc != 0) {
-    Serial.printf("BLE pairing: protected SSID read start failed rc=%d\n", rc);
-    return false;
-  }
-  Serial.println("BLE pairing: armed by protected SSID read");
-  delay(300);
-  yield();
-  return true;
-}
-
 void cancelPasskeyEntryUi() {
   g_passkeyEntryRequested.store(false);
   if (g_passkeyPoller != nullptr) {
@@ -1086,7 +1076,8 @@ RicohBleWifiCredentials toBleWifiCredentials(const RicohWifiCredentials& in) {
 // protocols in brands/ricoh/ build their operations from.
 class NimBleGattSession final : public RicohGattSession {
 public:
-  NimBleGattSession(NimBLEClient* client, const RicohBleClient& owner) : _client(client), _owner(owner) {}
+  NimBleGattSession(NimBLEClient* client, const RicohBleClient& owner, const IRicohBleProtocol* protocol)
+      : _client(client), _owner(owner), _protocol(protocol) {}
 
   bool writeHandle(uint16_t handle, const uint8_t* data, size_t length, std::string& error) override {
     String text;
@@ -1164,7 +1155,27 @@ public:
            characteristic->subscribe(true, powerStateNotifyCallback);
   }
 
+  bool probeRead(const char* serviceUuid, const char* characteristicUuid, int& rc) override {
+    NimBLERemoteCharacteristic* characteristic = findCharacteristic(_client, serviceUuid, characteristicUuid);
+    if (characteristic == nullptr) {
+      return false;
+    }
+    (void)characteristic->readValue();
+    rc = _client->getLastError();
+    return true;
+  }
+
+  RicohGattStart startRead(const char* serviceUuid, const char* characteristicUuid, int& rc) override {
+    NimBLERemoteCharacteristic* characteristic = findCharacteristic(_client, serviceUuid, characteristicUuid);
+    if (characteristic == nullptr) {
+      return RicohGattStart::Unavailable;
+    }
+    rc = ble_gattc_read(_client->getConnHandle(), characteristic->getHandle(), ignoreGattReadResult, nullptr);
+    return rc == 0 ? RicohGattStart::Started : RicohGattStart::Failed;
+  }
+
   void routeHandleNotify(uint16_t handle, RicohNotifyTarget) override {
+    g_powerStateNotifyProtocol.store(handle != 0 ? _protocol : nullptr);
     g_powerStateNotifyHandle.store(handle);
   }
 
@@ -1187,6 +1198,7 @@ public:
 private:
   NimBLEClient* _client;
   const RicohBleClient& _owner;
+  const IRicohBleProtocol* _protocol;
 };
 
 bool RicohBleClient::begin() {
@@ -1564,7 +1576,8 @@ bool RicohBleClient::connect(const RicohBleDeviceInfo& info, const RicohBleConne
   if (!alreadyEncrypted && !peerBonded &&
       protocol->triggerPairingWithProtectedRead()) {
     (void)client->getServices(true);
-    (void)armGr3PairingWithProtectedRead(client);
+    NimBleGattSession gatt(client, *this, protocol);
+    (void)protocol->armPairing(gatt);
   }
 
   bool securityStarted = alreadyEncrypted;
@@ -1650,13 +1663,8 @@ bool RicohBleClient::connect(const RicohBleDeviceInfo& info, const RicohBleConne
   const NimBLEConnInfo securityInfo = client->getConnInfo();
   if (protocol->requireAuthenticatedBond() &&
       (!securityInfo.isEncrypted() || !securityInfo.isAuthenticated() || !securityInfo.isBonded())) {
-    int readError = client->getLastError();
-    NimBLERemoteCharacteristic* ssid =
-        findCharacteristic(client, RICOH_BLE_GR3_WLAN_SERVICE_UUID, RICOH_BLE_GR3_WLAN_SSID_UUID);
-    if (ssid != nullptr) {
-      (void)ssid->readValue();
-      readError = client->getLastError();
-    }
+    NimBleGattSession gatt(client, *this, protocol);
+    const int readError = protocol->probeAuthenticationError(gatt, client->getLastError());
     (void)g_pairingRecovery.onInsufficientAuthRead(readError);
     _lastError = "BLE link is not authenticated and bonded; protected access denied";
     disconnect();
@@ -1720,7 +1728,7 @@ bool RicohBleClient::openWifi(bool startupModeProbe) {
     return false;
   }
 
-  NimBleGattSession gatt(client, *this);
+  NimBleGattSession gatt(client, *this, protocol);
   RicohWifiGate gate;
   gate.startupModeProbe = startupModeProbe;
   gate.operationMode = _lastOperationMode;
@@ -1747,7 +1755,7 @@ bool RicohBleClient::closeWifi() {
     return false;
   }
 
-  NimBleGattSession gatt(client, *this);
+  NimBleGattSession gatt(client, *this, protocol);
   std::string error;
   const bool ok = protocol->closeWifi(gatt, error);
   _lastError = error.c_str();
@@ -1768,7 +1776,7 @@ bool RicohBleClient::readPowerState(RicohCameraPowerState& state) {
   }
   std::vector<uint8_t> value;
   {
-    NimBleGattSession gatt(client, *this);
+    NimBleGattSession gatt(client, *this, protocol);
     std::string error;
     if (!protocol->readPowerValue(gatt, value, error)) {
       _lastError = error.c_str();
@@ -1874,7 +1882,7 @@ bool RicohBleClient::requestCaptureOperationMode() {
     return false;
   }
 
-  NimBleGattSession gatt(client, *this);
+  NimBleGattSession gatt(client, *this, protocol);
   std::string error;
   const bool ok = protocol->requestCaptureOperationMode(gatt, error);
   _lastError = error.c_str();
@@ -1893,7 +1901,7 @@ bool RicohBleClient::enablePowerStateNotify() {
     return false;
   }
 
-  NimBleGattSession gatt(client, *this);
+  NimBleGattSession gatt(client, *this, protocol);
   std::string error;
   const bool ok = protocol->enablePowerNotify(gatt, error);
   _lastError = error.c_str();
@@ -1910,16 +1918,16 @@ bool RicohBleClient::enableCameraStatusNotify() {
     _lastError = "BLE not connected";
     return false;
   }
-  const RicohProtocolGeneration generation = protocolProfile().generation;
-  if (generation != RicohProtocolGeneration::Gr3Family &&
-      generation != RicohProtocolGeneration::Gr4Family) {
+  const IRicohBleProtocol* protocol = _protocolRouter.protocol();
+  if (protocol == nullptr) {
     _lastError = "BLE status notify unsupported for detected protocol";
     return false;
   }
-  if (generation == RicohProtocolGeneration::Gr3Family) {
-    const RicohBleSecurityState security = securityState();
-    if (!security.encrypted || !security.authenticated) {
-      _lastError = "BLE status notify requires authenticated encryption";
+  {
+    const NimBleGattSession gatt(client, *this, protocol);
+    std::string error;
+    if (!protocol->statusNotifyAllowed(gatt, error)) {
+      _lastError = error.c_str();
       return false;
     }
   }
@@ -2037,7 +2045,7 @@ bool RicohBleClient::waitForWifiCredentials(RicohBleWifiCredentials& credentials
     return false;
   }
 
-  NimBleGattSession gatt(client, *this);
+  NimBleGattSession gatt(client, *this, protocol);
   RicohWifiCredentials accumulated;
   const uint32_t startMs = millis();
   while (millis() - startMs < timeoutMs) {

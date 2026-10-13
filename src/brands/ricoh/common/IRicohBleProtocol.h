@@ -33,6 +33,8 @@ public:
   virtual RicohProtocolGeneration generation() const = 0;
   virtual RicohSecurityProfileId securityProfile() const = 0;
   virtual const CameraProtocolProfile& profile() const = 0;
+  // Whether pairing must be provoked with armPairing() on an unbonded link
+  // (after a full service discovery).
   virtual bool triggerPairingWithProtectedRead() const = 0;
   virtual bool requireAuthenticatedBond() const = 0;
   virtual bool rediscoverServicesAfterSecurity() const = 0;
@@ -50,6 +52,15 @@ public:
   virtual bool readPowerValue(RicohGattSession& gatt, std::vector<uint8_t>& value, std::string& error) const = 0;
   virtual bool enablePowerNotify(RicohGattSession& gatt, std::string& error) const = 0;
   virtual bool requestCaptureOperationMode(RicohGattSession& gatt, std::string& error) const = 0;
+  // Makes the camera request pairing; only called when
+  // triggerPairingWithProtectedRead() is true.
+  virtual bool armPairing(RicohGattSession& gatt) const = 0;
+  // After requireAuthenticatedBond() failed: the ATT error a protected read
+  // gives now, for pairing recovery; `lastError` when nothing could be read.
+  virtual int probeAuthenticationError(RicohGattSession& gatt, int lastError) const = 0;
+  // Whether battery / shot-count / capture-status notifications may be
+  // subscribed on this link.
+  virtual bool statusNotifyAllowed(const RicohGattSession& gatt, std::string& error) const = 0;
   // One polling pass over the camera's Wi-Fi parameters, merged into
   // `credentials` (which carries earlier passes). False only when the pass
   // must stop polling; `error` then explains.
