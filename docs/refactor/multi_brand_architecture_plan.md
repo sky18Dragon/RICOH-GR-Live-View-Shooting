@@ -1,6 +1,6 @@
 # 多品牌 / 多型号相机架构重构计划
 
-> 状态：已定稿方案 A（2026-10-13）；迁移阶段尚未开始，前置清理见 [architecture_refactor_plan.md](architecture_refactor_plan.md)
+> 状态：已定稿方案 A；阶段 0 的 CI 部分、阶段 1（仅接口）、阶段 2 代码迁移已完成（2026-10-13），**阶段 2 的实机回归尚未执行**。详见「四、迁移路线」下的「执行记录」
 > 日期：2026-10-13
 > 分析基线：分支 `feature/firmware-optimization`
 > 关联文档：[architecture_refactor_plan.md](architecture_refactor_plan.md)、[../project_overview.md](../project_overview.md)、[../power_state_policy.md](../power_state_policy.md)
@@ -258,6 +258,17 @@ GR III 与 GR IV 约 60–70% 的流程相同（电源门控、HTTP 预览、恢
 | 6 | 理光内部拆分：**先 GR II**（本就独立，最容易）→ GR IV → GR III；`ricoh_ble_client.cpp` 拆为 `ricoh/common` 原语 + 各型号流程；`config.h` 按型号拆分 | 中高 | 每拆一个型号即做该型号实机回归 |
 | 7 | 第二品牌样板驱动（如富士），先实现配对 + 快门，用于验证抽象是否足够 | 取决于协议逆向 | 不需要修改 `app/`、`ui/` 即可接入 |
 | 8 | 运行时优化：预览任务、驱动非阻塞、去 `String` | 中 | 长时间 LiveView 内存稳定，FPS 不下降 |
+
+### 执行记录
+
+**2026-10-13 阶段 0–2**
+
+- 阶段 0：CI 新增 `native-test` job；实机行为基线清单**未建立**。
+- 阶段 1：只新增了 [`camera/ICameraDriver.h`](../../src/camera/ICameraDriver.h)（`ICameraDriver` + `ICameraHost` + `CameraStatus`）。Registry 与 `transport/ble/BleStack` 推迟到第一次真正使用它们的阶段（Registry → 阶段 3/5，BleStack → 阶段 6），避免重新引入空骨架。
+- 阶段 2：理光流程从 `main.cpp` 原样搬入 [`brands/ricoh/RicohDriver.cpp`](../../src/brands/ricoh/RicohDriver.cpp)。`main.cpp`（约 800 行）只剩板级、UI、按键与 Supervisor，经 `ICameraDriver` 驱动相机，驱动经 `ICameraHost` 回调显示 / 输入。`AppController` 现在只在驱动内部使用。
+  - 校验方式：原 155 个函数中 129 个逐字未变，其余 24 个只改了跨边界调用；全部日志 / UI 字符串的出现次数与迁移前一致；固件编译通过，Native 121 个用例通过。
+  - 主动保留到后续阶段的耦合：`main.cpp` 直接实例化 `RicohDriver`（阶段 5 由注册表替代）；配对引导 `PairingGuide` 仍使用 `RicohProtocolGeneration`，经 `CameraModelId` 透传（阶段 3）；`CameraStatus.appState` 仍是理光工作流状态（阶段 3 通用化）；显示镜像设置与相机档案共用 `ricoh2` 的 `CameraProfileStore`，由 `main` 注入驱动（阶段 4 拆分）；驱动接口仍传递 `String`（阶段 8）。
+  - 驱动接口暂时包含 `beginTick / serviceFlowTick / serviceBackgroundTick` 三段式 tick，用来保持原主循环的调用顺序（Supervisor 夹在中间）。驱动改为非阻塞（阶段 8）后合并为单个 `tick()`。
 
 ### 执行注意事项
 

@@ -38,7 +38,9 @@ platformio test -e native      # host-side 纯逻辑单元测试
 
 | 目录 | 职责 |
 | --- | --- |
-| `src/app/` | `AppController` 主状态机；经 `AppFlowActions` 回调驱动 `main.cpp` 中的具体动作 |
+| `src/camera/` | `ICameraDriver`（App → 相机驱动）/ `ICameraHost`（驱动 → 显示与输入）/ `CameraStatus` |
+| `src/brands/ricoh/` | `RicohDriver`：理光完整工作流（BLE 唤醒、电源门控、保护态、Wi-Fi 凭据缓存、LiveView、快门、GR II 配网），由 `main.cpp` 迁入 |
+| `src/app/` | `AppController` 主状态机（目前即理光工作流，仅在 `RicohDriver` 内使用）；经 `AppFlowActions` 回调驱动具体动作 |
 | `src/core/` | `AppMessage`/`AppEvent`、`Logger`、`Result`、`PeriodicTask` |
 | `src/services/` | `BleCameraService`（`RicohBleClient` 门面）、`WifiPreviewService`、`CameraPowerPolicy`、`PreviewFrameBuffer` |
 | `src/supervisor/` | `SystemSupervisor` 健康检查事件 |
@@ -49,7 +51,7 @@ platformio test -e native      # host-side 纯逻辑单元测试
 
 | 层 | 文件 | 职责 |
 | --- | --- | --- |
-| 编排 | [`src/main.cpp`](src/main.cpp) | 运行时状态（按职责归组为若干 `*State` 结构体）、连接流程具体动作、保护态、按键分发、`loop()` |
+| 宿主 | [`src/main.cpp`](src/main.cpp) | 板级（PMIC、电量、关机）、显示 / IMU / 声音、按键分发、配对引导与 passkey 输入 UI、帧解码渲染、Supervisor、`setup()` / `loop()`；相机只经 `ICameraDriver` 访问 |
 | BLE | [`src/ricoh_ble_client.*`](src/ricoh_ble_client.h) | RICOH BLE 扫描/连接/配对、Wi-Fi 凭据读取、快门写入、电源状态通知 |
 | Wi-Fi | [`src/gr_wifi.*`](src/gr_wifi.h) | ESP32 STA 连接相机 AP（支持 BSSID 锚定 + 连接守卫回调） |
 | HTTP API | [`src/gr_api.*`](src/gr_api.h) | RICOH HTTP：`GET /v1/props`、`GET /v1/liveview`（MJPEG 流读取） |
@@ -66,7 +68,7 @@ platformio test -e native      # host-side 纯逻辑单元测试
 
 ```mermaid
 flowchart TD
-  subgraph StickS3[StickS3 固件 main.cpp]
+  subgraph StickS3[StickS3 固件 brands/ricoh/RicohDriver.cpp]
     FSM[主状态机<br/>BleScan→BleReady→WifiConnecting→HttpProbe→LiveViewRunning<br/>+ CameraSleepGuard 保护态]
   end
 
@@ -92,7 +94,7 @@ flowchart TD
 
 ## 核心状态机
 
-`main.cpp` 的 `CameraFlowState`：`BleScan → BleReady → WifiConnecting → HttpProbe → LiveViewRunning`，外加保护态 `CameraSleepGuard`。
+`RicohDriver.cpp` 的 `CameraFlowState`（即 `rvf::AppState`，由 `AppController` 推进）：`BleScan → BleReady → WifiConnecting → HttpProbe → LiveViewRunning`，外加保护态 `CameraSleepGuard`。
 
 - 收到相机主动断连（reason `0x213`/`0x215`）或 BLE 电源通知 `0x00` → 进入 `CameraSleepGuard`，15s 冷却期内禁止扫描/重连/Wi-Fi ON，冷却后**仍不自动唤醒**，须用户按键。
 - `loop()` 周期：`handleButtons → serviceCameraFlowIfNeeded → ensureWiFi → refreshPropsIfDue → ensureLiveView → updateStatusUiIfDue`。
