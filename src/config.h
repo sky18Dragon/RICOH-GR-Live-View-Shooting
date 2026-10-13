@@ -38,13 +38,40 @@ constexpr uint32_t WIFI_CACHED_CONNECT_GRACE_MS = 0;
 constexpr uint32_t WIFI_CACHE_REFRESH_DELAY_MS = 5000;
 constexpr uint32_t BLE_SCAN_RETRY_INTERVAL_MS = 1000;
 constexpr uint32_t PROPS_TIMEOUT_MS = 3500;
+// AF-then-shoot can outlast a props read. Matches the curl --max-time used
+// against GR IIIx /v1/camera/shoot with body af=on.
+constexpr uint32_t HTTP_SHOOT_TIMEOUT_MS = 15000;
 constexpr uint32_t WLAN_FINISH_TIMEOUT_MS = 1000;
 constexpr uint32_t LIVEVIEW_STALL_TIMEOUT_MS = 5000;
+// LiveView keeps BLE up for the shutter. When enabled, once the stream has run
+// BLE_LIVEVIEW_LOW_DUTY_SETTLE_MS the BLE link drops to the low-duty
+// parameters in ble_link_mode_policy.h (102.5 ms, latency 0). Off by default:
+// on a GR IIIx (2026-10-13) low duty averaged ~4.0 FPS and ended in a lost
+// shutter write + supervision timeout, while the connect-time 30-50 ms /
+// latency 1 link averaged ~6.2 FPS with every shot confirmed. Latency 1
+// already lets the camera answer only every other event, so its radio gained
+// little, and 102.5 ms sits 0.1 ms off the camera's own 102.4 ms beacon.
+#define BLE_LIVEVIEW_LOW_DUTY_ENABLED 0
+constexpr uint32_t BLE_LIVEVIEW_LOW_DUTY_SETTLE_MS = 1500;
+// Joining the camera AP right after BLE WLAN ON: the first attempt starts
+// before the AP beacons, sits ~3.4 s until NO_AP_FOUND, and the retry then
+// joins in ~0.6 s (GR IIIx, 2026-10-13). Re-issue the join when the STA has
+// not associated after this long instead of waiting out the doomed attempt.
+// A join that has associated (auth/DHCP in progress) is never interrupted.
+constexpr uint32_t WIFI_CONNECT_KICK_MS = 1500;
+constexpr uint8_t WIFI_CONNECT_MAX_KICKS = 3;
+// A kick is only worth it with at least this much of the timeout left.
+constexpr uint32_t WIFI_CONNECT_KICK_MIN_REMAINING_MS = 1000;
+constexpr uint32_t BLE_LINK_MODE_RETRY_MS = 2000;
+// LINK: log line while previewing (RSSI average/min, Wi-Fi disconnects, BLE
+// negotiated parameters) for coexistence and antenna-placement testing.
+constexpr uint32_t LINK_STATS_LOG_INTERVAL_MS = 5000;
+constexpr uint32_t LINK_RSSI_SAMPLE_INTERVAL_MS = 1000;
 // The camera defaults to maxfps=90. Unthrottled, a GR IIIx's shared
 // CYW43455 Wi-Fi/BT radio starved the stream to <1 FPS and dropped BLE with
 // supervision timeouts; 7 held 4-7 FPS with working BLE shutter on GR IIIx
 // and GR IV. GR II has not been tested with the parameter and keeps 0.
-constexpr uint8_t LIVEVIEW_MAX_FPS = 10;
+constexpr uint8_t LIVEVIEW_MAX_FPS = 7;
 // GR III/IV stream 720x480 when /v1/liveview carries no reso=. A GR IIIx on
 // V1.50 locked up (power LED off, battery pull needed) one second after a
 // landscape BLE shot with reso=720x480 on the stream, and its resoList holds
@@ -96,7 +123,15 @@ constexpr uint32_t RICOH_BLE_SECURITY_WAIT_MS = 7000;
 // new bond. A new peer must finish bond persistence inside this window before
 // the connection is accepted and its profile can be saved.
 constexpr uint32_t RICOH_BLE_BOND_PERSIST_SETTLE_MS = 1000;
-constexpr uint32_t RICOH_BLE_PASSKEY_ENTRY_WAIT_MS = 45000;
+// On-screen passkey entry window. A GR IIIx dropped the link with 0x213 about
+// 30 s after asking for the passkey (2026-10-13), so a longer window only lets
+// the user keep typing into a pairing the camera has already abandoned. The
+// screen shows the countdown.
+constexpr uint32_t RICOH_BLE_PASSKEY_ENTRY_WAIT_MS = 28000;
+// After the passkey is submitted, time allowed for encryption + bonding to
+// finish (~4.5 s observed on a GR IIIx). Extends the security wait so a code
+// entered near the end of the window is not cut off mid-bond.
+constexpr uint32_t RICOH_BLE_PASSKEY_BOND_WAIT_MS = 10000;
 constexpr uint32_t PASSKEY_DIGIT_CONFIRM_HOLD_MS = 600;
 constexpr uint8_t FIRST_BOOT_BLE_PAIRING_ATTEMPTS = 12;
 #ifndef RVF_SERIAL_BOOT_WAIT_MS

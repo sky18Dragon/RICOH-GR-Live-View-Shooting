@@ -19,6 +19,10 @@ struct AppFlowActions {
     void (*disconnectAllTransportsToBleScan)(const char* reason) = nullptr;
 
     bool (*runBleDiscovery)() = nullptr;
+    // Portrait with cached Wi-Fi params skips WLAN ON, so it must still prove
+    // the camera body is On before the BLE shutter scene. GR IV can advertise
+    // while powered off.
+    bool (*ensureCameraPowerReady)(const char* source) = nullptr;
     bool (*activateCameraWifiOverBle)() = nullptr;
     bool (*finishCameraWifiOverHttp)() = nullptr;
     bool (*deactivateCameraWifiOverBle)() = nullptr;
@@ -61,6 +65,12 @@ struct AppFlowActions {
     void (*onShutterOk)() = nullptr;
     void (*onShutterFailed)() = nullptr;
     bool (*previewKeptAfterShutterFailure)() = nullptr;
+    // GR III/IV drop the MJPEG keep-alive when HTTP shoot runs spot AF.
+    // Recycle GET /v1/liveview on Wi-Fi; do not unpark BLE.
+    bool (*reopenPreviewAfterHttpShutter)() = nullptr;
+    // An empty HTTP 200 liveview after capture is not a lost camera. Retry
+    // GET /v1/liveview on Wi-Fi instead of restoring BLE.
+    bool (*recyclePreviewAfterStall)() = nullptr;
 
     void (*delayAndYield)(uint32_t delayMs) = nullptr;
     uint32_t (*lastFrameAt)() = nullptr;

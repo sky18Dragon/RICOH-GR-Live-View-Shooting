@@ -9,10 +9,10 @@
 | Profile | Power | Operation Mode | WLAN 写入 |
 | --- | --- | --- | --- |
 | GR IV | 固定 Handle `0x00EB`，CCCD `0x00EC` | 共用 UUID | 保留原 fixed-handle 路径与既有门控 |
-| GR III | Camera Power UUID；`0=Off`、`1=On`、`2=Sleep` | 共用 UUID | 仅 authenticated + fresh `CAPTURE`，Network Type UUID 写 `0x01` |
+| GR III | Camera Power UUID；`0=Off`、`1=On`、`2=Sleep` | 共用 UUID | authenticated + fresh 读取成功且非 `BLE_STARTUP`/`POWER_OFF_TRANSFER`，Network Type UUID 写 `0x01` |
 | Unknown / GR II | 不执行有副作用探测 | 不进入在线控制 | 禁止 |
 
-Operation Mode：`0x00=CAPTURE`、`0x01=PLAYBACK`、`0x02=BLE_STARTUP`、`0x03=OTHER`、`0x04=POWER_OFF_TRANSFER`。GR III 只有 `CAPTURE` 可开 WLAN；即使 Power 为 `0x01`，其他模式也不满足条件。
+Operation Mode：`0x00=CAPTURE`、`0x01=PLAYBACK`、`0x02=BLE_STARTUP`、`0x03=OTHER`、`0x04=POWER_OFF_TRANSFER`。GR III 需 Operation Mode 读取成功，且模式不是 `BLE_STARTUP` / `POWER_OFF_TRANSFER`（`operationModeAllowsWifi()`）。GR IIIx（固件 1.60）待拍时报告的是 `OTHER` 而非 `CAPTURE`，只允许 `CAPTURE` 会让整个会话无法开 WLAN，因此 `CAPTURE`、`PLAYBACK`、`OTHER` 均放行；读取失败或 `UNKNOWN` 一律拒绝。`BLE_STARTUP` 走单独的等待 / 写 OperationMode / NetworkType 探测流程（见 `src/CLAUDE.md`「电源门控」）。
 
 ## Wi-Fi ON 前置条件
 
@@ -20,7 +20,7 @@ Operation Mode：`0x00=CAPTURE`、`0x01=PLAYBACK`、`0x02=BLE_STARTUP`、`0x03=O
 2. BLE 已连接并识别出已知 Profile。
 3. 按 Profile 读取 Power State；Power Off/Sleep/Unknown 进入 Guard。
 4. 读取 Operation Mode。
-5. GR III 要求连接 encrypted + authenticated、读取成功且为 `CAPTURE`；主状态机和 BLE 客户端双重检查。
+5. GR III 要求连接 encrypted + authenticated、Operation Mode 读取成功且不是 `BLE_STARTUP` / `POWER_OFF_TRANSFER`；主状态机和 BLE 客户端双重检查。
 6. GR IV 保留既有 Operation Mode 行为；`BLE_STARTUP` / `POWER_OFF_TRANSFER` 会阻止自动 WLAN。
 7. 尝试订阅 Power Notify，并等待 `RICOH_BLE_POWER_NOTIFY_SETTLE_MS` 消费立即到来的关机通知。
 8. 所有检查通过后，才调用 Profile 对应 WLAN 动作；绝不跨代失败回退写入。
@@ -35,7 +35,7 @@ GR III Family 的 Profile 设置 `standbyModeRequiresFreshReconnect=true`、最�
 - 服务/特征发现和 Profile 校验；
 - Security/Power/Operation Mode 只读检查。
 
-自动探测禁止 WLAN、Power 和 Shutter 写入。若仍非 `CAPTURE`，再次断开并等待下一间隔。Button A 可请求即时新连接，但依然不能绕过 Profile、认证和 fresh `CAPTURE` 门控。避免约 2 秒一次的高频重连；外部 GR IIIx 记录显示其可能造成 `0x216` 连接失败并妨碍相机启动。
+自动探测禁止 WLAN、Power 和 Shutter 写入。若模式仍不允许 WLAN，再次断开并等待下一间隔。Button A 可请求即时新连接，但依然不能绕过 Profile、认证和 fresh Operation Mode 门控。避免约 2 秒一次的高频重连；外部 GR IIIx 记录显示其可能造成 `0x216` 连接失败并妨碍相机启动。
 
 GR IV 的既有固定 Handle、Power Notify、缓存连接与恢复策略不因 GR III Profile 改变。
 
@@ -50,7 +50,7 @@ GR IV 的既有固定 Handle、Power Notify、缓存连接与恢复策略不因 
 
 - Camera Power `On` 不是充分条件。
 - Unknown Profile 默认拒绝所有有副作用的 BLE 写入。
-- GR III `PLAYBACK`、`BLE_STARTUP`、`POWER_OFF_TRANSFER`、`OTHER`、`UNKNOWN` 都拒绝 WLAN。
+- GR III `BLE_STARTUP`（未经探测流程）、`POWER_OFF_TRANSFER`、`UNKNOWN` 及读取失败都拒绝 WLAN；`CAPTURE` / `PLAYBACK` / `OTHER` 放行。
 - 自动恢复不得把只读探测升级为唤醒写入。
 - Power Notify settle 不得被连接速度优化移除。
 - 日志不得包含 Passphrase、Passkey 或 NVS 明文凭据。

@@ -89,6 +89,9 @@ struct CameraCapabilities {
   bool supportsHttpLiveView = false;
   // POST /v1/camera/shoot, confirmed on the camera rather than assumed.
   bool supportsHttpShutter = false;
+  // PUT /v1/params/lens body focusSetting=<enum> before LiveView opens.
+  // GR III/IV share this GR Remote write shape; GR II uses shoot?af=camera.
+  bool supportsHttpFocusSetting = false;
   // Landscape is Wi-Fi only: BLE brings the camera AP up and is released once
   // the preview streams, so the shutter must work over HTTP. A generation must
   // opt in explicitly; one that does not keeps BLE through the preview.

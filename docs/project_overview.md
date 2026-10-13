@@ -46,7 +46,7 @@ NVS Profile schema 为 v4。旧 v3 数据继续读取，保留原 BLE 身份、B
 
 ## 安全状态机要点
 
-- GR III WLAN 必须同时满足 encrypted、authenticated、Profile=GR3 和 fresh Operation Mode=CAPTURE。
+- GR III WLAN 必须同时满足 encrypted、authenticated、Profile=GR3，且 fresh Operation Mode 读取成功、不是 `BLE_STARTUP` / `POWER_OFF_TRANSFER`（GR IIIx 待拍时报告 `OTHER`）。
 - Unknown 不执行 WLAN/Power/Shutter 写入；GR III 不访问 GR IV WLAN fixed handles。
 - GR II 不初始化相机 BLE 流程，不远程开关 AP，也不调用会关闭相机的 `/v1/device/finish`。
 - GR III 待机连接会断开；自动新连接只读探测间隔不短于 8 秒。Button A 只缩短等待，不绕过 Capture 门控。

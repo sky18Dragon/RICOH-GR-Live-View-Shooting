@@ -19,6 +19,8 @@
 #include "gr2_provisioning_portal.h"
 #include "gr_wifi.h"
 #include "jpeg_decoder.h"
+#include "charging_indicator_policy.h"
+#include "liveview_focus_policy.h"
 #include "mjpeg_stream.h"
 #include "ricoh_ble_client.h"
 #include "services/BleCameraService.h"
@@ -86,6 +88,18 @@ RicohCameraOperationMode cameraOperationMode = RicohCameraOperationMode::Unknown
 bool cameraWifiStartupModeProbe = false;
 uint32_t lastPropsAt = 0;
 uint32_t deferredPropsRefreshAfter = 0;
+String liveViewSavedFocusSetting;
+uint8_t liveViewStallRecycleCount = 0;
+BleLinkMode bleLinkModeApplied = BleLinkMode::Normal;
+bool bleLinkPreviewStreaming = false;
+uint32_t bleLinkPreviewStreamingSinceMs = 0;
+uint32_t bleLinkModeRetryAfterMs = 0;
+uint32_t bleLinkConnectionSerial = 0;
+uint32_t linkStatsLastLogMs = 0;
+uint32_t linkRssiLastSampleMs = 0;
+int32_t linkRssiSum = 0;
+int32_t linkRssiMin = 0;
+uint16_t linkRssiSamples = 0;
 bool liveViewResolutionSelected = false;
 int cameraBleBatteryShown = -1;
 bool shotConfirmPending = false;
@@ -110,6 +124,7 @@ int16_t jpegViewportWidth = 0;
 int16_t jpegViewportHeight = 0;
 PasskeyButtonEntry passkeyEntry;
 bool passkeyEntryActive = false;
+uint8_t passkeyShownSeconds = 0;
 bool liveViewLocked = false;
 int8_t deviceBatteryPercent = -1;
 bool deviceCharging = false;
@@ -121,6 +136,10 @@ uint32_t lastDevicePowerSampleAt = 0;
 constexpr uint32_t STATUS_MIN_REDRAW_MS = 1500;
 constexpr uint32_t DEVICE_POWER_NORMAL_SAMPLE_MS = 2000;
 constexpr uint32_t DEVICE_POWER_LIVE_SAMPLE_MS = 1500;
+// Raw charging must stay off this long before the indicator clears; see
+// charging_indicator_policy.h.
+constexpr uint32_t DEVICE_CHARGING_OFF_HOLD_MS = 12000;
+ChargingIndicatorFilter deviceChargingFilter(DEVICE_CHARGING_OFF_HOLD_MS);
 
 void requestManualCameraWake(const char* source);
 void unparkBleIfNeeded(const char* reason);
@@ -148,11 +167,11 @@ void sampleDeviceBatteryLevel() {
 
 void sampleDeviceCharging() {
   const m5::Power_Class::is_charging_t state = M5.Power.isCharging();
-  const bool charging = state == m5::Power_Class::is_charging;
-  if (charging != deviceCharging) {
-    Serial.printf("Power indicator: charging=%d\n", charging ? 1 : 0);
+  const bool rawCharging = state == m5::Power_Class::is_charging;
+  if (deviceChargingFilter.update(rawCharging, millis())) {
+    Serial.printf("Power indicator: charging=%d\n", deviceChargingFilter.charging() ? 1 : 0);
   }
-  deviceCharging = charging;
+  deviceCharging = deviceChargingFilter.charging();
 }
 
 void serviceDevicePowerIndicator(uint32_t nowMs) {
@@ -343,12 +362,37 @@ void waitForSerialConsole() {
   LOGI("BOOT", "%s", rvf::AppConfig::Ui::kBanner);
 }
 
+void restoreLiveViewFocusSettingIfNeeded() {
+  if (liveViewSavedFocusSetting.length() == 0) {
+    return;
+  }
+  // Spot is the landscape-session AF mode. Recycled MJPEG after a shot, or a
+  // landscape recover that will open LiveView again, must not PUT the old
+  // mode back while the camera is still writing the file (GR III 412).
+  if (appController.previewRequested()) {
+    return;
+  }
+  const String previous = liveViewSavedFocusSetting;
+  liveViewSavedFocusSetting = "";
+  if (!grWifi.isConnected()) {
+    Serial.printf("HTTP: focusSetting restore skipped; WiFi down previous=%s\n", previous.c_str());
+    return;
+  }
+  if (grApi.setFocusSetting(previous.c_str(), PROPS_TIMEOUT_MS)) {
+    Serial.printf("HTTP: restored focusSetting=%s\n", previous.c_str());
+    cameraProps.focusSetting = previous;
+    return;
+  }
+  Serial.printf("HTTP: focusSetting restore skipped: %s\n", grApi.lastError().c_str());
+}
+
 void closeLiveView(const char* reason) {
   if (wifiPreview.isPreviewRunning()) {
     Serial.printf("LiveView: closing (%s)\n", reason != nullptr ? reason : "reset");
   }
   wifiPreview.stopPreview();
   deferredPropsRefreshAfter = 0;
+  restoreLiveViewFocusSettingIfNeeded();
 }
 
 String preferredBleName() {
@@ -924,6 +968,33 @@ bool ensureCameraPowerReadyForWifi(const char* source) {
   return false;
 }
 
+bool ensureCameraPowerReadyForController(const char* source) {
+  if (isGr2WifiOnlyProfile()) {
+    return true;
+  }
+  return ensureCameraPowerReadyForWifi(source != nullptr ? source : "camera power");
+}
+
+bool shutterUsesHttp();
+
+// GATT discovery behind the status subscriptions took 4.3-4.8 s on a GR IIIx.
+// Run from the per-tick service it landed right after LiveView opened, held
+// the loop off the MJPEG stream and tripped the 5 s stall watchdog. Doing it
+// here, before WLAN ON, keeps it off the stream and off a busy camera radio.
+void subscribeCameraStatusNotifyIfNeeded(const char* when) {
+  if (!RICOH_BLE_SUBSCRIBE_CAMERA_STATUS || !bleCamera.isConnected() || shutterUsesHttp()) {
+    return;
+  }
+  if (bleCamera.statusNotifyAttempted()) {
+    return;
+  }
+  Serial.printf("BLE: status notify subscribe (%s)\n", when != nullptr ? when : "");
+  const rvf::Result result = bleCamera.enableCameraStatusNotify();
+  if (result.failed() && bleCamera.statusNotifyAttempted()) {
+    Serial.printf("BLE: status notify unavailable: %s\n", bleCamera.lastError().c_str());
+  }
+}
+
 bool activateCameraWifiOverBle() {
   if (isGr2WifiOnlyProfile()) {
     // GR II has no BLE radio. The user enables Wi-Fi on the camera body before
@@ -944,6 +1015,11 @@ bool activateCameraWifiOverBle() {
     return false;
   }
   if (settleAndConsumeCameraPowerOffNotification("BLE power notify before WiFi open")) {
+    return false;
+  }
+
+  subscribeCameraStatusNotifyIfNeeded("before WLAN ON");
+  if (consumeCameraPowerOffNotification("BLE power notify after status subscribe")) {
     return false;
   }
 
@@ -1233,6 +1309,17 @@ bool tryDirectStoredBleReconnect(bool force = false) {
   return true;
 }
 
+uint8_t passkeyRemainingSeconds() {
+  const uint32_t remainingMs = passkeyEntry.remainingMs(millis());
+  const uint32_t seconds = (remainingMs + 999U) / 1000U;
+  return static_cast<uint8_t>(seconds > 255U ? 255U : seconds);
+}
+
+void showPasskeyEntryUi() {
+  passkeyShownSeconds = passkeyRemainingSeconds();
+  ui.showPasskeyEntry(passkeyEntry.digits(), passkeyEntry.activeIndex(), passkeyShownSeconds);
+}
+
 int32_t pollPasskeyButtonEntry(RicohPasskeyPollAction action) {
   if (action == RicohPasskeyPollAction::Cancel) {
     passkeyEntry.reset();
@@ -1242,7 +1329,7 @@ int32_t pollPasskeyButtonEntry(RicohPasskeyPollAction action) {
   if (action == RicohPasskeyPollAction::Start || !passkeyEntryActive) {
     passkeyEntry.start(millis(), RICOH_BLE_PASSKEY_ENTRY_WAIT_MS);
     passkeyEntryActive = true;
-    ui.showPasskeyEntry(passkeyEntry.digits(), passkeyEntry.activeIndex());
+    showPasskeyEntryUi();
     return -1;
   }
 
@@ -1268,18 +1355,18 @@ int32_t pollPasskeyButtonEntry(RicohPasskeyPollAction action) {
   } else if (M5.BtnB.wasClicked()) {
     changed = true;
     if (passkeyEntry.confirmDigit() == PasskeyEntryStatus::Complete) {
-      ui.showPasskeyEntry(passkeyEntry.digits(), passkeyEntry.activeIndex());
+      showPasskeyEntryUi();
       return passkeyEntry.code();
     }
   } else if (M5.BtnA.wasHold()) {
     changed = true;
     if (passkeyEntry.submit() == PasskeyEntryStatus::Complete) {
-      ui.showPasskeyEntry(passkeyEntry.digits(), passkeyEntry.activeIndex());
+      showPasskeyEntryUi();
       return passkeyEntry.code();
     }
   }
-  if (changed) {
-    ui.showPasskeyEntry(passkeyEntry.digits(), passkeyEntry.activeIndex());
+  if (changed || passkeyRemainingSeconds() != passkeyShownSeconds) {
+    showPasskeyEntryUi();
   }
   return -1;
 }
@@ -1739,6 +1826,25 @@ void selectLiveViewResolutionFromProps() {
   }
 }
 
+void applyLiveViewSpotFocusSetting() {
+  if (!knownCameraProtocol().capabilities.supportsHttpFocusSetting) {
+    return;
+  }
+  if (liveviewFocusSettingIsCenterPoint(cameraProps.focusSetting.c_str())) {
+    Serial.printf("HTTP: LiveView focusSetting already %s\n", cameraProps.focusSetting.c_str());
+    return;
+  }
+  if (!grApi.setFocusSetting(LIVEVIEW_SPOT_FOCUS_SETTING, PROPS_TIMEOUT_MS)) {
+    Serial.printf("HTTP: LiveView focusSetting=spot skipped: %s\n", grApi.lastError().c_str());
+    return;
+  }
+  if (liveviewFocusSettingAllowed(cameraProps.focusSetting.c_str())) {
+    liveViewSavedFocusSetting = cameraProps.focusSetting;
+  }
+  cameraProps.focusSetting = LIVEVIEW_SPOT_FOCUS_SETTING;
+  Serial.println("HTTP: LiveView focusSetting=spot");
+}
+
 bool openLiveViewForController() {
   grApi.setLiveViewMaxFps(isGr2WifiOnlyProfile() ? 0 : LIVEVIEW_MAX_FPS);
   if (!isGr2WifiOnlyProfile()) {
@@ -1752,6 +1858,9 @@ bool openLiveViewForController() {
       liveViewResolutionSelected = true;
     }
   }
+  // R-Core: PUT focusSetting in the body before GET /v1/liveview. A second
+  // HTTP command while MJPEG is flowing drops GR III's keep-alive.
+  applyLiveViewSpotFocusSetting();
   const rvf::Result previewResult = wifiPreview.startPreview();
   if (previewResult.failed()) {
     return false;
@@ -1767,6 +1876,7 @@ void onLiveViewOpenFailedForController() {
 void onLiveViewOpenedForController() {
   lastFrameAt = millis();
   lastLiveViewActivityAt = lastFrameAt;
+  liveViewStallRecycleCount = 0;
   previewFrameBuffer.resetRuntimeStats();
   if (cameraProps.ok) {
     deferredPropsRefreshAfter = 0;
@@ -1885,9 +1995,10 @@ bool shootAutofocusForController() {
   }
   if (shutterUsesHttp()) {
     // Failures are reported by onShutterFailedForController.
-    Serial.printf("Button A: landscape shutter over HTTP (BLE %s)\n",
+    Serial.printf("Button A: landscape shutter over HTTP body=%s (BLE %s)\n",
+                  LIVEVIEW_SHOOT_AF_ON_BODY,
                   bleParkedForPreview ? "released" : "bringing up WiFi");
-    return grApi.shoot(PROPS_TIMEOUT_MS);
+    return grApi.shoot(HTTP_SHOOT_TIMEOUT_MS);
   }
   shotEventSequenceBeforeShot = bleCamera.shotEventSequence();
   const rvf::Result shootResult = bleCamera.shoot(true);
@@ -1908,6 +2019,93 @@ void onShutterOkForController() {
                       cameraProps.battery,
                       true);
   updateUi();
+}
+
+bool waitForLiveViewJpegFrame(uint32_t timeoutMs) {
+  const uint32_t startedAt = millis();
+  const uint32_t frameAtBefore = lastFrameAt;
+  while (millis() - startedAt < timeoutMs) {
+    if (!grWifi.isConnected() || !wifiPreview.isPreviewRunning()) {
+      return false;
+    }
+    const int readLen = wifiPreview.readFrame(streamReadBuffer, sizeof(streamReadBuffer));
+    if (readLen > 0) {
+      lastLiveViewActivityAt = millis();
+      wifiPreview.processFrameData(streamReadBuffer, static_cast<size_t>(readLen));
+      if (lastFrameAt != frameAtBefore) {
+        return true;
+      }
+    } else if (readLen < 0) {
+      return false;
+    }
+    delay(10);
+    yield();
+  }
+  return false;
+}
+
+bool reopenPreviewAfterHttpShutterForController() {
+  if (!grWifi.isConnected()) {
+    Serial.println("HTTP: LiveView reopen after shutter skipped; WiFi down");
+    return false;
+  }
+
+  // af=on returns HTTP success in tens of milliseconds while AF/capture still
+  // runs. GET /v1/liveview during that window is HTTP 200 with no JPEG, and
+  // the stall watchdog then tears down BLE. Wait out the capture, then treat
+  // a JPEG as success, not the headers.
+  constexpr uint32_t kCaptureSettleMs = 2000;
+  constexpr uint8_t kReopenAttempts = 4;
+  constexpr uint32_t kJpegWaitMs = 1500;
+  constexpr uint32_t kRetryDelayMs = 400;
+  Serial.printf("HTTP: recycling LiveView after shutter; settle=%lums\n",
+                static_cast<unsigned long>(kCaptureSettleMs));
+  wifiPreview.stopPreview();
+  delay(kCaptureSettleMs);
+  yield();
+
+  for (uint8_t attempt = 1; attempt <= kReopenAttempts; ++attempt) {
+    if (!grWifi.isConnected()) {
+      Serial.println("HTTP: LiveView reopen after shutter aborted; WiFi down");
+      return false;
+    }
+    const rvf::Result previewResult = wifiPreview.startPreview();
+    if (previewResult.ok()) {
+      previewFrameBuffer.resetRuntimeStats();
+      if (waitForLiveViewJpegFrame(kJpegWaitMs)) {
+        liveViewStallRecycleCount = 0;
+        Serial.printf("HTTP: LiveView JPEG after shutter attempt=%u\n",
+                      static_cast<unsigned>(attempt));
+        return true;
+      }
+      Serial.printf("HTTP: LiveView HTTP 200 but no JPEG after shutter attempt=%u\n",
+                    static_cast<unsigned>(attempt));
+      wifiPreview.stopPreview();
+    } else {
+      Serial.printf("HTTP: LiveView reopen after shutter attempt=%u failed: %s\n",
+                    static_cast<unsigned>(attempt),
+                    wifiPreview.lastError().c_str());
+    }
+    delay(kRetryDelayMs);
+    yield();
+  }
+  return false;
+}
+
+bool recyclePreviewAfterStallForController() {
+  if (!grWifi.isConnected() || !appController.previewRequested()) {
+    return false;
+  }
+  constexpr uint8_t kMaxStallRecycles = 2;
+  if (liveViewStallRecycleCount >= kMaxStallRecycles) {
+    Serial.println("HTTP: LiveView stall recycle exhausted");
+    return false;
+  }
+  liveViewStallRecycleCount++;
+  Serial.printf("HTTP: LiveView stall recycle %u/%u\n",
+                static_cast<unsigned>(liveViewStallRecycleCount),
+                static_cast<unsigned>(kMaxStallRecycles));
+  return reopenPreviewAfterHttpShutterForController();
 }
 
 void serviceShotConfirmation(uint32_t nowMs) {
@@ -1941,11 +2139,11 @@ void serviceCameraStatusNotify() {
   if (!RICOH_BLE_SUBSCRIBE_CAMERA_STATUS || !bleCamera.isConnected() || shutterUsesHttp()) {
     return;
   }
-  if (!bleCamera.statusNotifyAttempted()) {
-    const rvf::Result result = bleCamera.enableCameraStatusNotify();
-    if (result.failed() && bleCamera.statusNotifyAttempted()) {
-      Serial.printf("BLE: status notify unavailable: %s\n", bleCamera.lastError().c_str());
-    }
+  // Normally done before WLAN ON. This fallback covers links that never went
+  // through it (portrait with cached Wi-Fi), and never runs while the MJPEG
+  // stream is open: the multi-second discovery would stall the preview.
+  if (!wifiPreview.isPreviewRunning()) {
+    subscribeCameraStatusNotifyIfNeeded("BLE shutter scene");
   }
   const int battery = bleCamera.batteryLevel();
   if (battery >= 0 && battery != cameraBleBatteryShown) {
@@ -2000,7 +2198,49 @@ bool readAndProcessLiveViewFrameForController() {
   return true;
 }
 
+void logLinkStatsIfDue(uint32_t nowMs) {
+  if (grWifi.isConnected() && (nowMs - linkRssiLastSampleMs) >= LINK_RSSI_SAMPLE_INTERVAL_MS) {
+    linkRssiLastSampleMs = nowMs;
+    const int32_t rssi = grWifi.rssi();
+    if (rssi != 0) {
+      linkRssiSum += rssi;
+      linkRssiMin = linkRssiSamples == 0 ? rssi : (rssi < linkRssiMin ? rssi : linkRssiMin);
+      ++linkRssiSamples;
+    }
+  }
+  if ((nowMs - linkStatsLastLogMs) < LINK_STATS_LOG_INTERVAL_MS) {
+    return;
+  }
+  linkStatsLastLogMs = nowMs;
+
+  const int rssiAvg = linkRssiSamples > 0 ? static_cast<int>(linkRssiSum / linkRssiSamples) : 0;
+  const int lastReason = grWifi.lastDisconnectReason();
+  BleConnParams ble;
+  const bool bleUp = bleCamera.readConnParams(ble);
+  Serial.printf("LINK: rssi_avg=%d rssi_min=%d samples=%u ch=%u tx=%.2fdBm wifi_disc=%lu last_reason=%d(%s) "
+                "ble=%s mode=%s itvl=%.2fms lat=%u to=%ums peer_req=%lu stall_recycle=%u\n",
+                rssiAvg,
+                static_cast<int>(linkRssiMin),
+                static_cast<unsigned>(linkRssiSamples),
+                static_cast<unsigned>(grWifi.channel()),
+                grWifi.txPowerDbm(),
+                static_cast<unsigned long>(grWifi.disconnectCount()),
+                lastReason,
+                GrWifi::disconnectReasonName(lastReason),
+                bleUp ? "up" : "down",
+                bleLinkModeName(bleLinkModeApplied),
+                bleUp ? ble.maxInterval * 1.25f : 0.0f,
+                bleUp ? static_cast<unsigned>(ble.latency) : 0U,
+                bleUp ? static_cast<unsigned>(ble.supervisionTimeout) * 10U : 0U,
+                static_cast<unsigned long>(bleCamera.peerConnParamRequests()),
+                static_cast<unsigned>(liveViewStallRecycleCount));
+  linkRssiSum = 0;
+  linkRssiMin = 0;
+  linkRssiSamples = 0;
+}
+
 void logPreviewStatsForController() {
+  logLinkStatsIfDue(millis());
   wifiPreview.logStatsIfDue(millis());
   previewFrameBuffer.syncStreamStats(mjpeg.frames(), mjpeg.droppedFrames(), mjpeg.currentLength());
   previewFrameBuffer.logStatsIfDue(millis());
@@ -2165,6 +2405,7 @@ rvf::AppFlowActions makeAppFlowActions() {
   actions.cameraSleepGuardBlocksFlow = cameraSleepGuardBlocksFlow;
   actions.runBleDiscovery = runBleDiscoveryAtBoot;
   actions.cameraSleepGuardActive = cameraSleepGuardActive;
+  actions.ensureCameraPowerReady = ensureCameraPowerReadyForController;
   actions.activateCameraWifiOverBle = activateCameraWifiOverBle;
   actions.finishCameraWifiOverHttp = finishCameraWifiOverHttpForController;
   actions.deactivateCameraWifiOverBle = deactivateCameraWifiOverBle;
@@ -2207,6 +2448,8 @@ rvf::AppFlowActions makeAppFlowActions() {
   actions.onShutterOk = onShutterOkForController;
   actions.onShutterFailed = onShutterFailedForController;
   actions.previewKeptAfterShutterFailure = previewKeptAfterShutterFailureForController;
+  actions.reopenPreviewAfterHttpShutter = reopenPreviewAfterHttpShutterForController;
+  actions.recyclePreviewAfterStall = recyclePreviewAfterStallForController;
   actions.showCameraSleepGuardStatus = showCameraSleepGuardStatusForController;
   actions.previewStreamRunning = previewStreamRunningForController;
   actions.readAndProcessLiveViewFrame = readAndProcessLiveViewFrameForController;
@@ -2393,6 +2636,7 @@ bool syncJpegViewport(LovyanGFX* canvas) {
 
 void onJpegFrame(const uint8_t* data, size_t len, void*) {
   lastFrameAt = millis();
+  liveViewStallRecycleCount = 0;
   decodedFrames++;
   updateFps();
   previewFrameBuffer.recordFrame(len);
@@ -2921,6 +3165,68 @@ void serviceBleParking(uint32_t nowMs) {
   bleCamera.disconnect();
 }
 
+void serviceBleLinkMode(uint32_t nowMs) {
+  const bool streaming =
+      appController.isPreviewActive() && grWifi.isConnected() && wifiPreview.isPreviewRunning();
+  if (streaming && !bleLinkPreviewStreaming) {
+    bleLinkPreviewStreamingSinceMs = nowMs;
+  }
+  bleLinkPreviewStreaming = streaming;
+
+  if (!BLE_LIVEVIEW_LOW_DUTY_ENABLED) {
+    return;
+  }
+  if (!bleCamera.isConnected()) {
+    // Every new link opens with the Normal connect-time parameters.
+    bleLinkModeApplied = BleLinkMode::Normal;
+    bleLinkModeRetryAfterMs = 0;
+    return;
+  }
+  // A disconnect + reconnect can complete inside one blocking recovery call
+  // without this function ever seeing the link down; the new link is on the
+  // Normal connect-time parameters whatever was applied to the old one.
+  const uint32_t connectionSerial = bleCamera.connectionSerial();
+  if (connectionSerial != bleLinkConnectionSerial) {
+    bleLinkConnectionSerial = connectionSerial;
+    bleLinkModeApplied = BleLinkMode::Normal;
+    bleLinkModeRetryAfterMs = 0;
+  }
+
+  BleLinkModeInputs inputs;
+  inputs.bleConnected = true;
+  inputs.previewRequested = appController.previewRequested();
+  inputs.previewStreaming = streaming;
+  inputs.streamingSinceMs = bleLinkPreviewStreamingSinceMs;
+  inputs.nowMs = nowMs;
+  const BleLinkMode desired =
+      desiredBleLinkMode(bleLinkModeApplied, inputs, BLE_LIVEVIEW_LOW_DUTY_SETTLE_MS);
+  if (desired == bleLinkModeApplied) {
+    return;
+  }
+  if (bleLinkModeRetryAfterMs != 0 && static_cast<int32_t>(nowMs - bleLinkModeRetryAfterMs) < 0) {
+    return;
+  }
+
+  const rvf::Result result = bleCamera.applyConnParams(
+      bleConnParamsFor(desired),
+      desired == BleLinkMode::LiveViewLowDuty ? "LiveView streaming" : "LiveView left");
+  if (result.ok()) {
+    Serial.printf("BLE: link mode %s -> %s\n",
+                  bleLinkModeName(bleLinkModeApplied),
+                  bleLinkModeName(desired));
+    bleLinkModeApplied = desired;
+    bleLinkModeRetryAfterMs = 0;
+    return;
+  }
+  Serial.printf("BLE: link mode %s failed: %s\n",
+                bleLinkModeName(desired),
+                bleCamera.lastError().c_str());
+  bleLinkModeRetryAfterMs = nowMs + BLE_LINK_MODE_RETRY_MS;
+  if (bleLinkModeRetryAfterMs == 0) {
+    bleLinkModeRetryAfterMs = 1;
+  }
+}
+
 void runAppTick() {
   if (gr2Provisioning.active()) {
     serviceGr2Provisioning();
@@ -2928,6 +3234,7 @@ void runAppTick() {
   }
   const uint32_t now = millis();
   serviceBleParking(now);
+  serviceBleLinkMode(now);
   const rvf::AppTickPlan tickPlan = appController.planTick(now);
 
   if (tickPlan.handleButtons) {

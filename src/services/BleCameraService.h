@@ -35,6 +35,10 @@ public:
     Result connectCamera(const RicohBleDeviceInfo& info, const RicohBleConnectOptions& options);
 
     void disconnect();
+    Result applyConnParams(const BleConnParams& params, const char* reason);
+    bool readConnParams(BleConnParams& params) const;
+    uint32_t peerConnParamRequests() const;
+    uint32_t connectionSerial() const;
     bool isConnected() const;
     bool shutterReady() const;
 

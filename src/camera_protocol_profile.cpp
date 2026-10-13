@@ -33,7 +33,11 @@ CameraProtocolProfile makeGr3Profile() {
   profile.capabilities.exposesWifiChannel = true;
   profile.capabilities.supportsHttpLiveView = true;
   profile.capabilities.supportsHttpShutter = true;  // verified on a GR IIIx
-  profile.capabilities.allowBlePreviewParking = true;
+  profile.capabilities.supportsHttpFocusSetting = true;
+  // Keep BLE connected during LiveView and shoot over BLE. Releasing BLE and
+  // shooting over HTTP dropped the GR III LiveView link on capture, so this
+  // generation stays on the BLE shutter path.
+  profile.capabilities.allowBlePreviewParking = false;
   profile.wifiActivationMethod = WifiActivationMethod::BleNetworkTypeUuid;
   profile.wifiCredentialMethod = WifiCredentialMethod::BleUuidCharacteristics;
   profile.requiresPasskeyEntry = true;
@@ -60,7 +64,9 @@ CameraProtocolProfile makeGr4Profile() {
   profile.capabilities.exposesWifiSecurity = true;
   profile.capabilities.supportsHttpLiveView = true;
   profile.capabilities.supportsHttpShutter = true;  // verified on a GR IV
-  profile.capabilities.allowBlePreviewParking = true;
+  profile.capabilities.supportsHttpFocusSetting = true;
+  // Keep BLE connected during LiveView and shoot over BLE, matching GR III.
+  profile.capabilities.allowBlePreviewParking = false;
   profile.wifiActivationMethod = WifiActivationMethod::BleFixedHandle;
   profile.wifiCredentialMethod = WifiCredentialMethod::BleFixedHandles;
   profile.requiresLegacyShutterFlavorWrite = true;

@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 
+#include "ble_link_mode_policy.h"
 #include "ble_pairing_policy.h"
 #include "camera_protocol_profile.h"
 #include "ricoh/RicohBleProtocolRouter.h"
@@ -108,6 +109,17 @@ public:
   int batteryLevel() const;
   bool waitForWifiCredentials(RicohBleWifiCredentials& credentials, uint32_t timeoutMs);
   void disconnect();
+  // Requests new connection parameters on the live link and makes them the
+  // answer to any later peer update request. Completion is asynchronous;
+  // readConnParams() reports what the controller actually negotiated.
+  bool applyConnParams(const BleConnParams& params, const char* reason);
+  // Current negotiated parameters (min == max == the live interval).
+  bool readConnParams(BleConnParams& params) const;
+  // Connection-parameter update requests received from the camera.
+  uint32_t peerConnParamRequests() const;
+  // Bumped on every established link. Lets callers notice a reconnect that
+  // happened entirely inside one blocking recovery call.
+  uint32_t connectionSerial() const { return _connectionSerial; }
   int consumeDisconnectReason();
   void clearDisconnectReason();
   bool deleteAllBonds();
@@ -128,6 +140,7 @@ private:
   // later successful resetStack() may clear this latch and permit operations.
   bool _stackRestartBlocked = false;
   bool _connected = false;
+  uint32_t _connectionSerial = 0;
   bool _lastFailureResourceExhausted = false;
   RicohSecurityProfileId _securityProfile = RicohSecurityProfileId::Unknown;
   CameraBindingState _bindingState = CameraBindingState::Unpaired;

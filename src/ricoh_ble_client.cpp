@@ -59,6 +59,7 @@ std::atomic<int> g_batteryLevel{-1};
 std::atomic<bool> g_batteryNotifyActive{false};
 std::atomic<bool> g_shotNotifyActive{false};
 std::atomic<bool> g_passkeyEntryRequested{false};
+std::atomic<uint32_t> g_peerConnParamRequests{0};
 std::atomic<bool> g_bondInvalidRequested{false};
 std::atomic<uint8_t> g_bindingState{static_cast<uint8_t>(CameraBindingState::Unpaired)};
 RicohBleClient::ServiceCallback g_serviceCallback = nullptr;
@@ -665,6 +666,21 @@ void mergeCredentialValue(RicohBleWifiCredentials& out, const char* label, const
 
 class RicohNimBleCallbacks : public NimBLEClientCallbacks {
 public:
+  bool onConnParamsUpdateRequest(NimBLEClient*, const ble_gap_upd_params* params) override {
+    // Accepted as before (NimBLE answers with the client's stored params).
+    // Logged so LiveView low-duty tests can see a camera pulling the
+    // interval back.
+    g_peerConnParamRequests.fetch_add(1);
+    if (params != nullptr) {
+      Serial.printf("BLE: camera requested conn params itvl=%.2f-%.2fms latency=%u timeout=%ums\n",
+                    params->itvl_min * 1.25f,
+                    params->itvl_max * 1.25f,
+                    static_cast<unsigned>(params->latency),
+                    static_cast<unsigned>(params->supervision_timeout) * 10U);
+    }
+    return true;
+  }
+
   void onConnectFail(NimBLEClient*, int reason) override {
     Serial.printf("BLE: connect failed reason=%d\n", reason);
   }
@@ -1289,7 +1305,10 @@ bool waitForEncryptedConnection(NimBLEClient* client,
     if (g_passkeyEntryRequested.load()) {
       if (!passkeyUiStarted) {
         passkeyUiStarted = true;
-        effectiveTimeoutMs = std::max(timeoutMs, RICOH_BLE_PASSKEY_ENTRY_WAIT_MS);
+        // Entry window plus a margin for the UI's own timeout to fire first.
+        effectiveTimeoutMs = std::max(timeoutMs,
+                                      static_cast<uint32_t>(millis() - startMs) +
+                                          RICOH_BLE_PASSKEY_ENTRY_WAIT_MS + 2000U);
         Serial.println("BLE security: enter the camera-displayed passkey on BtnA or serial");
         if (g_passkeyPoller != nullptr) {
           (void)g_passkeyPoller(RicohPasskeyPollAction::Start);
@@ -1306,6 +1325,9 @@ bool waitForEncryptedConnection(NimBLEClient* client,
       if (passkey >= 0) {
         NimBLEDevice::injectPassKey(client->getConnInfo(), static_cast<uint32_t>(passkey));
         g_passkeyEntryRequested.store(false);
+        effectiveTimeoutMs = std::max(effectiveTimeoutMs,
+                                      static_cast<uint32_t>(millis() - startMs) +
+                                          RICOH_BLE_PASSKEY_BOND_WAIT_MS);
         Serial.println("BLE security: passkey submitted");
       } else if (passkey == -2) {
         errorOut = "BLE passkey entry canceled or timed out";
@@ -1600,6 +1622,14 @@ bool RicohBleClient::connect(const RicohBleDeviceInfo& info, const RicohBleConne
   Serial.printf("BLE: client retries=%u bonded=%d\n",
                 static_cast<unsigned>(connectRetries),
                 peerBonded ? 1 : 0);
+  static_assert(BLE_GAP_INITIAL_CONN_ITVL_MIN == BLE_NORMAL_CONN_ITVL_MIN,
+                "ble_link_mode_policy Normal interval min must match connect()");
+  static_assert(BLE_GAP_INITIAL_CONN_ITVL_MAX == BLE_NORMAL_CONN_ITVL_MAX,
+                "ble_link_mode_policy Normal interval max must match connect()");
+  static_assert(2 * BLE_GAP_INITIAL_SUPERVISION_TIMEOUT == BLE_NORMAL_SUPERVISION_TIMEOUT,
+                "ble_link_mode_policy Normal supervision timeout must match connect()");
+  static_assert(BLE_NORMAL_CONN_LATENCY == 1,
+                "ble_link_mode_policy Normal latency must match connect()");
   client->setConnectionParams(BLE_GAP_INITIAL_CONN_ITVL_MIN,
                               BLE_GAP_INITIAL_CONN_ITVL_MAX,
                               1,
@@ -1622,6 +1652,7 @@ bool RicohBleClient::connect(const RicohBleDeviceInfo& info, const RicohBleConne
   }
 
   _connected = true;
+  ++_connectionSerial;
   NimBLEDevice::setPowerLevel(ESP_PWR_LVL_P9);
 
   if (selectedGeneration == RicohProtocolGeneration::Unknown) {
@@ -2506,6 +2537,56 @@ bool RicohBleClient::shoot(bool autofocus) {
                     ? "GR4_LEGACY_FLAVOR"
                     : "DIRECT");
   return true;
+}
+
+bool RicohBleClient::applyConnParams(const BleConnParams& params, const char* reason) {
+  if (!bleConnParamsValid(params)) {
+    _lastError = "Invalid BLE connection parameters";
+    return false;
+  }
+  NimBLEClient* client = static_cast<NimBLEClient*>(_client);
+  if (!isConnected() || client == nullptr) {
+    _lastError = "BLE not connected";
+    return false;
+  }
+  // Keep the stored params in step so a peer-initiated update request is
+  // answered with the mode in force rather than the connect-time values.
+  client->setConnectionParams(params.minInterval,
+                              params.maxInterval,
+                              params.latency,
+                              params.supervisionTimeout);
+  const bool ok = client->updateConnParams(params.minInterval,
+                                           params.maxInterval,
+                                           params.latency,
+                                           params.supervisionTimeout);
+  Serial.printf("BLE: conn params request itvl=%.2f-%.2fms latency=%u timeout=%ums reason=%s rc=%s\n",
+                params.minInterval * 1.25f,
+                params.maxInterval * 1.25f,
+                static_cast<unsigned>(params.latency),
+                static_cast<unsigned>(params.supervisionTimeout) * 10U,
+                reason != nullptr ? reason : "",
+                ok ? "ok" : "failed");
+  if (!ok) {
+    _lastError = String("BLE conn param update failed err=") + String(client->getLastError());
+  }
+  return ok;
+}
+
+bool RicohBleClient::readConnParams(BleConnParams& params) const {
+  NimBLEClient* client = static_cast<NimBLEClient*>(_client);
+  if (!isConnected() || client == nullptr) {
+    return false;
+  }
+  const NimBLEConnInfo info = client->getConnInfo();
+  params.minInterval = info.getConnInterval();
+  params.maxInterval = info.getConnInterval();
+  params.latency = info.getConnLatency();
+  params.supervisionTimeout = info.getConnTimeout();
+  return params.maxInterval != 0;
+}
+
+uint32_t RicohBleClient::peerConnParamRequests() const {
+  return g_peerConnParamRequests.load();
 }
 
 void RicohBleClient::disconnect() {

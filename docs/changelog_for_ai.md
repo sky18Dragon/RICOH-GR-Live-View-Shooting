@@ -2,6 +2,21 @@
 
 本文件记录对后续 AI/Codex 有帮助的项目级事实变化。代码提交日志仍以 Git 为准。
 
+## 2026-10-13 — LiveView BLE 快门回滚 + BLE/Wi-Fi 共存调优（待实机验证）
+
+- 代码确认：GR III / GR IV `allowBlePreviewParking=false`，横屏 LiveView 期间保持 BLE、快门走 BLE（GR III 横屏 HTTP 快门出现断连后回滚）；`LIVEVIEW_MAX_FPS` 回到 7。HTTP 快门路径代码保留未启用。
+- 代码确认：新增 BLE LiveView 低占空比（102.5 ms / latency 0 / 6 s）机制与开关 `BLE_LIVEVIEW_LOW_DUTY_ENABLED`，Normal 参数与 `connect()` 一致由 `static_assert` 保证；重连识别用 `connectionSerial()`。
+- 实机确认（GR IIIx，用户日志 2026-10-13）：低占空比平均约 4.0 FPS 且出现一次快门写入无应答 → 监督超时；连接时参数平均约 6.2 FPS、8/8 快门确认。据此默认关闭低占空比。Wi-Fi RSSI −30～−52 dBm，无意外断开，Wi-Fi 链路不是瓶颈。
+- 代码确认：相机状态通知订阅移到 BLE WLAN ON 之前；推流期间不再触发（原先 LiveView 打开后阻塞 4.3–4.8 s，误触发卡顿看门狗）。
+- 代码确认：Wi-Fi 显式 `WIFI_PS_MIN_MODEM`、STA HT20、TX 19.5 dBm；新增 STA 断开原因记录与 `LINK:` 周期日志。
+- 实机确认（GR IIIx，用户日志 2026-10-13 15:31–15:35）：状态通知订阅提前到 WLAN ON 之前后无误报卡顿，横屏 20 次 BLE 快门全部确认、无断连，FPS 约 5.5。
+- 代码确认：相机 AP join 未关联 1.5 s 即重新 join（最多 3 次）；Passkey 输入窗口 45 s → 28 s 并显示倒计时（GR IIIx 约 30 s 以 0x213 放弃配对），提交后安全等待延长 `RICOH_BLE_PASSKEY_BOND_WAIT_MS`（10 s）。
+- 文档修正：GR III WLAN 门控实际为"读取成功且非 BLE_STARTUP / POWER_OFF_TRANSFER"（代码早已放行 OTHER / PLAYBACK），`power_state_policy.md` 等已同步。
+- 实机确认（GR IIIx，用户日志 2026-10-13 15:45–15:50）：Wi-Fi 快速重试每次在 1.53 s 触发、约 0.27 s 后连上，相机 AP join 由约 4.0 s 降到约 1.8 s；Passkey 在窗口第 ~26 s 提交、31.3 s 完成绑定，依赖新增的提交后等待。
+- 代码确认：充电指示去抖（`charging_indicator_policy.h`）：开即时显示，关需原始值持续 12 s 为未充电；满电补充时的 3–6 s 来回跳动显示为充电中。
+- 自动化：Native 121/121 通过。ESP32 固件编译未在本次会话验证（用户本机编译烧录）。
+- TODO_UNVERIFIED：订阅提前后 GR IIIx 横屏拍摄断线是否复现；GR III / GR IV 回归；RSSI 与安装方式关系。
+
 ## 2026-09-04 — GR II 支持完成实机验证
 
 - 用户确认当前 `codex/feat-gr-ii-support` 分支的 RICOH GR II 支持已在真实相机上验证通过。

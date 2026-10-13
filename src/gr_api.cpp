@@ -1,5 +1,7 @@
 #include "gr_api.h"
 
+#include <cstring>
+
 #include "config.h"
 #include "gr2_shutter_policy.h"
 
@@ -163,32 +165,114 @@ bool GrApi::fetchProps(CameraProps& props, uint32_t timeoutMs) {
 }
 
 
-bool GrApi::shoot(uint32_t timeoutMs) {
+bool GrApi::sendForm(const char* method, const char* path, const char* body, uint32_t timeoutMs) {
+  if (method == nullptr || (strcmp(method, "POST") != 0 && strcmp(method, "PUT") != 0)) {
+    setError("Invalid HTTP method");
+    return false;
+  }
+  if (path == nullptr || path[0] != '/') {
+    setError("Invalid HTTP path");
+    return false;
+  }
+
   WiFiClient client;
   if (!connectClient(client, timeoutMs)) {
     return false;
   }
 
   const String host = _host.length() ? _host : String(GR_HOST);
-  client.print(String("POST /v1/camera/shoot HTTP/1.1\r\nHost: ") + host +
-               "\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+  const size_t bodyLen = body != nullptr ? strlen(body) : 0;
+  String request = String(method) + " " + path + " HTTP/1.1\r\nHost: " + host + "\r\n";
+  if (bodyLen > 0) {
+    request += "Content-Type: application/x-www-form-urlencoded\r\n";
+  }
+  request += "Content-Length: " + String(static_cast<unsigned>(bodyLen)) +
+             "\r\nConnection: close\r\n\r\n";
+  client.print(request);
+  if (bodyLen > 0) {
+    client.print(body);
+  }
 
   String headers;
   if (!readHttpHeaders(client, timeoutMs, headers)) {
-    setError("Timed out reading /v1/camera/shoot response");
+    setError(String("Timed out reading ") + path + " response");
     client.stop();
     return false;
   }
 
   const int status = parseHttpStatus(headers);
-  client.stop();
   if (status < 200 || status >= 300) {
-    setError(String("POST /v1/camera/shoot HTTP ") + status);
+    client.stop();
+    setError(String(method) + " " + path + " HTTP " + status);
+    return false;
+  }
+
+  String responseBody;
+  const int contentLength = parseContentLength(headers);
+  if (contentLength > static_cast<int>(kCommandBodyMaxBytes)) {
+    client.stop();
+    setError(String(method) + " " + path + " response too large");
+    return false;
+  }
+  if (contentLength > 0) {
+    responseBody.reserve(contentLength + 1);
+  }
+
+  const uint32_t startedAt = millis();
+  while (contentLength != 0 && (client.connected() || client.available())) {
+    while (client.available()) {
+      responseBody += static_cast<char>(client.read());
+      if (responseBody.length() > kCommandBodyMaxBytes) {
+        client.stop();
+        setError(String(method) + " " + path + " response too large");
+        return false;
+      }
+      if (contentLength >= 0 && responseBody.length() >= contentLength) {
+        break;
+      }
+    }
+    if (contentLength >= 0 && responseBody.length() >= contentLength) {
+      break;
+    }
+    if (millis() - startedAt > timeoutMs) {
+      client.stop();
+      setError(String("Timed out reading ") + path + " body");
+      return false;
+    }
+    yield();
+    delay(1);
+  }
+  client.stop();
+
+  if (!ricohHttpJsonSucceeded(responseBody.c_str())) {
+    setError(String(method) + " " + path + " " + responseBody);
     return false;
   }
 
   _lastError = "";
   return true;
+}
+
+bool GrApi::postForm(const char* path, const char* body, uint32_t timeoutMs) {
+  return sendForm("POST", path, body, timeoutMs);
+}
+
+bool GrApi::shoot(uint32_t timeoutMs) {
+  char body[24];
+  if (!formatLiveviewShootAfOnBody(body, sizeof(body))) {
+    setError("Invalid shoot AF body");
+    return false;
+  }
+  return postForm("/v1/camera/shoot", body, timeoutMs);
+}
+
+bool GrApi::setFocusSetting(const char* setting, uint32_t timeoutMs) {
+  char body[48];
+  if (!formatLiveviewFocusSettingBody(body, sizeof(body), setting)) {
+    setError("Invalid focusSetting");
+    return false;
+  }
+  return sendForm("PUT", "/v1/params/lens", body, timeoutMs);
 }
 
 bool GrApi::shootGr2(uint32_t timeoutMs) {
@@ -539,6 +623,10 @@ void GrApi::parsePropsJson(const String& json, CameraProps& props) const {
       extractJsonString(json, "battery_state", stringValue) ||
       extractJsonString(json, "battery", stringValue)) {
     batteryState = stringValue;
+  }
+
+  if (extractJsonString(json, "focusSetting", stringValue)) {
+    props.focusSetting = stringValue;
   }
 
   props.resoCount = parseLiveViewResoList(json.c_str(), props.resoList, LIVEVIEW_RESO_LIST_CAPACITY);

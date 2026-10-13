@@ -64,7 +64,7 @@ flowchart TD
   FSM -->|STA 连接动态凭据| WIFI[gr_wifi]
   WIFI -.Wi-Fi AP.-> CAM
 
-  FSM -->|GET /v1/props<br/>GET /v1/liveview| API[gr_api]
+  FSM -->|GET /v1/props<br/>PUT /v1/params/lens focusSetting=spot<br/>GET /v1/liveview| API[gr_api]
   API -.HTTP.-> CAM
 
   API -->|MJPEG 字节流| MJPEG[mjpeg_stream 切帧]
@@ -88,12 +88,12 @@ flowchart TD
 
 1. **Wi-Fi 凭据动态获取** —— 不再硬编码 SSID/密码；`platformio.ini` 无需 `GR_WIFI_SSID/PASSWORD`，凭据由 BLE 实时读取写入 `CameraProfile.wifi`。
 2. **BLE GATT 句柄在 `config.h`** —— 已用 RICOH GR Android App HCI 抓包验证（2026-06-27/28），修改前先看注释。电源状态句柄 `0x00EB`/CCCD `0x00EC`、WLAN `0x0135`、快门 `0x0099`。
-3. **电源门控** —— 开 Wi-Fi 前必须 `readPowerState()` 确认相机 `On`；`RICOH_BLE_REQUIRE_POWER_ON_BEFORE_WIFI=true`。手动唤醒走 `cameraManualWakeOverride` 旁路。
+3. **电源门控** —— 开 Wi-Fi 前必须 `readPowerState()` 确认相机 `On`；竖持复用缓存凭据进入 BLE 快门界面前同样检查（GR IV 关机后仍可能广播 BLE）。`RICOH_BLE_REQUIRE_POWER_ON_BEFORE_WIFI=true`。手动唤醒走 `cameraManualWakeOverride` 旁路。
 4. **帧缓冲在 PSRAM** —— `FRAME_BUFFER_SIZE=256KB`，优先 `MALLOC_CAP_SPIRAM`，回退内部 RAM；无 PSRAM 直接报错停机。
 5. **JPEG 缩放** —— `config.h` 设 `JPEG_SCALE_POLICY=JPEG_SCALE_HALF`（覆盖 `display.h`/`jpeg_decoder.h` 的 `QUARTER` 默认）。
 6. **NVS schema** —— namespace `ricoh2`，`proto_ver`（当前 3）/`cam_name`/`ble_addr`/`ble_addr_type`/`ble_bonded`/`cam_ip`/Wi-Fi cache。保护态只在 RAM 中生效，StickS3 重启后会重新走自动连接流程。已保存 BLE 身份的 `setup()` 启动流只做一轮快速扫描，失败后交给主循环处理 KEY1 和周期重试。
 7. **按键 = 仅 `M5.BtnA`** —— 见下方「文档漂移」。
-8. **姿态决定链路** —— 竖持只用 BLE（相机 AP 关闭，快门走 BLE）；横持只用 Wi-Fi：BLE 仅用于唤醒相机 AP，LiveView 一开始推流即释放 BLE（`serviceBleParking`），快门只走 HTTP `POST /v1/camera/shoot`（`shutterUsesHttp()`）。需要恢复时先直连恢复 BLE（`restoreReleasedBleForRecovery`）。由能力位 `supportsHttpShutter && allowBlePreviewParking` 控制，GR III/IV 均开启，GR IIIx 与 GR IV 已真机验证。
+8. **姿态决定链路** —— 竖持只用 BLE（相机 AP 关闭，快门走 BLE）；横持 BLE 唤醒相机 AP 后 **LiveView 期间保持 BLE 连接，快门仍走 BLE**。释放 BLE + HTTP `POST /v1/camera/shoot` 的路径（`serviceBleParking` / `shutterUsesHttp()`）代码保留，由能力位 `supportsHttpShutter && allowBlePreviewParking` 控制；因 GR III 横屏 HTTP 快门出现断连，GR III/IV 目前均关闭 `allowBlePreviewParking`。`LIVEVIEW_MAX_FPS=7`（BLE 共存下已验证的取值）。BLE 低占空比（`BLE_LIVEVIEW_LOW_DUTY_ENABLED`）默认关闭，GR IIIx 实测更差；相机状态通知在 BLE WLAN ON 之前订阅，避免阻塞取流；预览期间每 5 s 输出 `LINK:` 链路日志。详见 `docs/wifi_preview_flow.md`「BLE / Wi-Fi 共存」。
 
 ## 按键实现说明
 

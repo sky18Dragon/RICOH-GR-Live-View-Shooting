@@ -482,7 +482,7 @@ void DisplayUi::showError(const String& message, const String& detail) {
     showError(message.c_str(), detail.c_str());
 }
 
-void DisplayUi::showPasskeyEntry(const uint8_t digits[6], uint8_t activeIndex) {
+void DisplayUi::showPasskeyEntry(const uint8_t digits[6], uint8_t activeIndex, uint8_t remainingSec) {
     if (!setOrientation(rvf::UiOrientation::Portrait) || !_canvasReady) return;
     clear(rvf::UiTheme::kBlack);
 
@@ -512,6 +512,14 @@ void DisplayUi::showPasskeyEntry(const uint8_t digits[6], uint8_t activeIndex) {
     }
 
     _canvas.setTextSize(1);
+    if (activeIndex < 6 && remainingSec > 0) {
+        // The camera abandons the pairing at its own deadline; show what is
+        // left so a slow entry is restarted rather than typed into the void.
+        char countdown[16] = {0};
+        snprintf(countdown, sizeof(countdown), "%us left", static_cast<unsigned>(remainingSec));
+        drawCenteredText(countdown, y + cellH + 14,
+                         remainingSec <= 10 ? rvf::UiTheme::kRed : rvf::UiTheme::kGray);
+    }
     if (activeIndex >= 6) {
         drawCenteredText("Submitting...", _height - 28, rvf::UiTheme::kGreen);
     } else {

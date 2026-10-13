@@ -309,10 +309,15 @@ bool AppController::connectWifiAfterBleReady(const AppFlowActions& actions) {
     // Portrait is the BLE shutter scene. If credentials for this bound camera
     // are already cached, keep the AP off without first enabling it only to
     // read and cache the same values again. First pairing still falls through
-    // because it has no usable credential cache.
+    // because it has no usable credential cache. Confirm the body is On first:
+    // a GR IV still advertises BLE after the power switch is off.
     if (!_previewRequested &&
         actions.hasUsableCachedWifiCredentials != nullptr &&
         actions.hasUsableCachedWifiCredentials()) {
+        if (actions.ensureCameraPowerReady != nullptr &&
+            !actions.ensureCameraPowerReady("portrait BLE shutter")) {
+            return false;
+        }
         if (actions.deactivateCameraWifiOverBle != nullptr) {
             (void)actions.deactivateCameraWifiOverBle();
         }
@@ -708,6 +713,10 @@ void AppController::monitorLiveView(const AppFlowActions& actions, uint32_t nowM
                           static_cast<unsigned long>(activityIdleMs),
                           static_cast<unsigned long>(actions.liveViewStallTimeoutMs));
 #endif
+            if (actions.recyclePreviewAfterStall != nullptr &&
+                actions.recyclePreviewAfterStall()) {
+                return;
+            }
             recoverCameraConnection(actions,
                                     frameStalled
                                       ? "LiveView frame stall watchdog"
@@ -753,6 +762,10 @@ void AppController::triggerShutterFromButtonA(const AppFlowActions& actions) {
     if (actions.shootAutofocus != nullptr && actions.shootAutofocus()) {
         if (actions.onShutterOk != nullptr) {
             actions.onShutterOk();
+        }
+        if (overWifi && actions.reopenPreviewAfterHttpShutter != nullptr &&
+            !actions.reopenPreviewAfterHttpShutter()) {
+            recoverCameraConnection(actions, "LiveView reopen after HTTP shutter failed");
         }
         return;
     }

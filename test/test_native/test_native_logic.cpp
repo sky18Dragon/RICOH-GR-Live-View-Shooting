@@ -23,6 +23,9 @@ void tearDown(void) {}
 #include "ricoh/RicohBleProtocolRouter.h"
 #include "camera_sleep_policy.h"
 #include "image_fit.h"
+#include "ble_link_mode_policy.h"
+#include "charging_indicator_policy.h"
+#include "liveview_focus_policy.h"
 #include "liveview_reso_policy.h"
 #include "mjpeg_stream.h"
 #include "supervisor/SystemSupervisor.h"
@@ -129,8 +132,10 @@ struct FlowHarness {
   static bool resetStackSucceeds;
   static bool deactivateSucceeds;
   static bool reactivateSucceeds;
+  static bool powerReadySucceeds;
   static uint32_t lastRecoveryAt;
   static uint32_t activateCalls;
+  static uint32_t ensurePowerReadyCalls;
   static uint32_t finishWlanCalls;
   static bool finishWlanSawConnectedSta;
   static uint32_t deactivateCalls;
@@ -149,6 +154,10 @@ struct FlowHarness {
   static bool shutterOverWifiValue;
   static bool shootSucceeds;
   static bool previewKeptAfterFailure;
+  static uint32_t reopenPreviewCalls;
+  static bool reopenPreviewSucceeds;
+  static uint32_t recycleStallCalls;
+  static bool recycleStallSucceeds;
 
   static void reset() {
     bleConnected = true;
@@ -159,8 +168,10 @@ struct FlowHarness {
     resetStackSucceeds = true;
     deactivateSucceeds = true;
     reactivateSucceeds = true;
+    powerReadySucceeds = true;
     lastRecoveryAt = 0;
     activateCalls = 0;
+    ensurePowerReadyCalls = 0;
     finishWlanCalls = 0;
     finishWlanSawConnectedSta = false;
     deactivateCalls = 0;
@@ -179,6 +190,10 @@ struct FlowHarness {
     shutterOverWifiValue = false;
     shootSucceeds = true;
     previewKeptAfterFailure = false;
+    reopenPreviewCalls = 0;
+    reopenPreviewSucceeds = true;
+    recycleStallCalls = 0;
+    recycleStallSucceeds = true;
   }
 
   static void restoreReleasedBle(const char*) { ++restoreReleasedBleCalls; }
@@ -193,6 +208,18 @@ struct FlowHarness {
   static bool shutterOverWifi() { return shutterOverWifiValue; }
   static bool shoot() { return shootSucceeds; }
   static bool keptPreview() { return previewKeptAfterFailure; }
+  static bool reopenPreview() {
+    ++reopenPreviewCalls;
+    if (reopenPreviewSucceeds) {
+      previewRunning = true;
+    }
+    return reopenPreviewSucceeds;
+  }
+  static uint32_t lastFrame() { return 0; }
+  static bool recycleStall() {
+    ++recycleStallCalls;
+    return recycleStallSucceeds;
+  }
 
   static bool guardBlocks(const char*) { return guardActive; }
   static bool isGuardActive() { return guardActive; }
@@ -205,6 +232,14 @@ struct FlowHarness {
   static bool resetBleStack(const char*) {
     ++resetStackCalls;
     return resetStackSucceeds;
+  }
+  static bool ensurePowerReady(const char*) {
+    ++ensurePowerReadyCalls;
+    if (!powerReadySucceeds) {
+      guardActive = true;
+      return false;
+    }
+    return true;
   }
   static bool activateWifi() {
     ++activateCalls;
@@ -260,6 +295,7 @@ struct FlowHarness {
     result.isWifiConnected = isWifiConnected;
     result.disconnectWifi = disconnectWifi;
     result.runBleDiscovery = runBleDiscovery;
+    result.ensureCameraPowerReady = ensurePowerReady;
     result.activateCameraWifiOverBle = activateWifi;
     result.finishCameraWifiOverHttp = finishWlan;
     result.deactivateCameraWifiOverBle = deactivateWifi;
@@ -291,8 +327,10 @@ bool FlowHarness::guardActive = false;
 bool FlowHarness::resetStackSucceeds = true;
 bool FlowHarness::deactivateSucceeds = true;
 bool FlowHarness::reactivateSucceeds = true;
+bool FlowHarness::powerReadySucceeds = true;
 uint32_t FlowHarness::lastRecoveryAt = 0;
 uint32_t FlowHarness::activateCalls = 0;
+uint32_t FlowHarness::ensurePowerReadyCalls = 0;
 uint32_t FlowHarness::finishWlanCalls = 0;
 bool FlowHarness::finishWlanSawConnectedSta = false;
 uint32_t FlowHarness::deactivateCalls = 0;
@@ -311,6 +349,10 @@ bool FlowHarness::shutterReadyValue = true;
 bool FlowHarness::shutterOverWifiValue = false;
 bool FlowHarness::shootSucceeds = true;
 bool FlowHarness::previewKeptAfterFailure = false;
+uint32_t FlowHarness::reopenPreviewCalls = 0;
+bool FlowHarness::reopenPreviewSucceeds = true;
+uint32_t FlowHarness::recycleStallCalls = 0;
+bool FlowHarness::recycleStallSucceeds = true;
 
 void testRecoveryStopsWhenBleStackResetFails() {
   FlowHarness::reset();
@@ -355,6 +397,7 @@ void testPortraitReconnectReusesCacheWithoutTogglingCameraWlan() {
   TEST_ASSERT_EQUAL_INT(static_cast<int>(rvf::AppState::WifiCredentialsReady),
                         static_cast<int>(controller.state()));
   TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::activateCalls);
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::ensurePowerReadyCalls);
   TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::finishWlanCalls);
   TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::deactivateCalls);
   TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::readCredentialsCalls);
@@ -363,6 +406,24 @@ void testPortraitReconnectReusesCacheWithoutTogglingCameraWlan() {
   TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::openPreviewCalls);
   TEST_ASSERT_TRUE(FlowHarness::bleConnected);
   TEST_ASSERT_FALSE(FlowHarness::wifiConnected);
+}
+
+void testPortraitCachedResumeStaysOffWhenCameraPowerIsOff() {
+  FlowHarness::reset();
+  FlowHarness::cachedCredentials = true;
+  FlowHarness::powerReadySucceeds = false;
+  rvf::AppController controller(rvf::AppState::BleScan);
+  controller.begin(rvf::AppState::BleScan);
+  const rvf::AppFlowActions actions = FlowHarness::actions();
+
+  TEST_ASSERT_FALSE(controller.runCameraFlowOnce(actions, 100));
+  TEST_ASSERT_NOT_EQUAL_INT(static_cast<int>(rvf::AppState::WifiCredentialsReady),
+                            static_cast<int>(controller.state()));
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::ensurePowerReadyCalls);
+  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::activateCalls);
+  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::deactivateCalls);
+  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::connectCalls);
+  TEST_ASSERT_TRUE(FlowHarness::guardActive);
 }
 
 void testLandscapeStartupOpensLiveViewWithoutPropsProbe() {
@@ -554,6 +615,97 @@ void testLandscapeHttpShutterFailureNamesHttpPath() {
   controller.handleUserCommand(actions, rvf::UserCommand::Shoot);
 
   TEST_ASSERT_EQUAL_STRING("Button A HTTP shutter failed",
+                           FlowHarness::lastRescanReason.c_str());
+}
+
+void testLandscapeHttpShutterSuccessReopensPreview() {
+  FlowHarness::reset();
+  FlowHarness::wifiConnected = true;
+  FlowHarness::shutterOverWifiValue = true;
+  rvf::AppController controller(rvf::AppState::PreviewRunning);
+  controller.begin(rvf::AppState::PreviewRunning);
+  controller.setPreviewRequested(true);
+  rvf::AppFlowActions actions = FlowHarness::actions();
+  actions.shutterReady = FlowHarness::shutterReady;
+  actions.shutterOverWifi = FlowHarness::shutterOverWifi;
+  actions.shootAutofocus = FlowHarness::shoot;
+  actions.reopenPreviewAfterHttpShutter = FlowHarness::reopenPreview;
+  actions.reasonRequiresBleRescan = FlowHarness::recordRescanReason;
+  actions.restoreReleasedBle = FlowHarness::restoreReleasedBle;
+
+  controller.handleUserCommand(actions, rvf::UserCommand::Shoot);
+
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::reopenPreviewCalls);
+  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::restoreReleasedBleCalls);
+  TEST_ASSERT_TRUE(FlowHarness::lastRescanReason.empty());
+  TEST_ASSERT_TRUE(FlowHarness::previewRunning);
+}
+
+void testLandscapeStallRecyclesPreviewWithoutBleRecovery() {
+  FlowHarness::reset();
+  FlowHarness::wifiConnected = true;
+  FlowHarness::previewRunning = true;
+  rvf::AppController controller(rvf::AppState::PreviewRunning);
+  controller.begin(rvf::AppState::PreviewRunning);
+  controller.setPreviewRequested(true);
+  rvf::AppFlowActions actions = FlowHarness::actions();
+  actions.liveViewStallTimeoutMs = 0;
+  actions.lastFrameAt = FlowHarness::lastFrame;
+  actions.recyclePreviewAfterStall = FlowHarness::recycleStall;
+  actions.reasonRequiresBleRescan = FlowHarness::recordRescanReason;
+  actions.restoreReleasedBle = FlowHarness::restoreReleasedBle;
+
+  controller.monitorLiveView(actions, 1);
+
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::recycleStallCalls);
+  TEST_ASSERT_EQUAL_UINT32(0, FlowHarness::restoreReleasedBleCalls);
+  TEST_ASSERT_TRUE(FlowHarness::lastRescanReason.empty());
+}
+
+void testLandscapeStallRecycleFailureRecovers() {
+  FlowHarness::reset();
+  FlowHarness::wifiConnected = true;
+  FlowHarness::previewRunning = true;
+  FlowHarness::recycleStallSucceeds = false;
+  rvf::AppController controller(rvf::AppState::PreviewRunning);
+  controller.begin(rvf::AppState::PreviewRunning);
+  controller.setPreviewRequested(true);
+  rvf::AppFlowActions actions = FlowHarness::actions();
+  actions.liveViewStallTimeoutMs = 0;
+  actions.lastFrameAt = FlowHarness::lastFrame;
+  actions.recyclePreviewAfterStall = FlowHarness::recycleStall;
+  actions.reasonRequiresBleRescan = FlowHarness::recordRescanReason;
+  actions.restoreReleasedBle = FlowHarness::restoreReleasedBle;
+
+  controller.monitorLiveView(actions, 1);
+
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::recycleStallCalls);
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::restoreReleasedBleCalls);
+  TEST_ASSERT_EQUAL_STRING("LiveView frame stall watchdog",
+                           FlowHarness::lastRescanReason.c_str());
+}
+
+void testLandscapeHttpShutterReopenFailureRecovers() {
+  FlowHarness::reset();
+  FlowHarness::wifiConnected = true;
+  FlowHarness::shutterOverWifiValue = true;
+  FlowHarness::reopenPreviewSucceeds = false;
+  rvf::AppController controller(rvf::AppState::PreviewRunning);
+  controller.begin(rvf::AppState::PreviewRunning);
+  controller.setPreviewRequested(true);
+  rvf::AppFlowActions actions = FlowHarness::actions();
+  actions.shutterReady = FlowHarness::shutterReady;
+  actions.shutterOverWifi = FlowHarness::shutterOverWifi;
+  actions.shootAutofocus = FlowHarness::shoot;
+  actions.reopenPreviewAfterHttpShutter = FlowHarness::reopenPreview;
+  actions.reasonRequiresBleRescan = FlowHarness::recordRescanReason;
+  actions.restoreReleasedBle = FlowHarness::restoreReleasedBle;
+
+  controller.handleUserCommand(actions, rvf::UserCommand::Shoot);
+
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::reopenPreviewCalls);
+  TEST_ASSERT_EQUAL_UINT32(1, FlowHarness::restoreReleasedBleCalls);
+  TEST_ASSERT_EQUAL_STRING("LiveView reopen after HTTP shutter failed",
                            FlowHarness::lastRescanReason.c_str());
 }
 
@@ -1535,6 +1687,48 @@ void testHttpShutterIsClaimedForLandscapeGenerations() {
                         .capabilities.supportsHttpShutter);
 }
 
+void testHttpFocusSettingIsClaimedForGr3AndGr4() {
+  TEST_ASSERT_FALSE(cameraProtocolProfile(RicohProtocolGeneration::Gr2Family)
+                        .capabilities.supportsHttpFocusSetting);
+  TEST_ASSERT_TRUE(cameraProtocolProfile(RicohProtocolGeneration::Gr3Family)
+                       .capabilities.supportsHttpFocusSetting);
+  TEST_ASSERT_TRUE(cameraProtocolProfile(RicohProtocolGeneration::Gr4Family)
+                       .capabilities.supportsHttpFocusSetting);
+  TEST_ASSERT_FALSE(cameraProtocolProfile(RicohProtocolGeneration::Unknown)
+                        .capabilities.supportsHttpFocusSetting);
+}
+
+void testLiveViewFocusSettingFormatsRicohBody() {
+  TEST_ASSERT_EQUAL_STRING("spot", LIVEVIEW_SPOT_FOCUS_SETTING);
+  TEST_ASSERT_TRUE(liveviewFocusSettingAllowed("spot"));
+  TEST_ASSERT_TRUE(liveviewFocusSettingAllowed("multiauto_center"));
+  TEST_ASSERT_TRUE(liveviewFocusSettingIsCenterPoint("spot"));
+  TEST_ASSERT_TRUE(liveviewFocusSettingIsCenterPoint("pinpoint"));
+  TEST_ASSERT_FALSE(liveviewFocusSettingIsCenterPoint("snap"));
+  TEST_ASSERT_FALSE(liveviewFocusSettingAllowed(""));
+  TEST_ASSERT_FALSE(liveviewFocusSettingAllowed("not-a-mode"));
+
+  char body[48];
+  TEST_ASSERT_TRUE(formatLiveviewFocusSettingBody(body, sizeof(body), "spot"));
+  TEST_ASSERT_EQUAL_STRING("focusSetting=spot", body);
+  TEST_ASSERT_FALSE(formatLiveviewFocusSettingBody(body, sizeof(body), "not-a-mode"));
+  TEST_ASSERT_FALSE(formatLiveviewFocusSettingBody(nullptr, 48, "spot"));
+
+  TEST_ASSERT_EQUAL_STRING("af=on&pos=50,50", LIVEVIEW_SHOOT_AF_ON_BODY);
+  TEST_ASSERT_TRUE(formatLiveviewShootAfOnBody(body, sizeof(body)));
+  TEST_ASSERT_EQUAL_STRING("af=on&pos=50,50", body);
+  TEST_ASSERT_FALSE(formatLiveviewShootAfOnBody(nullptr, 24));
+  TEST_ASSERT_FALSE(formatLiveviewShootAfOnBody(body, 8));
+}
+
+void testRicohHttpJsonTreatsErrMsgAsTheRealStatus() {
+  TEST_ASSERT_TRUE(ricohHttpJsonSucceeded(""));
+  TEST_ASSERT_TRUE(ricohHttpJsonSucceeded("{\"errCode\":200,\"errMsg\":\"OK\"}"));
+  TEST_ASSERT_TRUE(ricohHttpJsonSucceeded("{\"captureId\":\"1\"}"));
+  TEST_ASSERT_FALSE(ricohHttpJsonSucceeded("{\"errCode\":412,\"errMsg\":\"Precondition Failed\"}"));
+  TEST_ASSERT_FALSE(ricohHttpJsonSucceeded("{ \"errMsg\" : \"Camera Busy\" }"));
+}
+
 void testGr2ShutterUsesOfficialRemotePaths() {
   TEST_ASSERT_EQUAL_STRING("/v1/camera/shoot?af=camera", GR2_SHUTTER_ONESHOT_PATH);
   TEST_ASSERT_EQUAL_STRING("/v1/camera/shoot/start?af=camera", GR2_SHUTTER_START_PATH);
@@ -1646,13 +1840,142 @@ void testGr2CredentialHandoffWaitsForResponseFlushAndHandlesMillisWrap() {
       true, true, submittedAt, 0x00000350U, 1100));
 }
 
-void testLandscapeReleasesBleOnlyForGr3AndGr4() {
-  // GR II has no BLE link to release; an unknown camera keeps BLE so it never
-  // loses its only confirmed shutter path.
-  TEST_ASSERT_TRUE(cameraProtocolProfile(RicohProtocolGeneration::Gr3Family)
-                       .capabilities.allowBlePreviewParking);
-  TEST_ASSERT_TRUE(cameraProtocolProfile(RicohProtocolGeneration::Gr4Family)
-                       .capabilities.allowBlePreviewParking);
+void testChargingIndicatorTurnsOnImmediately() {
+  ChargingIndicatorFilter filter(12000);
+  TEST_ASSERT_FALSE(filter.charging());
+  TEST_ASSERT_FALSE(filter.update(false, 1000));  // unplugged stays off, no change
+  TEST_ASSERT_TRUE(filter.update(true, 2000));
+  TEST_ASSERT_TRUE(filter.charging());
+  TEST_ASSERT_FALSE(filter.update(true, 4000));   // no repeated change report
+}
+
+void testChargingIndicatorIgnoresTopOffFlapping() {
+  // Raw flag alternating every ~3 s near full charge, as seen on a StickS3.
+  ChargingIndicatorFilter filter(12000);
+  TEST_ASSERT_TRUE(filter.update(true, 0));
+  uint32_t now = 0;
+  for (int i = 0; i < 20; ++i) {
+    now += 3000;
+    TEST_ASSERT_FALSE(filter.update((i % 2) == 1, now));
+    TEST_ASSERT_TRUE(filter.charging());
+  }
+}
+
+void testChargingIndicatorClearsAfterSustainedOff() {
+  ChargingIndicatorFilter filter(12000);
+  TEST_ASSERT_TRUE(filter.update(true, 0x00000000U));
+  TEST_ASSERT_FALSE(filter.update(false, 1000));  // off starts
+  TEST_ASSERT_FALSE(filter.update(false, 12999));
+  TEST_ASSERT_TRUE(filter.charging());
+  TEST_ASSERT_TRUE(filter.update(false, 13000));
+  TEST_ASSERT_FALSE(filter.charging());
+  // millis() wrap inside the hold.
+  ChargingIndicatorFilter wrap(12000);
+  TEST_ASSERT_TRUE(wrap.update(true, 0xFFFFE000U));
+  TEST_ASSERT_FALSE(wrap.update(false, 0xFFFFF000U));
+  TEST_ASSERT_FALSE(wrap.update(false, 0x00001000U));   // 8 s into the hold
+  TEST_ASSERT_TRUE(wrap.update(false, 0x00002000U));    // 12 s
+}
+
+void testBleLinkNormalModeMatchesConnectParams() {
+  // Same values RicohBleClient::connect() hands NimBLE (30/50 ms, latency 1,
+  // 5.12 s), so restoring Normal returns the link to its connect-time shape.
+  const BleConnParams normal = bleConnParamsFor(BleLinkMode::Normal);
+  TEST_ASSERT_EQUAL_UINT16(24, normal.minInterval);
+  TEST_ASSERT_EQUAL_UINT16(40, normal.maxInterval);
+  TEST_ASSERT_EQUAL_UINT16(1, normal.latency);
+  TEST_ASSERT_EQUAL_UINT16(512, normal.supervisionTimeout);
+  TEST_ASSERT_TRUE(bleConnParamsValid(normal));
+}
+
+void testBleLinkLiveViewModeIsBeaconAlignedAndValid() {
+  const BleConnParams liveView = bleConnParamsFor(BleLinkMode::LiveViewLowDuty);
+  TEST_ASSERT_EQUAL_UINT16(82, liveView.minInterval);  // 102.5 ms
+  TEST_ASSERT_EQUAL_UINT16(82, liveView.maxInterval);
+  TEST_ASSERT_EQUAL_UINT16(0, liveView.latency);       // shutter waits one interval at most
+  TEST_ASSERT_EQUAL_UINT16(600, liveView.supervisionTimeout);
+  TEST_ASSERT_TRUE(bleConnParamsValid(liveView));
+  // Fewer connection events than Normal's fastest interval.
+  TEST_ASSERT_TRUE(liveView.minInterval > bleConnParamsFor(BleLinkMode::Normal).maxInterval);
+}
+
+void testBleConnParamsValidationEnforcesSpecLimits() {
+  BleConnParams params = bleConnParamsFor(BleLinkMode::LiveViewLowDuty);
+  params.supervisionTimeout = 20;  // 200 ms <= 2 * 102.5 ms
+  TEST_ASSERT_FALSE(bleConnParamsValid(params));
+  params = bleConnParamsFor(BleLinkMode::LiveViewLowDuty);
+  params.minInterval = 5;
+  TEST_ASSERT_FALSE(bleConnParamsValid(params));
+  params = bleConnParamsFor(BleLinkMode::LiveViewLowDuty);
+  params.minInterval = 100;  // min > max
+  TEST_ASSERT_FALSE(bleConnParamsValid(params));
+  params = bleConnParamsFor(BleLinkMode::LiveViewLowDuty);
+  params.latency = 500;
+  TEST_ASSERT_FALSE(bleConnParamsValid(params));
+}
+
+void testBleLinkModeWaitsForStableLiveViewStream() {
+  BleLinkModeInputs in;
+  in.bleConnected = true;
+  in.previewRequested = true;
+  in.previewStreaming = true;
+  in.streamingSinceMs = 10000;
+  in.nowMs = 11499;
+  TEST_ASSERT_EQUAL(static_cast<int>(BleLinkMode::Normal),
+                    static_cast<int>(desiredBleLinkMode(BleLinkMode::Normal, in, 1500)));
+  in.nowMs = 11500;
+  TEST_ASSERT_EQUAL(static_cast<int>(BleLinkMode::LiveViewLowDuty),
+                    static_cast<int>(desiredBleLinkMode(BleLinkMode::Normal, in, 1500)));
+  // millis() wrap between stream start and now.
+  in.streamingSinceMs = 0xFFFFFF00U;
+  in.nowMs = 0x00000600U;
+  TEST_ASSERT_EQUAL(static_cast<int>(BleLinkMode::LiveViewLowDuty),
+                    static_cast<int>(desiredBleLinkMode(BleLinkMode::Normal, in, 1500)));
+}
+
+void testBleLinkModeHoldsDuringStreamGapWhilePreviewWanted() {
+  // A LiveView recycle or recovery closes the stream briefly; the link keeps
+  // its current mode instead of flapping parameters.
+  BleLinkModeInputs in;
+  in.bleConnected = true;
+  in.previewRequested = true;
+  in.previewStreaming = false;
+  in.nowMs = 50000;
+  TEST_ASSERT_EQUAL(static_cast<int>(BleLinkMode::LiveViewLowDuty),
+                    static_cast<int>(desiredBleLinkMode(BleLinkMode::LiveViewLowDuty, in, 1500)));
+  TEST_ASSERT_EQUAL(static_cast<int>(BleLinkMode::Normal),
+                    static_cast<int>(desiredBleLinkMode(BleLinkMode::Normal, in, 1500)));
+  // A reopened stream that has not settled yet keeps low duty too.
+  in.previewStreaming = true;
+  in.streamingSinceMs = 49900;
+  TEST_ASSERT_EQUAL(static_cast<int>(BleLinkMode::LiveViewLowDuty),
+                    static_cast<int>(desiredBleLinkMode(BleLinkMode::LiveViewLowDuty, in, 1500)));
+}
+
+void testBleLinkModeReturnsToNormalWhenPreviewLeftOrBleDown() {
+  BleLinkModeInputs in;
+  in.bleConnected = true;
+  in.previewRequested = false;  // portrait: BLE shutter scene
+  in.previewStreaming = true;   // stream not closed yet this tick
+  in.streamingSinceMs = 0;
+  in.nowMs = 60000;
+  TEST_ASSERT_EQUAL(static_cast<int>(BleLinkMode::Normal),
+                    static_cast<int>(desiredBleLinkMode(BleLinkMode::LiveViewLowDuty, in, 1500)));
+  in.previewRequested = true;
+  in.bleConnected = false;
+  TEST_ASSERT_EQUAL(static_cast<int>(BleLinkMode::Normal),
+                    static_cast<int>(desiredBleLinkMode(BleLinkMode::LiveViewLowDuty, in, 1500)));
+}
+
+void testLandscapeKeepsBleShutterForAllGenerations() {
+  // GR III/IV keep BLE through LiveView and shoot over BLE; HTTP shutter in
+  // landscape dropped the GR III link on capture. GR II has no BLE link to
+  // release; an unknown camera keeps BLE so it never loses its only confirmed
+  // shutter path.
+  TEST_ASSERT_FALSE(cameraProtocolProfile(RicohProtocolGeneration::Gr3Family)
+                        .capabilities.allowBlePreviewParking);
+  TEST_ASSERT_FALSE(cameraProtocolProfile(RicohProtocolGeneration::Gr4Family)
+                        .capabilities.allowBlePreviewParking);
   TEST_ASSERT_FALSE(cameraProtocolProfile(RicohProtocolGeneration::Gr2Family)
                         .capabilities.allowBlePreviewParking);
   TEST_ASSERT_FALSE(cameraProtocolProfile(RicohProtocolGeneration::Unknown)
@@ -1819,6 +2142,22 @@ void testPasskeyButtonEntryCompletesResetsAndTimesOut() {
   TEST_ASSERT_EQUAL_INT32(0, entry.code());
 }
 
+void testPasskeyButtonEntryReportsRemainingTime() {
+  PasskeyButtonEntry entry;
+  TEST_ASSERT_EQUAL_UINT32(0, entry.remainingMs(1000));  // inactive
+  entry.start(1000, 28000);
+  TEST_ASSERT_EQUAL_UINT32(28000, entry.remainingMs(1000));
+  TEST_ASSERT_EQUAL_UINT32(18000, entry.remainingMs(11000));
+  TEST_ASSERT_EQUAL_UINT32(0, entry.remainingMs(29000));     // expired
+  TEST_ASSERT_EQUAL_UINT32(0, entry.remainingMs(40000));
+  // millis() wrap inside the window.
+  entry.start(0xFFFFF000U, 28000);
+  TEST_ASSERT_EQUAL_UINT32(28000 - 0x2000U, entry.remainingMs(0x00001000U));
+  // A submitted code no longer counts down.
+  (void)entry.submit();
+  TEST_ASSERT_EQUAL_UINT32(0, entry.remainingMs(0x00001000U));
+}
+
 void testPasskeyCanMoveWithBAndSubmitWithLongA() {
   PasskeyButtonEntry entry;
   entry.start(100, 1000);
@@ -1850,6 +2189,7 @@ int main() {
   RUN_TEST(testBleDisconnectPolicyKeepsOnlyTrustedSleepReasons);
   RUN_TEST(testPortraitStartupCachesWifiWithoutConnecting);
   RUN_TEST(testPortraitReconnectReusesCacheWithoutTogglingCameraWlan);
+  RUN_TEST(testPortraitCachedResumeStaysOffWhenCameraPowerIsOff);
   RUN_TEST(testLandscapeStartupOpensLiveViewWithoutPropsProbe);
   RUN_TEST(testPortraitToLandscapeResumesAfterCredentialCache);
   RUN_TEST(testLandscapeToPortraitDisconnectsWifiAndKeepsBleReady);
@@ -1869,6 +2209,9 @@ int main() {
   RUN_TEST(testLiveViewResoListParsesStringAndBareTokens);
   RUN_TEST(testLiveViewResolutionPicksSmallestMatchingAspect);
   RUN_TEST(testHttpShutterIsClaimedForLandscapeGenerations);
+  RUN_TEST(testHttpFocusSettingIsClaimedForGr3AndGr4);
+  RUN_TEST(testLiveViewFocusSettingFormatsRicohBody);
+  RUN_TEST(testRicohHttpJsonTreatsErrMsgAsTheRealStatus);
   RUN_TEST(testGr2ShutterUsesOfficialRemotePaths);
   RUN_TEST(testGr2ShutterResponseSelectsOneShotOrFallback);
   RUN_TEST(testGr2ShutterResponseRejectsCameraErrors);
@@ -1876,7 +2219,16 @@ int main() {
   RUN_TEST(testGr2ScanCacheRendersRicohFirstAndEscapesHtml);
   RUN_TEST(testGr2ScanCacheShowsEmptyAndNonRicohWarnings);
   RUN_TEST(testGr2CredentialHandoffWaitsForResponseFlushAndHandlesMillisWrap);
-  RUN_TEST(testLandscapeReleasesBleOnlyForGr3AndGr4);
+  RUN_TEST(testLandscapeKeepsBleShutterForAllGenerations);
+  RUN_TEST(testChargingIndicatorTurnsOnImmediately);
+  RUN_TEST(testChargingIndicatorIgnoresTopOffFlapping);
+  RUN_TEST(testChargingIndicatorClearsAfterSustainedOff);
+  RUN_TEST(testBleLinkNormalModeMatchesConnectParams);
+  RUN_TEST(testBleLinkLiveViewModeIsBeaconAlignedAndValid);
+  RUN_TEST(testBleConnParamsValidationEnforcesSpecLimits);
+  RUN_TEST(testBleLinkModeWaitsForStableLiveViewStream);
+  RUN_TEST(testBleLinkModeHoldsDuringStreamGapWhilePreviewWanted);
+  RUN_TEST(testBleLinkModeReturnsToNormalWhenPreviewLeftOrBleDown);
   RUN_TEST(testGr3CredentialShapeAllowsOptionalChannel);
   RUN_TEST(testOldGr4ProfileMetadataMigratesWithoutRepairing);
   RUN_TEST(testNewProfileMetadataRoundTrips);
@@ -1886,6 +2238,7 @@ int main() {
   RUN_TEST(testPairingRecoveryDropsUnauthenticatedBondAfterTwoReads);
   RUN_TEST(testPasskeySerialCollectorCompletesWithoutLoggingValue);
   RUN_TEST(testPasskeyButtonEntryCompletesResetsAndTimesOut);
+  RUN_TEST(testPasskeyButtonEntryReportsRemainingTime);
   RUN_TEST(testPasskeyCanMoveWithBAndSubmitWithLongA);
   RUN_TEST(testLockedBindingRejectsNewPairingAndOtherCameras);
   RUN_TEST(testPairingBindingAcceptsFirstValidCandidateWithoutStoredIdentity);
@@ -1895,6 +2248,10 @@ int main() {
   RUN_TEST(testLandscapeShutterNotReadyRecoversWithoutBleRescanReason);
   RUN_TEST(testPortraitShutterNotReadyKeepsBleRescanReason);
   RUN_TEST(testLandscapeHttpShutterFailureNamesHttpPath);
+  RUN_TEST(testLandscapeHttpShutterSuccessReopensPreview);
+  RUN_TEST(testLandscapeStallRecyclesPreviewWithoutBleRecovery);
+  RUN_TEST(testLandscapeStallRecycleFailureRecovers);
+  RUN_TEST(testLandscapeHttpShutterReopenFailureRecovers);
   RUN_TEST(testRecoveryStopsWhenBleStackResetFails);
   RUN_TEST(testBeginRejectsInvalidInputs);
   RUN_TEST(testDeliversFrameSplitAcrossChunks);

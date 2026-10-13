@@ -283,6 +283,29 @@ bool BleCameraService::shotNotifyActive() const {
     return _client != nullptr && _client->shotNotifyActive();
 }
 
+Result BleCameraService::applyConnParams(const BleConnParams& params, const char* reason) {
+    Result ready = requireClient("applyConnParams");
+    if (ready.failed()) {
+        return ready;
+    }
+    if (!_client->applyConnParams(params, reason)) {
+        return Result::failure(ErrorCode::Unknown, _client->lastError());
+    }
+    return Result::success();
+}
+
+bool BleCameraService::readConnParams(BleConnParams& params) const {
+    return _client != nullptr && _client->readConnParams(params);
+}
+
+uint32_t BleCameraService::peerConnParamRequests() const {
+    return _client != nullptr ? _client->peerConnParamRequests() : 0;
+}
+
+uint32_t BleCameraService::connectionSerial() const {
+    return _client != nullptr ? _client->connectionSerial() : 0;
+}
+
 int BleCameraService::batteryLevel() const {
     return _client != nullptr ? _client->batteryLevel() : -1;
 }
