@@ -26,10 +26,10 @@
 | --- | --- | --- | --- |
 | K1 | 横屏预览中 BLE 快门写入阻塞约 12 s，期间预览冻结 | GR IV：`OperationRequest START` 后 12.4 s 才 `writeValue failed, rc: 384`，预览 fps 降到 0.2。多次横竖切换（Wi-Fi 反复 `AUTH_FAIL`）后在横屏连续按 A | BLE 写同步执行、阻塞主循环。短期给快门写加约 2 s 超时；根治为多品牌计划阶段 8（驱动非阻塞） |
 | K2 | 快门被误判为已确认 | `shot confirmed by camera notify after 3ms`，或确认紧跟上一张的 `[00 00 00 00]`。0.5 s 内连按 A 两次 | 任何 CaptureStatus / ShotCount 通知都会递增 `shotEventSequence`。只把 `[01 …]` 计为确认 |
-| K3 | 快门失败提示为空 | `Button A: BLE shutter failed: `（冒号后为空）。连按 A 三次 | `retryShutterAfterGr3StartupMode()` 读 Operation Mode 成功时清空了 `lastError()`。读之前保存、失败后恢复 |
-| K4 | 相机仍在处理上一张时再次快门被拒 | `writeValue failed, rc: 384`（ATT `0x80`）。连按 A | 相机行为。可在 CaptureStatus 未回到 `00` 前暂缓或提示“相机忙” |
+| K3 | 快门失败提示为空 | `Button A: BLE shutter failed: `（冒号后为空）。连按 A 三次 | `retryShutterAfterGr3StartupMode()` 读 Operation Mode 成功时清空了 `lastError()`。读之前保存、失败后恢复。空提示让 K4 的各种原因无法区分（2026-10-14 一次“每次快门都失败”实为 SD 卡已满） |
+| K4 | 相机仍在处理上一张时再次快门被拒 | `writeValue failed, rc: 384`（ATT `0x80`）。连按 A | 相机行为。可在 CaptureStatus 未回到 `00` 前暂缓或提示“相机忙”。**SD 卡已满也返回同一个 `rc: 384`**（GR III 实测，清理后恢复），若每次快门都失败先查存储卡 |
 | K5 | Wi-Fi 全信道扫描首次失败后空等 | GR IV：`STA disconnected reason=49` 后等到 4 s kick，本次连接 11.9 s | `gr_wifi.cpp` 只按固定间隔 kick。改为收到断开事件立即重发 join |
-| K6 | 开机 M5PM1 按键寄存器读取失败 | 每次开机 `M5PM1 button read failed err=-7`，回退到 M5Unified，长按关机仍可用 | 疑似 I2C 时序或硬件，需单独排查 |
+| K6 | 开机 M5PM1 按键寄存器读取失败 | 每次开机 `M5PM1 button read failed err=-7`，回退到 M5Unified，长按关机仍可用。2026-10-14：`M5PM1 ready` 初始化成功，约 5 s 后读 `Reg[0x48]` 才失败（`Wire` Error 263） | 不是初始化失败而是运行中 I2C 读出错，疑似与 BLE 连接 / 屏幕刷新期间的总线时序有关，需单独排查 |
 | K7 | 内部 RAM 碎片 | `UI Canvas: internal allocation failed; retrying in PSRAM`（`largest_int` 约 63 KB < 64.8 KB），解码/渲染每帧慢 7–8 ms，FPS 基本不变 | 多品牌计划阶段 8（去 `String`） |
 | K8 | GR IV 打开 LiveView 约 1.0–1.2 s | 加快 Wi-Fi join 后由约 0.4 s 变长 | 推测相机 HTTP 服务尚未就绪；持续观察 |
 | K9 | GR IV 首次配对前几次连接失败 | 前 8 次 `connect failed reason=574`，广播名为空，约 14 s 后成功 | 相机侧未就绪，自动重试可覆盖 |

@@ -279,7 +279,7 @@ GR III 与 GR IV 约 60–70% 的流程相同（电源门控、HTTP 预览、恢
 - 结果：`main.cpp`、`ui/`、`supervisor/`、`camera/` 不再引用 `AppState` 或 `RicohProtocolGeneration`。`app/` 里的 `AppController` 实际只被 `RicohDriver` 使用，已移到 [`brands/ricoh/flow/`](../../src/brands/ricoh/flow/RicohFlowController.h) 并改名：`AppController` → `RicohFlowController`、`AppState` → `RicohFlowState`、`AppFlowActions` → `RicohFlowActions`、`AppTickPlan` → `RicohTickPlan`（纯改名，固件 Flash 字节数不变、日志字符串不变）。`app/` 改放品牌无关的应用逻辑（见 3c）。
 - 3c 应用运行时：`main.cpp` 中的应用决策搬入品牌无关、可 native 编译的 [`app/AppRuntime`](../../src/app/AppRuntime.h)：每轮主循环（`tick()`）、按键分发、配对引导、LiveView 锁、姿态 → 预览意图、配网期输入、启动收尾。设备能力经 `IAppPlatform` 由 `main.cpp` 提供（按键、长按电源、关机、电量、UI 刷新、Supervisor、镜像、日志）。搬移后的函数体与原版逐语句比对一致（仅 `printf` 改为 `snprintf` + `log`，输出相同）。`ICameraDriver.h` 去掉 Arduino 依赖：`ICameraHost::showStatus` 改收 `const char*`，`PreviewFrameBufferStorage` 拆到独立头文件。
 - [`SimCameraDriver`](../../test/test_native_app_runtime/SimCameraDriver.h) + 记录型 `FakeAppPlatform`：新套件 `test_native_app_runtime` 的 12 个用例按调用日志断言主循环顺序（含 Supervisor 位于 flow 与 background tick 之间）、关机 / 自动关机短路、快门 / 重置 / 镜像 / 锁的路由、配对引导吞掉输入并确认选中机型、配网循环。Native 共 136 例。
-- 未实机验证：3a–3c 均为等价重构，配对引导绘制改为循环绘制、主循环改经 `AppRuntime`，需在设备上冒烟测试一次（选机型界面、横竖切换、快门、长按 B、长按电源关机）。
+- 实机冒烟（2026-10-14，GR III 系列）：选机型界面显示与 B 循环、确认配对、重启快速重连、竖屏 / 横屏快门、横竖切换、LiveView 锁定与解锁、长按电源关机均正常。
 
 ### 执行注意事项
 
