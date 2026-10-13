@@ -40,6 +40,7 @@ platformio test -e native      # host-side 纯逻辑单元测试
 | --- | --- |
 | `src/camera/` | `ICameraDriver`（App → 相机驱动）/ `ICameraHost`（驱动 → 显示与输入）/ `CameraStatus` / `CameraPhase`（品牌无关连接阶段）/ `CameraRegistry`（配对引导机型列表） |
 | `src/brands/ricoh/` | `RicohDriver`：理光完整工作流（BLE 唤醒、电源门控、保护态、Wi-Fi 凭据缓存、LiveView、快门、GR II 配网），由 `main.cpp` 迁入 |
+| `src/app/` | `AppRuntime`：品牌无关的应用逻辑（主循环一轮、按键分发、配对引导、LiveView 锁、预览意图），经 `IAppPlatform` 调用设备能力；native 用 `SimCameraDriver` 测试 |
 | `src/brands/ricoh/flow/` | `RicohFlowController` 理光工作流状态机（原 `app/AppController`），经 `RicohFlowActions` 回调驱动 `RicohDriver` 中的具体动作；`RicohFlowState` 由 `ricohCameraPhase()` 映射为 `CameraPhase` |
 | `src/core/` | `AppMessage`/`AppEvent`、`Logger`、`Result`、`PeriodicTask` |
 | `src/services/` | `BleCameraService`（`RicohBleClient` 门面）、`WifiPreviewService`、`CameraPowerPolicy`、`PreviewFrameBuffer` |
@@ -51,7 +52,7 @@ platformio test -e native      # host-side 纯逻辑单元测试
 
 | 层 | 文件 | 职责 |
 | --- | --- | --- |
-| 宿主 | [`src/main.cpp`](src/main.cpp) | 板级（PMIC、电量、关机）、显示 / IMU / 声音、按键分发、配对引导与 passkey 输入 UI、帧解码渲染、Supervisor、`setup()` / `loop()`；相机只经 `ICameraDriver` 访问 |
+| 宿主 | [`src/main.cpp`](src/main.cpp) | StickS3 设备层：`IAppPlatform` / `ICameraHost` 实现、板级（PMIC、电量、关机）、显示 / IMU / 声音、passkey 输入 UI、帧解码渲染、Supervisor、`setup()`；`loop()` 只调 `AppRuntime::tick()` |
 | BLE | [`src/ricoh_ble_client.*`](src/ricoh_ble_client.h) | RICOH BLE 扫描/连接/配对、Wi-Fi 凭据读取、快门写入、电源状态通知 |
 | Wi-Fi | [`src/gr_wifi.*`](src/gr_wifi.h) | ESP32 STA 连接相机 AP（支持 BSSID 锚定 + 连接守卫回调） |
 | HTTP API | [`src/gr_api.*`](src/gr_api.h) | RICOH HTTP：`GET /v1/props`、`GET /v1/liveview`（MJPEG 流读取） |

@@ -11,6 +11,7 @@
 #include "core/Logger.h"
 #include "display.h"
 #include "jpeg_decoder.h"
+#include "app/AppRuntime.h"
 #include "brands/ricoh/RicohDriver.h"
 #include "camera/ICameraDriver.h"
 #include "services/PreviewFrameBuffer.h"
@@ -31,10 +32,29 @@ CameraProfileStore profileStore;
 M5PM1 stickPower;
 rvf::RicohDriver ricohDriver(profileStore);
 rvf::ICameraDriver& camera = ricohDriver;
+
+// StickS3 side of the app: buttons, screen, power and serial log.
+class AppPlatform : public rvf::IAppPlatform {
+public:
+  uint32_t nowMs() override;
+  ButtonEvents pollButtons() override;
+  bool pollPowerButtonHold() override;
+  void shutdown() override;
+  void serviceDevicePower() override;
+  void refreshUi() override;
+  void refreshUi(const ButtonEvents& input) override;
+  void superviseSystem() override;
+  void toggleDisplayMirror() override;
+  void idle() override;
+  void log(const char* text) override;
+  void logLine(const char* text) override;
+};
+
+AppPlatform appPlatform;
+rvf::AppRuntime runtime(camera, appPlatform);
 rvf::SystemSupervisor systemSupervisor;
 rvf::UiCoordinator uiCoordinator;
 rvf::OrientationTracker orientationTracker(rvf::UiOrientation::Portrait);
-rvf::PairingGuide pairingGuide;
 rvf::UiSoundPlayer uiSound;
 uint8_t* frameBuffer = nullptr;
 
@@ -43,7 +63,6 @@ bool imuAvailable = false;
 ButtonEvents currentUiInput;
 int16_t jpegViewportWidth = 0;
 int16_t jpegViewportHeight = 0;
-bool liveViewLocked = false;
 
 // M5PM1 power-management chip and its PWR button long-press tracking.
 struct StickPowerState {
@@ -103,7 +122,6 @@ void shutdownStickS3();
 void updateUi();
 void updateUi(const ButtonEvents& input);
 void toggleDisplayMirror();
-void toggleLiveViewLock();
 
 void sampleDeviceBatteryLevel() {
   const int32_t battery = M5.Power.getBatteryLevel();
@@ -264,19 +282,6 @@ void toggleDisplayMirror() {
                 persisted ? 1 : 0);
 }
 
-void toggleLiveViewLock() {
-  // The UI may already have rendered the portrait remote scene one loop before
-  // serviceCameraFlowIfNeeded() acts on the orientation change. Keep that
-  // one-loop handoff available for a Button B double-click while the underlying
-  // LiveView session is still active.
-  if (!liveViewLocked && !camera.previewActive()) {
-    Serial.println("LiveView lock: ignored outside LiveView");
-    return;
-  }
-  liveViewLocked = !liveViewLocked;
-  Serial.printf("LiveView lock: enabled=%d\n", liveViewLocked ? 1 : 0);
-}
-
 uint8_t passkeyRemainingSeconds() {
   const uint32_t remainingMs = passkeyUi.entry.remainingMs(millis());
   const uint32_t seconds = (remainingMs + 999U) / 1000U;
@@ -370,8 +375,8 @@ rvf::UiSnapshot makeUiSnapshot() {
   snapshot.cameraSleepLike = status.sleepGuardActive ||
                              status.phase == rvf::CameraPhase::Sleeping;
   snapshot.resettingPairing = status.resettingPairing;
-  snapshot.pairingGuideActive = pairingGuide.active();
-  snapshot.pairingGuideSelectedIndex = static_cast<uint8_t>(pairingGuide.selectedIndex());
+  snapshot.pairingGuideActive = runtime.pairingGuide().active();
+  snapshot.pairingGuideSelectedIndex = static_cast<uint8_t>(runtime.pairingGuide().selectedIndex());
   snapshot.wifiProvisioningActive = status.provisioningActive;
   snapshot.wifiProvisioningPreparing = status.provisioningPreparing;
   snapshot.hasFrame = fpsStats.decodedFrames > 0;
@@ -414,10 +419,7 @@ void updateUi(const ButtonEvents& input) {
   const uint32_t nowMs = millis();
   const rvf::UiSnapshot snapshot = makeUiSnapshot();
   const rvf::UiOrientation sensedOrientation = sampleUiOrientation(snapshot, nowMs);
-  const rvf::UiOrientation orientation = rvf::UiCoordinator::resolvePreviewOrientation(
-      sensedOrientation, liveViewLocked);
-  camera.setUiPreviewIntent(orientation == rvf::UiOrientation::Landscape,
-                            pairingGuide.active());
+  const rvf::UiOrientation orientation = runtime.applyPreviewOrientation(sensedOrientation);
   uiCoordinator.update(snapshot, input, orientation, nowMs);
   ui.render(uiCoordinator.viewModel());
   uiSound.play(uiCoordinator.consumeSound(), nowMs);
@@ -532,48 +534,6 @@ void shutdownStickS3() {
   }
 }
 
-void handleButtons() {
-  const ButtonEvents events = buttons.poll();
-
-  if (events.powerOff || pollStickPowerHold()) {
-    shutdownStickS3();
-    return;
-  }
-
-  if (pairingGuide.active()) {
-    const rvf::PairingGuideAction action = pairingGuide.handle(events);
-    // Never forward guide A/B input into the global UI command/animation
-    // pipeline. This prevents shutter, mirror, LiveView lock and reset actions.
-    if (action == rvf::PairingGuideAction::Confirmed) {
-      (void)camera.confirmModel(pairingGuide.selection());
-    } else {
-      updateUi(ButtonEvents{});
-    }
-    return;
-  }
-
-  const rvf::UserCommand command = rvf::ButtonInput::commandFromEvents(events);
-
-  if (command == rvf::UserCommand::ResetPairing) {
-    liveViewLocked = false;
-    camera.resetPairing();
-    return;
-  }
-
-  if (command == rvf::UserCommand::ToggleDisplayMirror) {
-    toggleDisplayMirror();
-  }
-
-  if (command == rvf::UserCommand::ToggleLiveViewLock) {
-    toggleLiveViewLock();
-  }
-
-  if (command == rvf::UserCommand::Shoot) {
-    camera.shoot();
-  }
-  updateUi(events);
-}
-
 const char* appEventTypeName(rvf::AppEventType type) {
   switch (type) {
     case rvf::AppEventType::None: return "None";
@@ -632,10 +592,10 @@ void serviceSystemSupervisor(uint32_t nowMs) {
 
 class AppCameraHost : public rvf::ICameraHost {
 public:
-  void showStatus(const String& line1,
-                  const String& line2,
-                  const String& line3,
-                  const String& line4,
+  void showStatus(const char* line1,
+                  const char* line2,
+                  const char* line3,
+                  const char* line4,
                   bool force) override {
     showStatusIfChanged(line1, line2, line3, line4, force);
   }
@@ -651,7 +611,7 @@ public:
   }
 
   void requestModelSelection(rvf::CameraModelId defaultModel) override {
-    pairingGuide.activate(defaultModel);
+    runtime.requestModelSelection(defaultModel);
   }
 
   void onShutterStarted() override { uiCoordinator.notifyShutterStarted(millis()); }
@@ -670,7 +630,7 @@ public:
     updateUi();
   }
 
-  void releaseLiveViewLock() override { liveViewLocked = false; }
+  void releaseLiveViewLock() override { runtime.releaseLiveViewLock(); }
 
   rvf::PreviewRenderResult renderPreviewFrame(const uint8_t* data, size_t len) override {
     return renderLivePreviewFrame(data, len);
@@ -679,52 +639,18 @@ public:
 
 AppCameraHost cameraHost;
 
-void serviceProvisioning() {
-  camera.serviceProvisioningPortal();
-  const ButtonEvents events = buttons.poll();
-
-  if (events.powerOff || pollStickPowerHold()) {
-    camera.stopProvisioning();
-    shutdownStickS3();
-    return;
-  }
-
-  if (camera.handleProvisioningInput(events.resetPairing)) {
-    updateUi(ButtonEvents{});
-    return;
-  }
-
-  serviceDevicePowerIndicator(millis());
-  updateUi(events);
-  delay(1);
-}
-
-void runAppTick() {
-  if (camera.provisioningActive()) {
-    serviceProvisioning();
-    return;
-  }
-  if (camera.beginTick(millis())) {
-    handleButtons();
-  }
-  if (pairingGuide.active()) {
-    serviceDevicePowerIndicator(millis());
-    updateUi();
-    delay(1);
-    return;
-  }
-  if (camera.autoPowerOffDue()) {
-    Serial.println("Power: CameraSleep idle timeout reached");
-    shutdownStickS3();
-    return;
-  }
-  camera.serviceFlowTick();
-  serviceSystemSupervisor(millis());
-  camera.serviceBackgroundTick();
-  serviceDevicePowerIndicator(millis());
-  updateUi();
-  delay(1);
-}
+uint32_t AppPlatform::nowMs() { return millis(); }
+ButtonEvents AppPlatform::pollButtons() { return buttons.poll(); }
+bool AppPlatform::pollPowerButtonHold() { return pollStickPowerHold(); }
+void AppPlatform::shutdown() { shutdownStickS3(); }
+void AppPlatform::serviceDevicePower() { serviceDevicePowerIndicator(millis()); }
+void AppPlatform::refreshUi() { updateUi(); }
+void AppPlatform::refreshUi(const ButtonEvents& input) { updateUi(input); }
+void AppPlatform::superviseSystem() { serviceSystemSupervisor(millis()); }
+void AppPlatform::toggleDisplayMirror() { ::toggleDisplayMirror(); }
+void AppPlatform::idle() { delay(1); }
+void AppPlatform::log(const char* text) { Serial.print(text); }
+void AppPlatform::logLine(const char* text) { Serial.println(text); }
 
 
 }  // namespace
@@ -784,13 +710,9 @@ void setup() {
     }
   }
 
-  camera.runStartupFlow(pairingGuide.active());
-  if (pairingGuide.active()) {
-    camera.onModelSelectionShown();
-    updateUi();
-  }
+  runtime.startCamera();
 }
 
 void loop() {
-  runAppTick();
+  runtime.tick();
 }

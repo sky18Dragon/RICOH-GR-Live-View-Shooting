@@ -134,7 +134,7 @@ void showStatusIfChanged(const String& line1,
                          const String& line3 = String(),
                          const String& line4 = String(),
                          bool force = false) {
-  g_host->showStatus(line1, line2, line3, line4, force);
+  g_host->showStatus(line1.c_str(), line2.c_str(), line3.c_str(), line4.c_str(), force);
 }
 
 void updateUi() {

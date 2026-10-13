@@ -1,11 +1,9 @@
 #pragma once
 
-#include <Arduino.h>
-
 #include <cstddef>
 #include <cstdint>
 
-#include "../services/PreviewFrameBuffer.h"
+#include "../services/PreviewFrameBufferStorage.h"
 #include "CameraModel.h"
 #include "CameraPhase.h"
 
@@ -33,10 +31,10 @@ class ICameraHost {
 public:
     virtual ~ICameraHost() = default;
 
-    virtual void showStatus(const String& line1,
-                            const String& line2,
-                            const String& line3,
-                            const String& line4,
+    virtual void showStatus(const char* line1,
+                            const char* line2,
+                            const char* line3,
+                            const char* line4,
                             bool force) = 0;
     virtual void refreshUi() = 0;
 
