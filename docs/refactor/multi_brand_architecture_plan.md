@@ -1,6 +1,6 @@
 # 多品牌 / 多型号相机架构重构计划
 
-> 状态：草案（仅分析与方案，尚未改动代码）
+> 状态：已定稿方案 A（2026-10-13）；迁移阶段尚未开始，前置清理见 [architecture_refactor_plan.md](architecture_refactor_plan.md)
 > 日期：2026-10-13
 > 分析基线：分支 `feature/firmware-optimization`
 > 关联文档：[architecture_refactor_plan.md](architecture_refactor_plan.md)、[../project_overview.md](../project_overview.md)、[../power_state_policy.md](../power_state_policy.md)
@@ -83,7 +83,7 @@
 ### P8：测试与 CI 不支持按型号验证
 
 - 所有测试集中在一个 2145 行的 `test/test_native/test_native_logic.cpp`。
-- CI（`.github/workflows/platformio.yml`）只编译固件，不运行 `pio test -e native`。
+- ~~CI 只编译固件，不运行 `pio test -e native`。~~ 已加入 `native-test` job（2026-10-13）。
 - 没有模拟相机驱动，离开真机无法测试 App 状态机。
 
 ### P9：嵌入式运行时
@@ -239,7 +239,7 @@ GR III 与 GR IV 约 60–70% 的流程相同（电源门控、HTTP 预览、恢
 
 "完全不耦合"更接近方案 B。建议采用方案 A，并以"common 禁止出现型号分支"的规则加 CI 单型号编译来约束。
 
-**决定：TODO（待作者确认）**
+**决定：采用方案 A（2026-10-13 作者确认）。** `ricoh/common` 只放不认识型号的协议原语与流程组件，禁止出现型号分支；型号差异由 `ricoh/<model>/` 以参数 / 策略对象注入，并以 CI 单型号编译约束。
 
 ---
 
@@ -273,4 +273,3 @@ GR III 与 GR IV 约 60–70% 的流程相同（电源门控、HTTP 预览、恢
 - 富士、尼康的 BLE 配对、Wi-Fi 启动方式与实时取景协议（PTP/IP 等）需抓包或查阅逆向资料确认，再据此定稿 `ICameraDriver` 与 `IFrameSource`。
 - 各单型号 env 的 Flash / RAM 占用（当前全量固件 Flash 约 43.6%）。
 - `ricoh2` → `CameraBinding` 迁移在 GR II / III / IV 上的实机验证。
-- 方案 A / B 的最终选择。

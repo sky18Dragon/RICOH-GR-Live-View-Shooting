@@ -138,6 +138,9 @@ constexpr uint8_t FIRST_BOOT_BLE_PAIRING_ATTEMPTS = 12;
 #define RVF_SERIAL_BOOT_WAIT_MS 0
 #endif
 constexpr uint32_t SERIAL_BOOT_WAIT_MS = RVF_SERIAL_BOOT_WAIT_MS;
+constexpr uint32_t SERIAL_BAUD = 115200;
+constexpr const char* FIRMWARE_BANNER = "RICOH GR StickS3 Remote Viewfinder V2";
+constexpr const char* FIRMWARE_BOOT_MESSAGE = "V2 booting...";
 constexpr uint32_t CAMERA_POWER_OFF_COOLDOWN_MS = 15000;
 constexpr uint32_t CAMERA_POWER_OFF_PROBE_BACKOFF_MS = 8000;
 constexpr uint32_t CAMERA_SLEEP_AUTO_POWER_OFF_MS = 30000;

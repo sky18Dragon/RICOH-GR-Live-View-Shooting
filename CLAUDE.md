@@ -16,7 +16,7 @@ M5Stack StickS3（ESP32-S3）固件：以 **BLE 为唯一在线入口**识别并
 | 目标板 | M5Stack StickS3（ESP32-S3-PICO-1-N8R8，8MB Flash / 8MB PSRAM），`board=esp32-s3-devkitc-1` |
 | 屏幕 | 240×135，经 M5Unified / LovyanGFX 渲染 |
 | 关键库 | `M5Unified`、`M5PM1`、`bitbank2/JPEGDEC@^1.8.2`、`bblanchon/ArduinoJson@^7.0.0`、`h2zero/NimBLE-Arduino@2.5.0` |
-| 语言 | C++（Arduino 风格，`.cpp` + `.h` 扁平放在 `src/`） |
+| 语言 | C++17（Arduino 风格；旧模块平铺在 `src/`，新分层在 `src/{app,core,services,supervisor,ui,ricoh}/`） |
 | 许可证 | GPL-3.0 |
 
 ## 构建 / 烧录 / 监控
@@ -28,15 +28,28 @@ platformio device monitor      # 串口日志（monitor_speed=115200）
 platformio test -e native      # host-side 纯逻辑单元测试
 ```
 
-已有 host-side native 单元测试覆盖 `MjpegStream` 纯逻辑边界与相机身份名称推导；完整链路验证仍依赖真实硬件（StickS3 + RICOH GR III/IIIx/IV）与串口日志。
+`test/` 下的 host-side native 单元测试覆盖各纯逻辑策略模块、`AppController` 状态机与 UI 协调器（CI 中与固件编译一起运行）；完整链路验证仍依赖真实硬件（StickS3 + RICOH GR II/III/IIIx/IV）与串口日志。
 
 ## 模块导航
 
-代码全部扁平放在 `src/`（共 10 个 `.cpp`/`.h` 对 + `config.h`，约 3711 行）。按职责分层：
+`src/` 约 1.5 万行，处于「旧平铺模块 → 分层架构」迁移中。架构方向见 [`docs/refactor/multi_brand_architecture_plan.md`](docs/refactor/multi_brand_architecture_plan.md)（已定：品牌内共享采用方案 A）。
+
+**分层目录（新）**：
+
+| 目录 | 职责 |
+| --- | --- |
+| `src/app/` | `AppController` 主状态机；经 `AppFlowActions` 回调驱动 `main.cpp` 中的具体动作 |
+| `src/core/` | `AppMessage`/`AppEvent`、`Logger`、`Result`、`PeriodicTask` |
+| `src/services/` | `BleCameraService`（`RicohBleClient` 门面）、`WifiPreviewService`、`CameraPowerPolicy`、`PreviewFrameBuffer` |
+| `src/supervisor/` | `SystemSupervisor` 健康检查事件 |
+| `src/ui/` | 按键命令、姿态、配对引导、UI 协调/动画/音效 |
+| `src/ricoh/` | 理光 BLE 协议描述符与 GR3 / GR4 配对策略 |
+
+**平铺模块（旧，仍是主要实现）**：
 
 | 层 | 文件 | 职责 |
 | --- | --- | --- |
-| 编排 | [`src/main.cpp`](src/main.cpp) | 主状态机、连接流程、相机关机保护态、按键分发、`loop()` |
+| 编排 | [`src/main.cpp`](src/main.cpp) | 主状态机接线、连接流程具体动作、相机关机保护态、按键分发、`loop()` |
 | BLE | [`src/ricoh_ble_client.*`](src/ricoh_ble_client.h) | RICOH BLE 扫描/连接/配对、Wi-Fi 凭据读取、快门写入、电源状态通知 |
 | Wi-Fi | [`src/gr_wifi.*`](src/gr_wifi.h) | ESP32 STA 连接相机 AP（支持 BSSID 锚定 + 连接守卫回调） |
 | HTTP API | [`src/gr_api.*`](src/gr_api.h) | RICOH HTTP：`GET /v1/props`、`GET /v1/liveview`（MJPEG 流读取） |
@@ -45,6 +58,7 @@ platformio test -e native      # host-side 纯逻辑单元测试
 | 持久化 | [`src/camera_profile_store.*`](src/camera_profile_store.h) | NVS（namespace `ricoh2`）存储相机 BLE 身份、Wi-Fi 缓存与 IP |
 | 输入 | [`src/buttons.*`](src/buttons.h) | 仅轮询 `M5.BtnA` |
 | 配置 | [`src/config.h`](src/config.h) | 全局常量：BLE GATT 句柄、超时、扫描次数、缩放策略、Service UUID |
+| 纯逻辑策略 | `src/*_policy.*`、`camera_profile_schema.*`、`camera_protocol_profile.*`、`gr2_*` | 可在 native 环境测试的决策逻辑 |
 
 详细接口、依赖、状态机说明见 [`src/CLAUDE.md`](src/CLAUDE.md)。
 

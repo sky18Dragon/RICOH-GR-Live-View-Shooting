@@ -12,7 +12,6 @@
 #include "camera_sleep_policy.h"
 #include "config.h"
 #include "app/AppController.h"
-#include "core/AppConfig.h"
 #include "core/Logger.h"
 #include "display.h"
 #include "gr_api.h"
@@ -60,7 +59,7 @@ rvf::UiSoundPlayer uiSound;
 using CameraFlowState = rvf::AppState;
 rvf::AppController appController(CameraFlowState::BleScan);
 uint8_t* frameBuffer = nullptr;
-uint8_t streamReadBuffer[rvf::AppConfig::Buffer::kStreamReadBufferSize];
+uint8_t streamReadBuffer[STREAM_READ_BUFFER_SIZE];
 CameraProps cameraProps;
 RicohBleWifiCredentials pendingFreshWifiCredentials;
 
@@ -354,12 +353,12 @@ void showStatusIfChanged(const String& line1,
 
 void waitForSerialConsole() {
   const uint32_t startMs = millis();
-  while (!Serial && (millis() - startMs) < rvf::AppConfig::SerialPort::kBootWaitMs) {
+  while (!Serial && (millis() - startMs) < SERIAL_BOOT_WAIT_MS) {
     delay(10);
   }
   Serial.setDebugOutput(false);
   Serial.println();
-  LOGI("BOOT", "%s", rvf::AppConfig::Ui::kBanner);
+  LOGI("BOOT", "%s", FIRMWARE_BANNER);
 }
 
 void restoreLiveViewFocusSettingIfNeeded() {
@@ -3285,7 +3284,7 @@ void runAppTick() {
 }  // namespace
 
 void setup() {
-  Serial.begin(rvf::AppConfig::SerialPort::kBaud);
+  Serial.begin(SERIAL_BAUD);
   appController.begin(CameraFlowState::BleScan);
   systemSupervisor.begin(millis());
 
@@ -3300,7 +3299,7 @@ void setup() {
                 imuAvailable ? "ready" : "unavailable",
                 imuAvailable ? "none" : "preview landscape / status portrait");
   Serial.printf("UI: sound %s\n", uiSound.begin() ? "ready" : "disabled/unavailable");
-  ui.showBoot(rvf::AppConfig::Ui::kBootMessage);
+  ui.showBoot(FIRMWARE_BOOT_MESSAGE);
   waitForSerialConsole();
 
   beginStickPower();
@@ -3333,10 +3332,10 @@ void setup() {
   }
 
   rvf::PreviewFrameBufferStorage frameBufferStorage = rvf::PreviewFrameBufferStorage::Psram;
-  frameBuffer = static_cast<uint8_t*>(heap_caps_malloc(rvf::AppConfig::Buffer::kFrameBufferSize, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+  frameBuffer = static_cast<uint8_t*>(heap_caps_malloc(FRAME_BUFFER_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   if (frameBuffer == nullptr) {
     frameBufferStorage = rvf::PreviewFrameBufferStorage::InternalRam;
-    frameBuffer = static_cast<uint8_t*>(heap_caps_malloc(rvf::AppConfig::Buffer::kFrameBufferSize, MALLOC_CAP_8BIT));
+    frameBuffer = static_cast<uint8_t*>(heap_caps_malloc(FRAME_BUFFER_SIZE, MALLOC_CAP_8BIT));
   }
   if (frameBuffer == nullptr) {
     LOGLINE_E("MEM", "Failed to allocate JPEG frame buffer");
@@ -3346,7 +3345,7 @@ void setup() {
     }
   }
 
-  if (!previewFrameBuffer.attach(frameBuffer, rvf::AppConfig::Buffer::kFrameBufferSize, frameBufferStorage)) {
+  if (!previewFrameBuffer.attach(frameBuffer, FRAME_BUFFER_SIZE, frameBufferStorage)) {
     LOGLINE_E("FRAME", "Failed to attach JPEG frame buffer");
     ui.showError("Frame buffer attach failed");
     while (true) {
