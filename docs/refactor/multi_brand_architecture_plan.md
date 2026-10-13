@@ -82,7 +82,7 @@
 
 ### P8：测试与 CI 不支持按型号验证
 
-- 所有测试集中在一个 2145 行的 `test/test_native/test_native_logic.cpp`。
+- ~~所有测试集中在一个 2145 行的 `test/test_native/test_native_logic.cpp`。~~ 已按功能区拆为 `test/test_native_{app_flow,ble,camera_protocol,media,ui}/`（2026-10-13），按型号拆分留待阶段 6。
 - ~~CI 只编译固件，不运行 `pio test -e native`。~~ 已加入 `native-test` job（2026-10-13）。
 - 没有模拟相机驱动，离开真机无法测试 App 状态机。
 

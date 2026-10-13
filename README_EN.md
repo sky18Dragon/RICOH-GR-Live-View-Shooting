@@ -260,7 +260,7 @@ The normal log shows HTTP WLAN Finish, local Wi-Fi disconnect, then BLE WLAN dea
 - [src/ui/](src/ui/): pairing guide, buttons, orientation, animation, sound, and scene coordination.
 - [src/camera_profile_store.cpp](src/camera_profile_store.cpp): camera profile, display settings, and Wi-Fi cache persistence.
 - [src/jpeg_decoder.cpp](src/jpeg_decoder.cpp) and [src/mjpeg_stream.cpp](src/mjpeg_stream.cpp): JPEG decoding and MJPEG frame parsing.
-- [test/test_native/](test/test_native/): host-side Native automated tests.
+- [test/](test/): host-side Native automated tests (`test_native_*` suites, one per area).
 - [docs/](docs/): protocol, state-machine, hardware-verification, and test material.
 - [cad/](cad/): printable StickS3 hot-shoe adapters and editable models.
 

@@ -25,7 +25,7 @@ git diff -- AGENTS.md docs logs
 - `ui/OrientationTracker.cpp`
 - `ui/UiAnimator.cpp`
 - `ui/UiCoordinator.cpp`
-- `test/test_native/test_native_logic.cpp`
+- `test/test_native_*/test_main.cpp`（按功能区拆分：`app_flow`、`ble`、`camera_protocol`、`media`、`ui`，可用 `pio test -e native -f test_native_ble` 单独运行）
 
 建议命令：
 
