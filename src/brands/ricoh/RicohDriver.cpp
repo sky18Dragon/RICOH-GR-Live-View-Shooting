@@ -8,6 +8,7 @@
 #include "../../ble_reconnect_policy.h"
 #include "../../camera_identity.h"
 #include "../../camera_profile_store.h"
+#include "../../camera/CameraRegistry.h"
 #include "../../camera_sleep_policy.h"
 #include "../../config.h"
 #include "flow/RicohFlowController.h"
@@ -52,9 +53,14 @@ rvf::RicohTickPlan tickPlan;
 uint8_t streamReadBuffer[STREAM_READ_BUFFER_SIZE];
 CameraProps cameraProps;
 RicohBleWifiCredentials pendingFreshWifiCredentials;
+// The registry's preselected model, offered when nothing else is known.
+RicohProtocolGeneration defaultPairingGeneration() {
+  return static_cast<RicohProtocolGeneration>(rvf::cameraModelAt(rvf::defaultCameraModelIndex()).id);
+}
+
 // Model the user confirmed in the pairing guide; first-boot pairing only
 // accepts a camera of this generation.
-RicohProtocolGeneration selectedPairingGeneration = RicohProtocolGeneration::Gr3Family;
+RicohProtocolGeneration selectedPairingGeneration = defaultPairingGeneration();
 
 bool liveviewEnabled = true;
 uint32_t lastFrameAt = 0;
@@ -750,14 +756,15 @@ bool ensureCameraPowerReadyForWifi(const char* source) {
   }
 
   const CameraProtocolProfile& protocol = bleCamera.protocolProfile();
-  if (protocol.generation == RicohProtocolGeneration::Gr3Family) {
+  if (protocol.wifiRequiresAuthenticatedLink) {
     const RicohBleSecurityState security = bleCamera.securityState();
     const bool safeMode = cameraWifiStartupModeProbe ||
                           operationModeAllowsWifi(protocol,
                                                   cameraOperationMode,
                                                   operationModeReadOk);
     if (!security.encrypted || !security.authenticated || !safeMode) {
-      Serial.printf("WiFi blocked: profile=GR3_FAMILY encrypted=%d authenticated=%d operation_mode=%s read_ok=%d\n",
+      Serial.printf("WiFi blocked: profile=%s encrypted=%d authenticated=%d operation_mode=%s read_ok=%d\n",
+                    ricohProtocolGenerationName(protocol.generation),
                     security.encrypted ? 1 : 0,
                     security.authenticated ? 1 : 0,
                     cameraOperationModeName(cameraOperationMode),
@@ -2354,7 +2361,7 @@ void resetBlePairingFromKey2() {
   pairingModelConfirmed = false;
   requestPairingGuide(resettingGr2
                             ? RicohProtocolGeneration::Gr2Family
-                            : RicohProtocolGeneration::Gr3Family);
+                            : defaultPairingGeneration());
   showStatusIfChanged("Select camera", "B: model", "A: confirm", "", true);
   setCameraFlowState(CameraFlowState::BleScan, "Reset pairing");
   lastFrameAt = millis();
@@ -2698,7 +2705,7 @@ void RicohDriver::begin(ICameraHost& host) {
     pairingModelConfirmed = false;
     requestPairingGuide(isGr2WifiOnlyProfile()
                             ? RicohProtocolGeneration::Gr2Family
-                            : RicohProtocolGeneration::Gr3Family);
+                            : defaultPairingGeneration());
   }
   if (isGr2WifiOnlyProfile()) {
     flowController.setPreviewRequested(true);

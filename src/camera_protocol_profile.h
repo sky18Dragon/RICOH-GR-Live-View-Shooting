@@ -115,6 +115,19 @@ struct CameraProtocolProfile {
   bool requiresLegacyShutterFlavorWrite = false;
   bool standbyModeRequiresFreshReconnect = false;
   uint32_t standbyProbeIntervalMs = 0;
+  // Security profile a binding of this model uses.
+  RicohSecurityProfileId securityProfile = RicohSecurityProfileId::Unknown;
+  // Wi-Fi may only be raised after a successful operation-mode read; when
+  // false an unreadable mode defers to the power-state gate.
+  bool wifiRequiresOperationModeRead = false;
+  // A powered-on camera reporting BLE_STARTUP is still starting: keep the
+  // link and wait rather than treating it as standby.
+  bool waitsInBleStartupMode = false;
+  // Raising Wi-Fi needs an encrypted, authenticated link.
+  bool wifiRequiresAuthenticatedLink = false;
+  // A read-only discovery connection made with the default security baseline
+  // can be promoted to this model in place, without reconnecting.
+  bool discoveryConnectionPromotable = false;
   uint16_t capabilityVersion = 1;
 };
 
@@ -164,5 +177,3 @@ bool operationModeAllowsWifiProbe(const CameraProtocolProfile& profile,
 // OperationModeList payload: byte 0 is the entry count, followed by one byte
 // per mode the camera currently accepts.
 bool operationModeListContains(const uint8_t* data, size_t length, RicohCameraOperationMode mode);
-bool validGr3WifiChannel(uint8_t channel);
-bool validGr3WifiCredentials(const char* ssid, const char* passphrase, uint8_t channel);

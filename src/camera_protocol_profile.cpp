@@ -1,124 +1,32 @@
 #include "camera_protocol_profile.h"
 
-#include <cstring>
+#include "brands/ricoh/gr2/Gr2Profile.h"
+#include "brands/ricoh/gr3/Gr3Profile.h"
+#include "brands/ricoh/gr4/Gr4Profile.h"
+
+// Shared Ricoh policy. Per-model differences are parameters of
+// CameraProtocolProfile, set in brands/ricoh/<model>/<Model>Profile.cpp;
+// nothing below branches on a model.
 
 namespace {
-
-CameraProtocolProfile makeGr2Profile() {
-  CameraProtocolProfile profile;
-  profile.generation = RicohProtocolGeneration::Gr2Family;
-  // GR II is a Wi-Fi-only camera. The official GR Remote web application uses
-  // /v1/liveview and the camera/shoot HTTP family at 192.168.0.1; WLAN must be
-  // enabled on the body and its camera-specific WPA2 credentials configured
-  // manually on the controller.
-  profile.capabilities.supportsHttpLiveView = true;
-  profile.capabilities.supportsHttpShutter = true;
-  profile.wifiActivationMethod = WifiActivationMethod::ManualOnly;
-  profile.wifiCredentialMethod = WifiCredentialMethod::ManualConfiguration;
-  return profile;
-}
-
-CameraProtocolProfile makeGr3Profile() {
-  CameraProtocolProfile profile;
-  profile.generation = RicohProtocolGeneration::Gr3Family;
-  profile.capabilities.hasBle = true;
-  profile.capabilities.supportsBlePairing = true;
-  profile.capabilities.supportsBlePowerState = true;
-  profile.capabilities.supportsOperationMode = true;
-  profile.capabilities.supportsBleShutter = true;
-  profile.capabilities.supportsWifiActivation = true;
-  profile.capabilities.supportsWifiDeactivation = true;
-  profile.capabilities.exposesWifiSsid = true;
-  profile.capabilities.exposesWifiPassphrase = true;
-  profile.capabilities.exposesWifiChannel = true;
-  profile.capabilities.supportsHttpLiveView = true;
-  profile.capabilities.supportsHttpShutter = true;  // verified on a GR IIIx
-  profile.capabilities.supportsHttpFocusSetting = true;
-  // Keep BLE connected during LiveView and shoot over BLE. Releasing BLE and
-  // shooting over HTTP dropped the GR III LiveView link on capture, so this
-  // generation stays on the BLE shutter path.
-  profile.capabilities.allowBlePreviewParking = false;
-  profile.wifiActivationMethod = WifiActivationMethod::BleNetworkTypeUuid;
-  profile.wifiCredentialMethod = WifiCredentialMethod::BleUuidCharacteristics;
-  profile.requiresPasskeyEntry = true;
-  profile.requiresProtectedReadBeforePairing = true;
-  profile.standbyModeRequiresFreshReconnect = true;
-  profile.standbyProbeIntervalMs = 8000;
-  return profile;
-}
-
-CameraProtocolProfile makeGr4Profile() {
-  CameraProtocolProfile profile;
-  profile.generation = RicohProtocolGeneration::Gr4Family;
-  profile.capabilities.hasBle = true;
-  profile.capabilities.supportsBlePairing = true;
-  profile.capabilities.supportsBlePowerState = true;
-  profile.capabilities.supportsOperationMode = true;
-  profile.capabilities.supportsBleShutter = true;
-  profile.capabilities.supportsWifiActivation = true;
-  profile.capabilities.supportsWifiDeactivation = true;
-  profile.capabilities.exposesWifiSsid = true;
-  profile.capabilities.exposesWifiPassphrase = true;
-  profile.capabilities.exposesWifiChannel = true;
-  profile.capabilities.exposesWifiBssid = true;
-  profile.capabilities.exposesWifiSecurity = true;
-  profile.capabilities.supportsHttpLiveView = true;
-  profile.capabilities.supportsHttpShutter = true;  // verified on a GR IV
-  profile.capabilities.supportsHttpFocusSetting = true;
-  // Keep BLE connected during LiveView and shoot over BLE, matching GR III.
-  profile.capabilities.allowBlePreviewParking = false;
-  // GR IV, 2026-10-13: the AP alternated between channels 6 and 11 across
-  // landscape turns, and the first BLE read reported channel 1 while the AP
-  // was on 11.
-  profile.capabilities.wifiChannelChangesOnRestart = true;
-  profile.wifiActivationMethod = WifiActivationMethod::BleFixedHandle;
-  profile.wifiCredentialMethod = WifiCredentialMethod::BleFixedHandles;
-  profile.requiresLegacyShutterFlavorWrite = true;
-  return profile;
-}
-
 const CameraProtocolProfile kUnknownProfile;
-const CameraProtocolProfile kGr2Profile = makeGr2Profile();
-const CameraProtocolProfile kGr3Profile = makeGr3Profile();
-const CameraProtocolProfile kGr4Profile = makeGr4Profile();
-
-RicohSecurityProfile makeGr3SecurityProfile() {
-  RicohSecurityProfile profile;
-  profile.id = RicohSecurityProfileId::Gr3Passkey;
-  profile.ioCapability = RicohBleIoCapability::KeyboardDisplay;
-  profile.ownAddressMode = RicohBleOwnAddressMode::Public;
-  profile.distributeEncryptionKey = true;
-  profile.distributeIdentityKey = true;
-  profile.distributeSigningKey = true;
-  return profile;
-}
-
-RicohSecurityProfile makeGr4SecurityProfile() {
-  RicohSecurityProfile profile;
-  profile.id = RicohSecurityProfileId::Gr4Legacy;
-  profile.ioCapability = RicohBleIoCapability::DisplayYesNo;
-  profile.ownAddressMode = RicohBleOwnAddressMode::RpaPublicDefault;
-  profile.distributeEncryptionKey = true;
-  profile.distributeIdentityKey = true;
-  profile.usesFixedPasskey = true;
-  profile.fixedPasskey = 123456;
-  return profile;
-}
-
 const RicohSecurityProfile kUnknownSecurityProfile;
-const RicohSecurityProfile kGr3SecurityProfile = makeGr3SecurityProfile();
-const RicohSecurityProfile kGr4SecurityProfile = makeGr4SecurityProfile();
 
+bool isStandbyOperationMode(RicohCameraOperationMode mode) {
+  return mode == RicohCameraOperationMode::BleStartup ||
+         mode == RicohCameraOperationMode::PowerOffTransfer;
+}
 }  // namespace
+
 
 const CameraProtocolProfile& cameraProtocolProfile(RicohProtocolGeneration generation) {
   switch (generation) {
     case RicohProtocolGeneration::Gr2Family:
-      return kGr2Profile;
+      return gr2CameraProtocolProfile();
     case RicohProtocolGeneration::Gr3Family:
-      return kGr3Profile;
+      return gr3CameraProtocolProfile();
     case RicohProtocolGeneration::Gr4Family:
-      return kGr4Profile;
+      return gr4CameraProtocolProfile();
     case RicohProtocolGeneration::Unknown:
       return kUnknownProfile;
   }
@@ -140,37 +48,23 @@ const char* ricohProtocolGenerationName(RicohProtocolGeneration generation) {
 }
 
 RicohSecurityProfileId securityProfileForGeneration(RicohProtocolGeneration generation) {
-  switch (generation) {
-    case RicohProtocolGeneration::Gr3Family:
-      return RicohSecurityProfileId::Gr3Passkey;
-    case RicohProtocolGeneration::Gr4Family:
-      return RicohSecurityProfileId::Gr4Legacy;
-    case RicohProtocolGeneration::Gr2Family:
-    case RicohProtocolGeneration::Unknown:
-      return RicohSecurityProfileId::Unknown;
-  }
-  return RicohSecurityProfileId::Unknown;
+  return cameraProtocolProfile(generation).securityProfile;
 }
 
 bool canPromoteDiscoveryConnectionInPlace(RicohSecurityProfileId activeProfile,
                                           RicohProtocolGeneration detectedGeneration) {
-  if (detectedGeneration != RicohProtocolGeneration::Gr4Family) {
-    return false;
-  }
-
-  // Unknown discovery mode deliberately applies the byte-for-byte GR IV
-  // legacy security baseline. Promoting that live connection only changes
-  // the selected protocol identity; no GAP address or SMP setting changes.
-  return activeProfile == RicohSecurityProfileId::Unknown ||
-         activeProfile == RicohSecurityProfileId::Gr4Legacy;
+  const CameraProtocolProfile& detected = cameraProtocolProfile(detectedGeneration);
+  return detected.discoveryConnectionPromotable &&
+         (activeProfile == RicohSecurityProfileId::Unknown ||
+          activeProfile == detected.securityProfile);
 }
 
 const RicohSecurityProfile& ricohSecurityProfile(RicohSecurityProfileId id) {
   switch (id) {
     case RicohSecurityProfileId::Gr3Passkey:
-      return kGr3SecurityProfile;
+      return gr3SecurityProfile();
     case RicohSecurityProfileId::Gr4Legacy:
-      return kGr4SecurityProfile;
+      return gr4SecurityProfile();
     case RicohSecurityProfileId::Unknown:
       return kUnknownSecurityProfile;
   }
@@ -190,8 +84,7 @@ const char* ricohSecurityProfileName(RicohSecurityProfileId id) {
 }
 
 bool protocolAllowsBleSideEffect(const CameraProtocolProfile& profile, BleSideEffect effect) {
-  if (profile.generation == RicohProtocolGeneration::Unknown ||
-      profile.generation == RicohProtocolGeneration::Gr2Family) {
+  if (!profile.capabilities.hasBle) {
     return false;
   }
   switch (effect) {
@@ -217,32 +110,21 @@ bool operationModeAllowsWifi(const CameraProtocolProfile& profile,
   if (!protocolAllowsBleSideEffect(profile, BleSideEffect::WifiActivation)) {
     return false;
   }
-  if (profile.generation == RicohProtocolGeneration::Gr3Family) {
-    // GR III keeps the stricter requirement of a successful read -- an unknown
-    // mode must never authorise a WLAN write on this generation -- but the set
-    // of safe modes is the same as GR IV's. A GR IIIx sitting ready to shoot
-    // reports Other (0x03), not Capture (0x00), so an allowlist of Capture
-    // alone blocks Wi-Fi activation for the whole session. Verified on a GR
-    // IIIx (firmware 1.60): mode 0x03 followed by WLAN on, credentials read,
-    // /v1/props and a sustained LiveView stream.
-    return operationModeReadSucceeded &&
-           mode != RicohCameraOperationMode::BleStartup &&
-           mode != RicohCameraOperationMode::PowerOffTransfer;
+  // GR III requires a successful read -- an unknown mode must never authorise
+  // a WLAN write there -- while GR IV lets an unreadable mode defer to the
+  // power-state gate. Both block the two known standby modes. A GR IIIx ready
+  // to shoot reports Other (0x03), not Capture, so the rule is "not standby"
+  // rather than "is Capture" (verified on GR IIIx firmware 1.60).
+  if (!operationModeReadSucceeded) {
+    return !profile.wifiRequiresOperationModeRead;
   }
-  if (profile.generation == RicohProtocolGeneration::Gr4Family) {
-    // Preserve the established GR IV policy: an unavailable mode read does not
-    // supersede the power-state gate, while the two known standby modes do.
-    return !operationModeReadSucceeded ||
-           (mode != RicohCameraOperationMode::BleStartup &&
-            mode != RicohCameraOperationMode::PowerOffTransfer);
-  }
-  return false;
+  return !isStandbyOperationMode(mode);
 }
 
 bool operationModeWaitsForCameraReady(const CameraProtocolProfile& profile,
                                       RicohCameraOperationMode mode,
                                       bool operationModeReadSucceeded) {
-  return profile.generation == RicohProtocolGeneration::Gr3Family &&
+  return profile.waitsInBleStartupMode &&
          operationModeReadSucceeded &&
          mode == RicohCameraOperationMode::BleStartup;
 }
@@ -269,12 +151,4 @@ bool operationModeListContains(const uint8_t* data, size_t length, RicohCameraOp
   return false;
 }
 
-bool validGr3WifiChannel(uint8_t channel) {
-  return channel <= 11;
-}
 
-bool validGr3WifiCredentials(const char* ssid, const char* passphrase, uint8_t channel) {
-  return ssid != nullptr && passphrase != nullptr &&
-         std::strlen(ssid) > 0 && std::strlen(passphrase) > 0 &&
-         validGr3WifiChannel(channel);
-}

@@ -2,6 +2,7 @@
 
 #include "../common/RicohBleUuids.h"
 #include "Gr3BleConfig.h"
+#include "Gr3Profile.h"
 
 #include <cstring>
 

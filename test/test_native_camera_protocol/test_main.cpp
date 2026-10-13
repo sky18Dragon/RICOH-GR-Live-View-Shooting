@@ -12,6 +12,8 @@ void tearDown(void) {}
 #include "gr2_provisioning_logic.h"
 #include "gr2_shutter_policy.h"
 #include "brands/ricoh/common/RicohBleProtocolRouter.h"
+#include "brands/ricoh/gr3/Gr3Profile.h"
+#include "reference_profile_before_6_6.h"
 #include "camera_sleep_policy.h"
 
 namespace {
@@ -267,6 +269,116 @@ void testPerModelDetectionMatchesTheOriginalRuleExhaustively() {
     }
   }
   TEST_ASSERT_EQUAL_UINT32(229376, checked);
+}
+
+// ---- Stage 6.6: per-model rules became profile parameters ----
+
+const RicohProtocolGeneration kAllGenerations[] = {
+    RicohProtocolGeneration::Unknown, RicohProtocolGeneration::Gr2Family,
+    RicohProtocolGeneration::Gr3Family, RicohProtocolGeneration::Gr4Family};
+
+CameraProtocolProfile referenceProfile(RicohProtocolGeneration generation) {
+  switch (generation) {
+    case RicohProtocolGeneration::Gr2Family: return reference_before_6_6::makeGr2Profile();
+    case RicohProtocolGeneration::Gr3Family: return reference_before_6_6::makeGr3Profile();
+    case RicohProtocolGeneration::Gr4Family: return reference_before_6_6::makeGr4Profile();
+    case RicohProtocolGeneration::Unknown: break;
+  }
+  return CameraProtocolProfile{};
+}
+
+void expectSameCapabilities(const CameraCapabilities& a, const CameraCapabilities& b) {
+  TEST_ASSERT_EQUAL(a.hasBle, b.hasBle);
+  TEST_ASSERT_EQUAL(a.supportsBlePairing, b.supportsBlePairing);
+  TEST_ASSERT_EQUAL(a.supportsBlePowerState, b.supportsBlePowerState);
+  TEST_ASSERT_EQUAL(a.supportsOperationMode, b.supportsOperationMode);
+  TEST_ASSERT_EQUAL(a.supportsBleShutter, b.supportsBleShutter);
+  TEST_ASSERT_EQUAL(a.supportsWifiActivation, b.supportsWifiActivation);
+  TEST_ASSERT_EQUAL(a.supportsWifiDeactivation, b.supportsWifiDeactivation);
+  TEST_ASSERT_EQUAL(a.exposesWifiSsid, b.exposesWifiSsid);
+  TEST_ASSERT_EQUAL(a.exposesWifiPassphrase, b.exposesWifiPassphrase);
+  TEST_ASSERT_EQUAL(a.exposesWifiChannel, b.exposesWifiChannel);
+  TEST_ASSERT_EQUAL(a.exposesWifiBssid, b.exposesWifiBssid);
+  TEST_ASSERT_EQUAL(a.exposesWifiSecurity, b.exposesWifiSecurity);
+  TEST_ASSERT_EQUAL(a.supportsHttpLiveView, b.supportsHttpLiveView);
+  TEST_ASSERT_EQUAL(a.supportsHttpShutter, b.supportsHttpShutter);
+  TEST_ASSERT_EQUAL(a.supportsHttpFocusSetting, b.supportsHttpFocusSetting);
+  TEST_ASSERT_EQUAL(a.allowBlePreviewParking, b.allowBlePreviewParking);
+  TEST_ASSERT_EQUAL(a.wifiChannelChangesOnRestart, b.wifiChannelChangesOnRestart);
+}
+
+void testMovedProfileTablesKeepEveryExistingField() {
+  for (RicohProtocolGeneration generation : kAllGenerations) {
+    const CameraProtocolProfile& now = cameraProtocolProfile(generation);
+    const CameraProtocolProfile before = referenceProfile(generation);
+    TEST_ASSERT_EQUAL(static_cast<int>(before.generation), static_cast<int>(now.generation));
+    expectSameCapabilities(before.capabilities, now.capabilities);
+    TEST_ASSERT_EQUAL(static_cast<int>(before.wifiActivationMethod), static_cast<int>(now.wifiActivationMethod));
+    TEST_ASSERT_EQUAL(static_cast<int>(before.wifiCredentialMethod), static_cast<int>(now.wifiCredentialMethod));
+    TEST_ASSERT_EQUAL(before.requiresPasskeyEntry, now.requiresPasskeyEntry);
+    TEST_ASSERT_EQUAL(before.requiresProtectedReadBeforePairing, now.requiresProtectedReadBeforePairing);
+    TEST_ASSERT_EQUAL(before.requiresLegacyShutterFlavorWrite, now.requiresLegacyShutterFlavorWrite);
+    TEST_ASSERT_EQUAL(before.standbyModeRequiresFreshReconnect, now.standbyModeRequiresFreshReconnect);
+    TEST_ASSERT_EQUAL_UINT32(before.standbyProbeIntervalMs, now.standbyProbeIntervalMs);
+    TEST_ASSERT_EQUAL_UINT16(before.capabilityVersion, now.capabilityVersion);
+  }
+  const RicohSecurityProfile gr3Before = reference_before_6_6::makeGr3SecurityProfile();
+  const RicohSecurityProfile gr4Before = reference_before_6_6::makeGr4SecurityProfile();
+  for (const RicohSecurityProfile* pair : {&gr3Before, &gr4Before}) {
+    const RicohSecurityProfile& now = ricohSecurityProfile(pair->id);
+    TEST_ASSERT_EQUAL(static_cast<int>(pair->id), static_cast<int>(now.id));
+    TEST_ASSERT_EQUAL(static_cast<int>(pair->ioCapability), static_cast<int>(now.ioCapability));
+    TEST_ASSERT_EQUAL(static_cast<int>(pair->ownAddressMode), static_cast<int>(now.ownAddressMode));
+    TEST_ASSERT_EQUAL(pair->distributeEncryptionKey, now.distributeEncryptionKey);
+    TEST_ASSERT_EQUAL(pair->distributeIdentityKey, now.distributeIdentityKey);
+    TEST_ASSERT_EQUAL(pair->distributeSigningKey, now.distributeSigningKey);
+    TEST_ASSERT_EQUAL(pair->usesFixedPasskey, now.usesFixedPasskey);
+    TEST_ASSERT_EQUAL_UINT32(pair->fixedPasskey, now.fixedPasskey);
+  }
+}
+
+void testParameterDrivenPoliciesMatchTheOriginalRulesExhaustively() {
+  const BleSideEffect effects[] = {BleSideEffect::WifiActivation, BleSideEffect::WifiDeactivation,
+                                   BleSideEffect::CameraPowerWrite, BleSideEffect::Shutter};
+  const RicohSecurityProfileId securityIds[] = {RicohSecurityProfileId::Unknown,
+                                                RicohSecurityProfileId::Gr3Passkey,
+                                                RicohSecurityProfileId::Gr4Legacy};
+  uint32_t checked = 0;
+  for (RicohProtocolGeneration generation : kAllGenerations) {
+    const CameraProtocolProfile& profile = cameraProtocolProfile(generation);
+    TEST_ASSERT_EQUAL(static_cast<int>(reference_before_6_6::securityProfileForGeneration(generation)),
+                      static_cast<int>(securityProfileForGeneration(generation)));
+    for (RicohSecurityProfileId active : securityIds) {
+      TEST_ASSERT_EQUAL(reference_before_6_6::canPromoteDiscoveryConnectionInPlace(active, generation),
+                        canPromoteDiscoveryConnectionInPlace(active, generation));
+    }
+    for (BleSideEffect effect : effects) {
+      TEST_ASSERT_EQUAL(reference_before_6_6::protocolAllowsBleSideEffect(profile, effect),
+                        protocolAllowsBleSideEffect(profile, effect));
+    }
+    // Every byte a camera could report, read or not.
+    for (int raw = 0; raw <= 0xFF; ++raw) {
+      const RicohCameraOperationMode mode = static_cast<RicohCameraOperationMode>(raw);
+      for (bool readOk : {false, true}) {
+        TEST_ASSERT_EQUAL(reference_before_6_6::operationModeAllowsWifi(profile, mode, readOk),
+                          operationModeAllowsWifi(profile, mode, readOk));
+        TEST_ASSERT_EQUAL(reference_before_6_6::operationModeWaitsForCameraReady(profile, mode, readOk),
+                          operationModeWaitsForCameraReady(profile, mode, readOk));
+        TEST_ASSERT_EQUAL(reference_before_6_6::operationModeAllowsWifiProbe(profile, mode, readOk),
+                          operationModeAllowsWifiProbe(profile, mode, readOk));
+        ++checked;
+      }
+    }
+  }
+  TEST_ASSERT_EQUAL_UINT32(4 * 256 * 2, checked);
+}
+
+void testOnlyGr3NeedsAnAuthenticatedLinkForWifi() {
+  // Replaces the driver's former `generation == Gr3Family` gate.
+  for (RicohProtocolGeneration generation : kAllGenerations) {
+    TEST_ASSERT_EQUAL(generation == RicohProtocolGeneration::Gr3Family,
+                      cameraProtocolProfile(generation).wifiRequiresAuthenticatedLink);
+  }
 }
 
 void testUnknownAndGr2ProfilesBlockBleSideEffects() {
@@ -542,6 +654,9 @@ int main() {
   RUN_TEST(testOnlyGr4DiscoveryCanReuseTheLegacyConnection);
   RUN_TEST(testProtocolRouterSelectsExactlyOneImplementation);
   RUN_TEST(testPerModelDetectionMatchesTheOriginalRuleExhaustively);
+  RUN_TEST(testMovedProfileTablesKeepEveryExistingField);
+  RUN_TEST(testParameterDrivenPoliciesMatchTheOriginalRulesExhaustively);
+  RUN_TEST(testOnlyGr3NeedsAnAuthenticatedLinkForWifi);
   RUN_TEST(testUnknownAndGr2ProfilesBlockBleSideEffects);
   RUN_TEST(testGr3AndGr4AllowProfileScopedWifiDeactivation);
   RUN_TEST(testOperationModeSafetyIsGenerationSpecific);
