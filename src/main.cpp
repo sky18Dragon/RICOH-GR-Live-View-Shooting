@@ -66,22 +66,12 @@ RicohBleWifiCredentials pendingFreshWifiCredentials;
 bool liveviewEnabled = true;
 uint32_t lastFrameAt = 0;
 uint32_t lastLiveViewActivityAt = 0;
-uint32_t lastStatusAt = 0;
-uint32_t powerButtonLastPollAt = 0;
-uint32_t powerButtonPressedSince = 0;
-bool powerButtonHoldReported = false;
-bool stickPowerReady = false;
 uint32_t lastCameraRecoveryAt = 0;
 bool cameraRecoveryInProgress = false;
 bool gr2ProvisioningPreparing = false;
 bool setupCameraFlowActive = false;
 bool pairingModelConfirmed = false;
 bool key2PairingResetRequested = false;
-bool cameraAutoWakeBlocked = false;
-bool cameraSleepBlockedFlowLogged = false;
-int cameraAutoWakeDisconnectReason = 0;
-uint32_t cameraPowerProbeBackoffUntil = 0;
-uint32_t cameraSleepEnteredAt = 0;
 RicohCameraPowerState cameraPowerState = RicohCameraPowerState::Unknown;
 RicohCameraOperationMode cameraOperationMode = RicohCameraOperationMode::Unknown;
 bool cameraWifiStartupModeProbe = false;
@@ -89,48 +79,108 @@ uint32_t lastPropsAt = 0;
 uint32_t deferredPropsRefreshAfter = 0;
 String liveViewSavedFocusSetting;
 uint8_t liveViewStallRecycleCount = 0;
-BleLinkMode bleLinkModeApplied = BleLinkMode::Normal;
-bool bleLinkPreviewStreaming = false;
-uint32_t bleLinkPreviewStreamingSinceMs = 0;
-uint32_t bleLinkModeRetryAfterMs = 0;
-uint32_t bleLinkConnectionSerial = 0;
-uint32_t linkStatsLastLogMs = 0;
-uint32_t linkRssiLastSampleMs = 0;
-int32_t linkRssiSum = 0;
-int32_t linkRssiMin = 0;
-uint16_t linkRssiSamples = 0;
 bool liveViewResolutionSelected = false;
 int cameraBleBatteryShown = -1;
-bool shotConfirmPending = false;
-uint32_t shotConfirmStartedAt = 0;
-uint32_t shotEventSequenceBeforeShot = 0;
-uint32_t decodedFrames = 0;
-uint32_t fpsWindowStart = 0;
-uint32_t fpsWindowFrames = 0;
-float currentFps = 0.0f;
-uint32_t lastStatusDrawAt = 0;
-String lastStatusLine1;
-String lastStatusLine2;
-String lastStatusLine3;
-String lastStatusLine4;
-bool wifiCacheRefreshPending = false;
-uint32_t wifiCacheRefreshAfter = 0;
 uint32_t lastOrientationSampleAt = 0;
 bool imuAvailable = false;
 bool uiResettingPairing = false;
 ButtonEvents currentUiInput;
 int16_t jpegViewportWidth = 0;
 int16_t jpegViewportHeight = 0;
-PasskeyButtonEntry passkeyEntry;
-bool passkeyEntryActive = false;
-uint8_t passkeyShownSeconds = 0;
 bool liveViewLocked = false;
-int8_t deviceBatteryPercent = -1;
-bool deviceCharging = false;
-bool devicePowerSampleFrameBoundary = false;
-bool devicePowerSampleChargingNext = true;
-bool devicePowerSamplePending = true;
-uint32_t lastDevicePowerSampleAt = 0;
+
+// M5PM1 power-management chip and its PWR button long-press tracking.
+struct StickPowerState {
+  uint32_t buttonLastPollAt = 0;
+  uint32_t buttonPressedSince = 0;
+  bool buttonHoldReported = false;
+  bool ready = false;
+};
+StickPowerState pmic;
+
+// Camera power-off protection: blocks auto wake until the user presses a key.
+struct CameraSleepGuardState {
+  bool autoWakeBlocked = false;
+  bool blockedFlowLogged = false;
+  int disconnectReason = 0;
+  uint32_t powerProbeBackoffUntil = 0;
+  uint32_t enteredAt = 0;
+};
+CameraSleepGuardState sleepGuard;
+
+// BLE connection-parameter mode applied while the preview streams.
+struct BleLinkModeState {
+  BleLinkMode applied = BleLinkMode::Normal;
+  bool previewStreaming = false;
+  uint32_t previewStreamingSinceMs = 0;
+  uint32_t retryAfterMs = 0;
+  uint32_t connectionSerial = 0;
+};
+BleLinkModeState bleLinkMode;
+
+// Periodic LINK: log of BLE RSSI during preview.
+struct LinkStatsState {
+  uint32_t lastLogMs = 0;
+  uint32_t rssiLastSampleMs = 0;
+  int32_t rssiSum = 0;
+  int32_t rssiMin = 0;
+  uint16_t rssiSamples = 0;
+};
+LinkStatsState linkStats;
+
+// Waits for the camera's BLE shot notification after a BLE shutter write.
+struct ShotConfirmState {
+  bool pending = false;
+  uint32_t startedAt = 0;
+  uint32_t eventSequenceBeforeShot = 0;
+};
+ShotConfirmState shotConfirm;
+
+// Decoded-frame counters for the preview FPS overlay.
+struct FpsState {
+  uint32_t decodedFrames = 0;
+  uint32_t windowStart = 0;
+  uint32_t windowFrames = 0;
+  float current = 0.0f;
+};
+FpsState fpsStats;
+
+// Throttles redraws of the text status screen.
+struct StatusUiState {
+  uint32_t lastUpdateAt = 0;
+  uint32_t lastDrawAt = 0;
+  String line1;
+  String line2;
+  String line3;
+  String line4;
+};
+StatusUiState statusUi;
+
+// Deferred re-read of the camera Wi-Fi credentials into the NVS cache.
+struct WifiCacheRefreshState {
+  bool pending = false;
+  uint32_t after = 0;
+};
+WifiCacheRefreshState wifiCacheRefresh;
+
+// Button-driven passkey entry shown during BLE pairing.
+struct PasskeyUiState {
+  PasskeyButtonEntry entry;
+  bool active = false;
+  uint8_t shownSeconds = 0;
+};
+PasskeyUiState passkeyUi;
+
+// StickS3 battery level and charging indicator sampling.
+struct DevicePowerState {
+  int8_t batteryPercent = -1;
+  bool charging = false;
+  bool sampleFrameBoundary = false;
+  bool sampleChargingNext = true;
+  bool samplePending = true;
+  uint32_t lastSampleAt = 0;
+};
+DevicePowerState devicePower;
 
 constexpr uint32_t STATUS_MIN_REDRAW_MS = 1500;
 constexpr uint32_t DEVICE_POWER_NORMAL_SAMPLE_MS = 2000;
@@ -160,7 +210,7 @@ bool isGr2WifiOnlyProfile() {
 void sampleDeviceBatteryLevel() {
   const int32_t battery = M5.Power.getBatteryLevel();
   if (battery >= 0) {
-    deviceBatteryPercent = static_cast<int8_t>(battery > 100 ? 100 : battery);
+    devicePower.batteryPercent = static_cast<int8_t>(battery > 100 ? 100 : battery);
   }
 }
 
@@ -170,7 +220,7 @@ void sampleDeviceCharging() {
   if (deviceChargingFilter.update(rawCharging, millis())) {
     Serial.printf("Power indicator: charging=%d\n", deviceChargingFilter.charging() ? 1 : 0);
   }
-  deviceCharging = deviceChargingFilter.charging();
+  devicePower.charging = deviceChargingFilter.charging();
 }
 
 void serviceDevicePowerIndicator(uint32_t nowMs) {
@@ -178,14 +228,14 @@ void serviceDevicePowerIndicator(uint32_t nowMs) {
   const uint32_t intervalMs = previewRunning
                                   ? DEVICE_POWER_LIVE_SAMPLE_MS
                                   : DEVICE_POWER_NORMAL_SAMPLE_MS;
-  if ((!devicePowerSamplePending && (nowMs - lastDevicePowerSampleAt) < intervalMs) ||
-      (previewRunning && !devicePowerSampleFrameBoundary)) {
+  if ((!devicePower.samplePending && (nowMs - devicePower.lastSampleAt) < intervalMs) ||
+      (previewRunning && !devicePower.sampleFrameBoundary)) {
     return;
   }
 
-  devicePowerSamplePending = false;
-  devicePowerSampleFrameBoundary = false;
-  lastDevicePowerSampleAt = nowMs;
+  devicePower.samplePending = false;
+  devicePower.sampleFrameBoundary = false;
+  devicePower.lastSampleAt = nowMs;
   if (!previewRunning) {
     sampleDeviceCharging();
     sampleDeviceBatteryLevel();
@@ -193,20 +243,20 @@ void serviceDevicePowerIndicator(uint32_t nowMs) {
   }
 
   // LiveView performs at most one PMIC operation per completed-frame opportunity.
-  if (devicePowerSampleChargingNext) {
+  if (devicePower.sampleChargingNext) {
     sampleDeviceCharging();
   } else {
     sampleDeviceBatteryLevel();
   }
-  devicePowerSampleChargingNext = !devicePowerSampleChargingNext;
+  devicePower.sampleChargingNext = !devicePower.sampleChargingNext;
 }
 
 bool beginStickPower() {
   const int8_t sda = M5.getPin(m5::pin_name_t::in_i2c_sda);
   const int8_t scl = M5.getPin(m5::pin_name_t::in_i2c_scl);
   const m5pm1_err_t err = stickPower.begin(&Wire, M5PM1_DEFAULT_ADDR, sda, scl, M5PM1_I2C_FREQ_100K);
-  stickPowerReady = (err == M5PM1_OK);
-  if (!stickPowerReady) {
+  pmic.ready = (err == M5PM1_OK);
+  if (!pmic.ready) {
     LOGW("POWER", "Power: M5PM1 begin failed err=%d; fallback to M5Unified power API", static_cast<int>(err));
     return false;
   }
@@ -221,7 +271,7 @@ bool beginStickPower() {
 }
 
 bool isStickPowerButtonPressed() {
-  if (stickPowerReady) {
+  if (pmic.ready) {
     bool pressed = false;
     const m5pm1_err_t err = stickPower.btnGetState(&pressed);
     if (err == M5PM1_OK) {
@@ -232,7 +282,7 @@ bool isStickPowerButtonPressed() {
     // on every loop starves the 2 KB LiveView reads and prevents the first JPEG
     // frame from completing. Keep the M5Unified button/power-off fallback, but
     // stop polling the unhealthy I2C path until the next reboot.
-    stickPowerReady = false;
+    pmic.ready = false;
     LOGW("POWER",
          "Power: M5PM1 button read failed err=%d; disabling M5PM1 polling and using M5Unified",
          static_cast<int>(err));
@@ -242,23 +292,23 @@ bool isStickPowerButtonPressed() {
 
 bool pollStickPowerHold() {
   const uint32_t now = millis();
-  if ((now - powerButtonLastPollAt) < POWER_BUTTON_POLL_MS) {
+  if ((now - pmic.buttonLastPollAt) < POWER_BUTTON_POLL_MS) {
     return false;
   }
-  powerButtonLastPollAt = now;
+  pmic.buttonLastPollAt = now;
 
   const bool pressed = isStickPowerButtonPressed();
   if (!pressed) {
-    powerButtonPressedSince = 0;
-    powerButtonHoldReported = false;
+    pmic.buttonPressedSince = 0;
+    pmic.buttonHoldReported = false;
     return false;
   }
 
-  if (powerButtonPressedSince == 0) {
-    powerButtonPressedSince = now;
+  if (pmic.buttonPressedSince == 0) {
+    pmic.buttonPressedSince = now;
   }
-  if (!powerButtonHoldReported && (now - powerButtonPressedSince) >= POWER_BUTTON_HOLD_MS) {
-    powerButtonHoldReported = true;
+  if (!pmic.buttonHoldReported && (now - pmic.buttonPressedSince) >= POWER_BUTTON_HOLD_MS) {
+    pmic.buttonHoldReported = true;
     return true;
   }
   return false;
@@ -332,22 +382,22 @@ void showStatusIfChanged(const String& line1,
                          bool force = false) {
   const uint32_t now = millis();
   const bool changed = force ||
-                       line1 != lastStatusLine1 ||
-                       line2 != lastStatusLine2 ||
-                       line3 != lastStatusLine3 ||
-                       line4 != lastStatusLine4;
+                       line1 != statusUi.line1 ||
+                       line2 != statusUi.line2 ||
+                       line3 != statusUi.line3 ||
+                       line4 != statusUi.line4;
   if (!changed) {
     return;
   }
-  if (!force && (now - lastStatusDrawAt) < STATUS_MIN_REDRAW_MS) {
+  if (!force && (now - statusUi.lastDrawAt) < STATUS_MIN_REDRAW_MS) {
     return;
   }
 
-  lastStatusLine1 = line1;
-  lastStatusLine2 = line2;
-  lastStatusLine3 = line3;
-  lastStatusLine4 = line4;
-  lastStatusDrawAt = now;
+  statusUi.line1 = line1;
+  statusUi.line2 = line2;
+  statusUi.line3 = line3;
+  statusUi.line4 = line4;
+  statusUi.lastDrawAt = now;
   updateUi();
 }
 
@@ -411,20 +461,20 @@ bool isCameraSleepDisconnectReason(int reason) {
 }
 
 bool cameraSleepGuardActive() {
-  return cameraAutoWakeBlocked;
+  return sleepGuard.autoWakeBlocked;
 }
 
 bool cameraPowerProbeBackoffActive() {
-  return cameraAutoWakeBlocked &&
-         cameraPowerProbeBackoffUntil != 0 &&
-         !timeReached(cameraPowerProbeBackoffUntil);
+  return sleepGuard.autoWakeBlocked &&
+         sleepGuard.powerProbeBackoffUntil != 0 &&
+         !timeReached(sleepGuard.powerProbeBackoffUntil);
 }
 
 uint32_t cameraPowerProbeBackoffRemainingMs() {
   if (!cameraPowerProbeBackoffActive()) {
     return 0;
   }
-  return cameraPowerProbeBackoffUntil - millis();
+  return sleepGuard.powerProbeBackoffUntil - millis();
 }
 
 void scheduleCameraPowerProbeBackoff(const char* source) {
@@ -439,7 +489,7 @@ void scheduleCameraPowerProbeBackoff(const char* source) {
   const uint32_t intervalMs = profileInterval > 0
                                 ? profileInterval
                                 : CAMERA_POWER_OFF_PROBE_BACKOFF_MS;
-  cameraPowerProbeBackoffUntil = millis() + intervalMs;
+  sleepGuard.powerProbeBackoffUntil = millis() + intervalMs;
   Serial.printf("BLE guard: next power probe in %lums (%s)\n",
                 static_cast<unsigned long>(intervalMs),
                 source != nullptr ? source : "camera standby");
@@ -455,9 +505,9 @@ void showCameraSleepGuardStatus(bool force = false) {
 
 void enterCameraSleepGuard(const char* source, int reason) {
   const char* guardSource = source != nullptr ? source : "camera standby";
-  if (cameraAutoWakeBlocked) {
-    if (reason != 0 && cameraAutoWakeDisconnectReason == 0) {
-      cameraAutoWakeDisconnectReason = reason;
+  if (sleepGuard.autoWakeBlocked) {
+    if (reason != 0 && sleepGuard.disconnectReason == 0) {
+      sleepGuard.disconnectReason = reason;
     }
     cameraPowerState = RicohCameraPowerState::OffOrShuttingDown;
     cameraOperationMode = RicohCameraOperationMode::Unknown;
@@ -475,10 +525,10 @@ void enterCameraSleepGuard(const char* source, int reason) {
 
   cameraPowerState = RicohCameraPowerState::OffOrShuttingDown;
   cameraOperationMode = RicohCameraOperationMode::Unknown;
-  cameraAutoWakeBlocked = true;
-  cameraSleepBlockedFlowLogged = false;
-  cameraSleepEnteredAt = millis();
-  cameraAutoWakeDisconnectReason = reason;
+  sleepGuard.autoWakeBlocked = true;
+  sleepGuard.blockedFlowLogged = false;
+  sleepGuard.enteredAt = millis();
+  sleepGuard.disconnectReason = reason;
 
   closeLiveView(guardSource);
   wifiPreview.disconnectWifi();
@@ -538,31 +588,31 @@ bool consumeCameraPowerOffDisconnectAfterReady(const char* source) {
 }
 
 void clearCameraSleepGuard(const char* source) {
-  if (cameraAutoWakeBlocked) {
+  if (sleepGuard.autoWakeBlocked) {
     Serial.printf("BLE guard: clearing guard (%s), previous disconnect reason=%d\n",
                   source != nullptr ? source : "manual",
-                  cameraAutoWakeDisconnectReason);
+                  sleepGuard.disconnectReason);
   }
   cameraPowerState = RicohCameraPowerState::Unknown;
   cameraOperationMode = RicohCameraOperationMode::Unknown;
-  cameraAutoWakeBlocked = false;
-  cameraSleepBlockedFlowLogged = false;
-  cameraSleepEnteredAt = 0;
-  cameraPowerProbeBackoffUntil = 0;
-  cameraAutoWakeDisconnectReason = 0;
+  sleepGuard.autoWakeBlocked = false;
+  sleepGuard.blockedFlowLogged = false;
+  sleepGuard.enteredAt = 0;
+  sleepGuard.powerProbeBackoffUntil = 0;
+  sleepGuard.disconnectReason = 0;
   bleCamera.clearDisconnectReason();
 }
 
 bool cameraSleepGuardBlocksFlow(const char* action) {
-  if (cameraAutoWakeBlocked) {
-    if (!cameraSleepBlockedFlowLogged) {
+  if (sleepGuard.autoWakeBlocked) {
+    if (!sleepGuard.blockedFlowLogged) {
       Serial.printf("BLE guard: blocked %s; press BtnA to scan (further repeats suppressed)\n",
                     action != nullptr ? action : "automatic flow");
-      cameraSleepBlockedFlowLogged = true;
+      sleepGuard.blockedFlowLogged = true;
     }
     showCameraSleepGuardStatus(false);
   }
-  return cameraAutoWakeBlocked;
+  return sleepGuard.autoWakeBlocked;
 }
 
 bool hasUsableCachedWifiCredentials() {
@@ -674,15 +724,15 @@ void scheduleWifiCacheRefresh() {
   if (isGr2WifiOnlyProfile() || !bleCamera.isConnected() || cameraProfile.bleAddress.length() == 0) {
     return;
   }
-  wifiCacheRefreshPending = true;
-  wifiCacheRefreshAfter = millis() + WIFI_CACHE_REFRESH_DELAY_MS;
+  wifiCacheRefresh.pending = true;
+  wifiCacheRefresh.after = millis() + WIFI_CACHE_REFRESH_DELAY_MS;
 }
 
 void refreshWifiCacheIfDue() {
-  if (!wifiCacheRefreshPending || !timeReached(wifiCacheRefreshAfter)) {
+  if (!wifiCacheRefresh.pending || !timeReached(wifiCacheRefresh.after)) {
     return;
   }
-  wifiCacheRefreshPending = false;
+  wifiCacheRefresh.pending = false;
   if (!bleCamera.isConnected() || cameraSleepGuardActive()) {
     return;
   }
@@ -883,7 +933,7 @@ bool ensureCameraPowerReadyForWifi(const char* source) {
     if (operationModeWaitsForCameraReady(bleCamera.protocolProfile(), cameraOperationMode, operationModeReadOk)) {
       const Gr3StartupModeWait wait = waitForGr3StartupModeToClear(source, operationModeReadOk);
       if (wait == Gr3StartupModeWait::Aborted) {
-        if (bleCamera.isConnected() && !cameraAutoWakeBlocked) {
+        if (bleCamera.isConnected() && !sleepGuard.autoWakeBlocked) {
           setCameraFlowState(CameraFlowState::BleReady, "GR3 startup mode wait aborted");
         }
         return false;
@@ -935,7 +985,7 @@ bool ensureCameraPowerReadyForWifi(const char* source) {
   }
 
   if (cameraPowerPolicy.mayActivateWifi(toPolicyPowerStatus(cameraPowerState))) {
-    if (cameraAutoWakeBlocked) {
+    if (sleepGuard.autoWakeBlocked) {
       clearCameraSleepGuard("camera power on");
     }
     const rvf::Result powerNotifyResult = bleCamera.enablePowerStateNotify();
@@ -1309,25 +1359,25 @@ bool tryDirectStoredBleReconnect(bool force = false) {
 }
 
 uint8_t passkeyRemainingSeconds() {
-  const uint32_t remainingMs = passkeyEntry.remainingMs(millis());
+  const uint32_t remainingMs = passkeyUi.entry.remainingMs(millis());
   const uint32_t seconds = (remainingMs + 999U) / 1000U;
   return static_cast<uint8_t>(seconds > 255U ? 255U : seconds);
 }
 
 void showPasskeyEntryUi() {
-  passkeyShownSeconds = passkeyRemainingSeconds();
-  ui.showPasskeyEntry(passkeyEntry.digits(), passkeyEntry.activeIndex(), passkeyShownSeconds);
+  passkeyUi.shownSeconds = passkeyRemainingSeconds();
+  ui.showPasskeyEntry(passkeyUi.entry.digits(), passkeyUi.entry.activeIndex(), passkeyUi.shownSeconds);
 }
 
 int32_t pollPasskeyButtonEntry(RicohPasskeyPollAction action) {
   if (action == RicohPasskeyPollAction::Cancel) {
-    passkeyEntry.reset();
-    passkeyEntryActive = false;
+    passkeyUi.entry.reset();
+    passkeyUi.active = false;
     return -1;
   }
-  if (action == RicohPasskeyPollAction::Start || !passkeyEntryActive) {
-    passkeyEntry.start(millis(), RICOH_BLE_PASSKEY_ENTRY_WAIT_MS);
-    passkeyEntryActive = true;
+  if (action == RicohPasskeyPollAction::Start || !passkeyUi.active) {
+    passkeyUi.entry.start(millis(), RICOH_BLE_PASSKEY_ENTRY_WAIT_MS);
+    passkeyUi.active = true;
     showPasskeyEntryUi();
     return -1;
   }
@@ -1335,36 +1385,36 @@ int32_t pollPasskeyButtonEntry(RicohPasskeyPollAction action) {
   const ButtonEvents events = buttons.poll();
   if (events.resetPairing) {
     key2PairingResetRequested = true;
-    passkeyEntry.reset();
-    passkeyEntryActive = false;
+    passkeyUi.entry.reset();
+    passkeyUi.active = false;
     Serial.println("BLE pairing: canceled by pairing reset request");
     return -2;
   }
-  if (passkeyEntry.status(millis()) == PasskeyEntryStatus::TimedOut) {
-    passkeyEntry.reset();
-    passkeyEntryActive = false;
+  if (passkeyUi.entry.status(millis()) == PasskeyEntryStatus::TimedOut) {
+    passkeyUi.entry.reset();
+    passkeyUi.active = false;
     Serial.println("BLE pairing: passkey entry timed out");
     return -2;
   }
 
   bool changed = false;
   if (M5.BtnA.wasClicked()) {
-    passkeyEntry.shortPress();
+    passkeyUi.entry.shortPress();
     changed = true;
   } else if (M5.BtnB.wasClicked()) {
     changed = true;
-    if (passkeyEntry.confirmDigit() == PasskeyEntryStatus::Complete) {
+    if (passkeyUi.entry.confirmDigit() == PasskeyEntryStatus::Complete) {
       showPasskeyEntryUi();
-      return passkeyEntry.code();
+      return passkeyUi.entry.code();
     }
   } else if (M5.BtnA.wasHold()) {
     changed = true;
-    if (passkeyEntry.submit() == PasskeyEntryStatus::Complete) {
+    if (passkeyUi.entry.submit() == PasskeyEntryStatus::Complete) {
       showPasskeyEntryUi();
-      return passkeyEntry.code();
+      return passkeyUi.entry.code();
     }
   }
-  if (changed || passkeyRemainingSeconds() != passkeyShownSeconds) {
+  if (changed || passkeyRemainingSeconds() != passkeyUi.shownSeconds) {
     showPasskeyEntryUi();
   }
   return -1;
@@ -1978,7 +2028,7 @@ bool retryShutterAfterGr3StartupMode() {
       Serial.printf("Button A: camera left BLE_STARTUP after %lums mode=%s; retrying shutter\n",
                     static_cast<unsigned long>(millis() - waitStartedAt),
                     cameraOperationModeName(mode));
-      shotEventSequenceBeforeShot = bleCamera.shotEventSequence();
+      shotConfirm.eventSequenceBeforeShot = bleCamera.shotEventSequence();
       return bleCamera.shoot(true).ok();
     }
   }
@@ -1999,7 +2049,7 @@ bool shootAutofocusForController() {
                   bleParkedForPreview ? "released" : "bringing up WiFi");
     return grApi.shoot(HTTP_SHOOT_TIMEOUT_MS);
   }
-  shotEventSequenceBeforeShot = bleCamera.shotEventSequence();
+  shotConfirm.eventSequenceBeforeShot = bleCamera.shotEventSequence();
   const rvf::Result shootResult = bleCamera.shoot(true);
   if (shootResult.ok()) {
     return true;
@@ -2010,10 +2060,10 @@ bool shootAutofocusForController() {
 void onShutterOkForController() {
   uiCoordinator.notifyShutterResult(true, millis());
   const bool overHttp = shutterUsesHttp();
-  shotConfirmPending = !overHttp && bleCamera.shotNotifyActive();
-  shotConfirmStartedAt = millis();
+  shotConfirm.pending = !overHttp && bleCamera.shotNotifyActive();
+  shotConfirm.startedAt = millis();
   showStatusIfChanged("Button A shutter",
-                      overHttp ? "HTTP SHOT OK" : (shotConfirmPending ? "BLE SHOT SENT" : "BLE SHOT OK"),
+                      overHttp ? "HTTP SHOT OK" : (shotConfirm.pending ? "BLE SHOT SENT" : "BLE SHOT OK"),
                       cameraProps.model,
                       cameraProps.battery,
                       true);
@@ -2108,22 +2158,22 @@ bool recyclePreviewAfterStallForController() {
 }
 
 void serviceShotConfirmation(uint32_t nowMs) {
-  if (!shotConfirmPending) {
+  if (!shotConfirm.pending) {
     return;
   }
-  const uint32_t elapsed = nowMs - shotConfirmStartedAt;
-  if (bleCamera.shotEventSequence() != shotEventSequenceBeforeShot) {
-    shotConfirmPending = false;
+  const uint32_t elapsed = nowMs - shotConfirm.startedAt;
+  if (bleCamera.shotEventSequence() != shotConfirm.eventSequenceBeforeShot) {
+    shotConfirm.pending = false;
     Serial.printf("BLE: shot confirmed by camera notify after %lums\n", static_cast<unsigned long>(elapsed));
     showStatusIfChanged("Button A shutter", "SHOT CONFIRMED", cameraProps.model, cameraProps.battery, true);
     return;
   }
   if (!bleCamera.isConnected()) {
-    shotConfirmPending = false;
+    shotConfirm.pending = false;
     return;
   }
   if (elapsed >= SHOT_CONFIRM_TIMEOUT_MS) {
-    shotConfirmPending = false;
+    shotConfirm.pending = false;
     Serial.printf("BLE: shot not confirmed within %lums (no ShotCount/CaptureStatus notify)\n",
                   static_cast<unsigned long>(elapsed));
     showStatusIfChanged("Button A shutter", "Sent, not confirmed", "Check camera", "", true);
@@ -2198,44 +2248,44 @@ bool readAndProcessLiveViewFrameForController() {
 }
 
 void logLinkStatsIfDue(uint32_t nowMs) {
-  if (grWifi.isConnected() && (nowMs - linkRssiLastSampleMs) >= LINK_RSSI_SAMPLE_INTERVAL_MS) {
-    linkRssiLastSampleMs = nowMs;
+  if (grWifi.isConnected() && (nowMs - linkStats.rssiLastSampleMs) >= LINK_RSSI_SAMPLE_INTERVAL_MS) {
+    linkStats.rssiLastSampleMs = nowMs;
     const int32_t rssi = grWifi.rssi();
     if (rssi != 0) {
-      linkRssiSum += rssi;
-      linkRssiMin = linkRssiSamples == 0 ? rssi : (rssi < linkRssiMin ? rssi : linkRssiMin);
-      ++linkRssiSamples;
+      linkStats.rssiSum += rssi;
+      linkStats.rssiMin = linkStats.rssiSamples == 0 ? rssi : (rssi < linkStats.rssiMin ? rssi : linkStats.rssiMin);
+      ++linkStats.rssiSamples;
     }
   }
-  if ((nowMs - linkStatsLastLogMs) < LINK_STATS_LOG_INTERVAL_MS) {
+  if ((nowMs - linkStats.lastLogMs) < LINK_STATS_LOG_INTERVAL_MS) {
     return;
   }
-  linkStatsLastLogMs = nowMs;
+  linkStats.lastLogMs = nowMs;
 
-  const int rssiAvg = linkRssiSamples > 0 ? static_cast<int>(linkRssiSum / linkRssiSamples) : 0;
+  const int rssiAvg = linkStats.rssiSamples > 0 ? static_cast<int>(linkStats.rssiSum / linkStats.rssiSamples) : 0;
   const int lastReason = grWifi.lastDisconnectReason();
   BleConnParams ble;
   const bool bleUp = bleCamera.readConnParams(ble);
   Serial.printf("LINK: rssi_avg=%d rssi_min=%d samples=%u ch=%u tx=%.2fdBm wifi_disc=%lu last_reason=%d(%s) "
                 "ble=%s mode=%s itvl=%.2fms lat=%u to=%ums peer_req=%lu stall_recycle=%u\n",
                 rssiAvg,
-                static_cast<int>(linkRssiMin),
-                static_cast<unsigned>(linkRssiSamples),
+                static_cast<int>(linkStats.rssiMin),
+                static_cast<unsigned>(linkStats.rssiSamples),
                 static_cast<unsigned>(grWifi.channel()),
                 grWifi.txPowerDbm(),
                 static_cast<unsigned long>(grWifi.disconnectCount()),
                 lastReason,
                 GrWifi::disconnectReasonName(lastReason),
                 bleUp ? "up" : "down",
-                bleLinkModeName(bleLinkModeApplied),
+                bleLinkModeName(bleLinkMode.applied),
                 bleUp ? ble.maxInterval * 1.25f : 0.0f,
                 bleUp ? static_cast<unsigned>(ble.latency) : 0U,
                 bleUp ? static_cast<unsigned>(ble.supervisionTimeout) * 10U : 0U,
                 static_cast<unsigned long>(bleCamera.peerConnParamRequests()),
                 static_cast<unsigned>(liveViewStallRecycleCount));
-  linkRssiSum = 0;
-  linkRssiMin = 0;
-  linkRssiSamples = 0;
+  linkStats.rssiSum = 0;
+  linkStats.rssiMin = 0;
+  linkStats.rssiSamples = 0;
 }
 
 void logPreviewStatsForController() {
@@ -2510,15 +2560,15 @@ void refreshPropsIfDue(bool force) {
 
 void updateFps() {
   const uint32_t now = millis();
-  fpsWindowFrames++;
-  if (fpsWindowStart == 0) {
-    fpsWindowStart = now;
+  fpsStats.windowFrames++;
+  if (fpsStats.windowStart == 0) {
+    fpsStats.windowStart = now;
   }
-  const uint32_t elapsed = now - fpsWindowStart;
+  const uint32_t elapsed = now - fpsStats.windowStart;
   if (elapsed >= 1000) {
-    currentFps = (fpsWindowFrames * 1000.0f) / static_cast<float>(elapsed);
-    fpsWindowFrames = 0;
-    fpsWindowStart = now;
+    fpsStats.current = (fpsStats.windowFrames * 1000.0f) / static_cast<float>(elapsed);
+    fpsStats.windowFrames = 0;
+    fpsStats.windowStart = now;
   }
 }
 
@@ -2540,21 +2590,21 @@ rvf::UiSnapshot makeUiSnapshot() {
       pairingGuide.selection() == RicohProtocolGeneration::Gr4Family;
   snapshot.wifiProvisioningActive = gr2ProvisioningPreparing || gr2Provisioning.active();
   snapshot.wifiProvisioningPreparing = gr2ProvisioningPreparing;
-  snapshot.hasFrame = decodedFrames > 0;
-  snapshot.fps = currentFps;
+  snapshot.hasFrame = fpsStats.decodedFrames > 0;
+  snapshot.fps = fpsStats.current;
   snapshot.rssi = grWifi.rssi();
-  snapshot.decodedFrames = decodedFrames;
+  snapshot.decodedFrames = fpsStats.decodedFrames;
   snapshot.droppedFrames = mjpeg.droppedFrames();
-  snapshot.deviceBatteryPercent = deviceBatteryPercent;
-  snapshot.deviceCharging = deviceCharging;
+  snapshot.deviceBatteryPercent = devicePower.batteryPercent;
+  snapshot.deviceCharging = devicePower.charging;
   snapshot.cameraModel = cameraProps.model.c_str();
   snapshot.provisioningSsid = gr2Provisioning.accessPointSsid().c_str();
   snapshot.provisioningPassword = gr2Provisioning.accessPointPassword().c_str();
   static String provisioningUrl;
   provisioningUrl = String("http://") + gr2Provisioning.accessPointIp();
   snapshot.provisioningUrl = provisioningUrl.c_str();
-  snapshot.errorTitle = lastStatusLine1.c_str();
-  snapshot.errorDetail = lastStatusLine2.c_str();
+  snapshot.errorTitle = statusUi.line1.c_str();
+  snapshot.errorDetail = statusUi.line2.c_str();
   return snapshot;
 }
 
@@ -2636,11 +2686,11 @@ bool syncJpegViewport(LovyanGFX* canvas) {
 void onJpegFrame(const uint8_t* data, size_t len, void*) {
   lastFrameAt = millis();
   liveViewStallRecycleCount = 0;
-  decodedFrames++;
+  fpsStats.decodedFrames++;
   updateFps();
   previewFrameBuffer.recordFrame(len);
   // Only mark a safe opportunity here; PMIC I/O runs later in the main loop.
-  devicePowerSampleFrameBoundary = true;
+  devicePower.sampleFrameBoundary = true;
 
   if (!uiCoordinator.shouldRenderLivePreview()) {
     // The stream remains active and all watchdog/frame timestamps continue to
@@ -2717,7 +2767,7 @@ void resetBlePairingFromKey2() {
   cameraProfile.wifi.cameraIp = cameraIp;
   wifiPreview.setEndpoint(cameraProfile.wifi.cameraIp.c_str(), GR_PORT);
   pendingFreshWifiCredentials = RicohBleWifiCredentials{};
-  wifiCacheRefreshPending = false;
+  wifiCacheRefresh.pending = false;
   cameraProps = CameraProps{};
   lastPropsAt = 0;
   deferredPropsRefreshAfter = 0;
@@ -2974,7 +3024,7 @@ void shutdownStickS3() {
 
   ui.showBoot("Power off...");
   delay(200);
-  if (stickPowerReady) {
+  if (pmic.ready) {
     Serial.println("Power: M5PM1 shutdown command");
     Serial.flush();
     const m5pm1_err_t err = stickPower.shutdown();
@@ -3089,10 +3139,10 @@ void serviceSystemSupervisor(uint32_t nowMs) {
 
 void updateStatusUiIfDue() {
   const uint32_t now = millis();
-  if ((now - lastStatusAt) < UI_STATUS_INTERVAL_MS) {
+  if ((now - statusUi.lastUpdateAt) < UI_STATUS_INTERVAL_MS) {
     return;
   }
-  lastStatusAt = now;
+  statusUi.lastUpdateAt = now;
 
   if (cameraSleepGuardActive()) {
     showCameraSleepGuardStatus(false);
@@ -3152,10 +3202,10 @@ void serviceBleParking(uint32_t nowMs) {
     return;
   }
 
-  if (wifiCacheRefreshPending) {
+  if (wifiCacheRefresh.pending) {
     // These cached parameters just joined the access point; their BLE re-read
     // is not worth holding the link open in landscape.
-    wifiCacheRefreshPending = false;
+    wifiCacheRefresh.pending = false;
     Serial.println("WiFi cache: deferred BLE refresh skipped; landscape is WiFi-only");
   }
   Serial.println("BLE: releasing link; landscape preview runs on WiFi only");
@@ -3167,42 +3217,42 @@ void serviceBleParking(uint32_t nowMs) {
 void serviceBleLinkMode(uint32_t nowMs) {
   const bool streaming =
       appController.isPreviewActive() && grWifi.isConnected() && wifiPreview.isPreviewRunning();
-  if (streaming && !bleLinkPreviewStreaming) {
-    bleLinkPreviewStreamingSinceMs = nowMs;
+  if (streaming && !bleLinkMode.previewStreaming) {
+    bleLinkMode.previewStreamingSinceMs = nowMs;
   }
-  bleLinkPreviewStreaming = streaming;
+  bleLinkMode.previewStreaming = streaming;
 
   if (!BLE_LIVEVIEW_LOW_DUTY_ENABLED) {
     return;
   }
   if (!bleCamera.isConnected()) {
     // Every new link opens with the Normal connect-time parameters.
-    bleLinkModeApplied = BleLinkMode::Normal;
-    bleLinkModeRetryAfterMs = 0;
+    bleLinkMode.applied = BleLinkMode::Normal;
+    bleLinkMode.retryAfterMs = 0;
     return;
   }
   // A disconnect + reconnect can complete inside one blocking recovery call
   // without this function ever seeing the link down; the new link is on the
   // Normal connect-time parameters whatever was applied to the old one.
   const uint32_t connectionSerial = bleCamera.connectionSerial();
-  if (connectionSerial != bleLinkConnectionSerial) {
-    bleLinkConnectionSerial = connectionSerial;
-    bleLinkModeApplied = BleLinkMode::Normal;
-    bleLinkModeRetryAfterMs = 0;
+  if (connectionSerial != bleLinkMode.connectionSerial) {
+    bleLinkMode.connectionSerial = connectionSerial;
+    bleLinkMode.applied = BleLinkMode::Normal;
+    bleLinkMode.retryAfterMs = 0;
   }
 
   BleLinkModeInputs inputs;
   inputs.bleConnected = true;
   inputs.previewRequested = appController.previewRequested();
   inputs.previewStreaming = streaming;
-  inputs.streamingSinceMs = bleLinkPreviewStreamingSinceMs;
+  inputs.streamingSinceMs = bleLinkMode.previewStreamingSinceMs;
   inputs.nowMs = nowMs;
   const BleLinkMode desired =
-      desiredBleLinkMode(bleLinkModeApplied, inputs, BLE_LIVEVIEW_LOW_DUTY_SETTLE_MS);
-  if (desired == bleLinkModeApplied) {
+      desiredBleLinkMode(bleLinkMode.applied, inputs, BLE_LIVEVIEW_LOW_DUTY_SETTLE_MS);
+  if (desired == bleLinkMode.applied) {
     return;
   }
-  if (bleLinkModeRetryAfterMs != 0 && static_cast<int32_t>(nowMs - bleLinkModeRetryAfterMs) < 0) {
+  if (bleLinkMode.retryAfterMs != 0 && static_cast<int32_t>(nowMs - bleLinkMode.retryAfterMs) < 0) {
     return;
   }
 
@@ -3211,18 +3261,18 @@ void serviceBleLinkMode(uint32_t nowMs) {
       desired == BleLinkMode::LiveViewLowDuty ? "LiveView streaming" : "LiveView left");
   if (result.ok()) {
     Serial.printf("BLE: link mode %s -> %s\n",
-                  bleLinkModeName(bleLinkModeApplied),
+                  bleLinkModeName(bleLinkMode.applied),
                   bleLinkModeName(desired));
-    bleLinkModeApplied = desired;
-    bleLinkModeRetryAfterMs = 0;
+    bleLinkMode.applied = desired;
+    bleLinkMode.retryAfterMs = 0;
     return;
   }
   Serial.printf("BLE: link mode %s failed: %s\n",
                 bleLinkModeName(desired),
                 bleCamera.lastError().c_str());
-  bleLinkModeRetryAfterMs = nowMs + BLE_LINK_MODE_RETRY_MS;
-  if (bleLinkModeRetryAfterMs == 0) {
-    bleLinkModeRetryAfterMs = 1;
+  bleLinkMode.retryAfterMs = nowMs + BLE_LINK_MODE_RETRY_MS;
+  if (bleLinkMode.retryAfterMs == 0) {
+    bleLinkMode.retryAfterMs = 1;
   }
 }
 
@@ -3246,7 +3296,7 @@ void runAppTick() {
     return;
   }
   if (cameraSleepAutoPowerOffDue(cameraSleepGuardActive(),
-                                 cameraSleepEnteredAt,
+                                 sleepGuard.enteredAt,
                                  millis(),
                                  CAMERA_SLEEP_AUTO_POWER_OFF_MS)) {
     Serial.println("Power: CameraSleep idle timeout reached");
@@ -3362,7 +3412,7 @@ void setup() {
   lastCameraRecoveryAt = startupOnline ? millis() : 0;
   lastFrameAt = millis();
   lastLiveViewActivityAt = lastFrameAt;
-  lastStatusAt = 0;
+  statusUi.lastUpdateAt = 0;
   if (pairingGuide.active()) {
     setCameraFlowState(CameraFlowState::BleScan, "pairing guide");
     updateUi();

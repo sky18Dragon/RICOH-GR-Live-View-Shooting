@@ -49,7 +49,7 @@ platformio test -e native      # host-side 纯逻辑单元测试
 
 | 层 | 文件 | 职责 |
 | --- | --- | --- |
-| 编排 | [`src/main.cpp`](src/main.cpp) | 主状态机接线、连接流程具体动作、相机关机保护态、按键分发、`loop()` |
+| 编排 | [`src/main.cpp`](src/main.cpp) | 运行时状态（按职责归组为若干 `*State` 结构体）、连接流程具体动作、保护态、按键分发、`loop()` |
 | BLE | [`src/ricoh_ble_client.*`](src/ricoh_ble_client.h) | RICOH BLE 扫描/连接/配对、Wi-Fi 凭据读取、快门写入、电源状态通知 |
 | Wi-Fi | [`src/gr_wifi.*`](src/gr_wifi.h) | ESP32 STA 连接相机 AP（支持 BSSID 锚定 + 连接守卫回调） |
 | HTTP API | [`src/gr_api.*`](src/gr_api.h) | RICOH HTTP：`GET /v1/props`、`GET /v1/liveview`（MJPEG 流读取） |
