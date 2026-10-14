@@ -1,9 +1,48 @@
 # 多品牌 / 多型号相机架构重构计划
 
-> 状态：已定稿方案 A；阶段 0 的 CI 部分、阶段 1（仅接口）、阶段 2 代码迁移已完成（2026-10-13），阶段 2 已在 GR III 系列与 GR IV 上实机回归，GR II 尚未回归。详见「四、迁移路线」下的「执行记录」
-> 日期：2026-10-13
+> 状态：方案 A；阶段 0–6 已完成并在 GR III 系列 / GR IV 上实机回归（6.7 GR II 除外），阶段 7、8 未开始。进度与剩余任务见下方「当前进度与剩余任务」，逐步记录见「四、迁移路线」下的「执行记录」
+> 日期：2026-10-13（进度更新：2026-10-14）
 > 分析基线：分支 `feature/firmware-optimization`
 > 关联文档：[architecture_refactor_plan.md](architecture_refactor_plan.md)、[../project_overview.md](../project_overview.md)、[../power_state_policy.md](../power_state_policy.md)
+
+## 当前进度与剩余任务（2026-10-14）
+
+以本节为准；每一步的细节、验证方式和依据见「执行记录」。
+
+### 阶段进度
+
+| 阶段 | 内容 | 状态 | 实机回归 |
+| --- | --- | --- | --- |
+| 0 | CI 运行 native 测试；死骨架清理；`main.cpp` 状态归组；测试按功能区拆分 | ✅ | — |
+| 1–2 | `ICameraDriver` / `ICameraHost`；理光流程移入 `RicohDriver` | ✅ | GR III 系列、GR IV ✅；GR II ❌（无实机） |
+| 3 | 机型注册表、`CameraPhase`、`AppRuntime` + `SimCameraDriver` | ✅ | GR III 系列 ✅ |
+| 4 | 存储拆分（`cam.ricoh` 档案 / `app` 设置，升级整片擦除不迁移） | ✅ | GR III 系列 ✅ |
+| 5 | 编译期选型号 `RVF_RICOH_GR2/GR3/GR4`、单型号固件环境、CI 构建矩阵、include 规则检查、依赖版本固定 | ✅ | GR III 系列、GR IV ✅（含单型号固件拒绝其他型号） |
+| 6.1–6.6 | 理光 BLE 操作 / 凭据读取 / 协议识别 / 配对与状态通知 / 型号规则全部下沉到 `brands/ricoh/{gr3,gr4}`，共用代码只读参数 | ✅ | GR III 系列、GR IV ✅ |
+| 6.7 | GR II Wi-Fi-only 路径（`isGr2WifiOnlyProfile()` 约 27 处分支、根目录 `gr2_*` 文件）下沉到 `brands/ricoh/gr2` | ⏸ 待 GR II 实机 | — |
+| 7 | 第二品牌样板驱动（富士 / 尼康） | ⏸ 需先抓包确认协议 | — |
+| 8 | 运行时：驱动非阻塞、预览独立 FreeRTOS 任务、去 `String`、三段式 tick 合并为单个 `tick()` | ⏳ 仅完成接口层（`ICameraDriver` 无 Arduino 依赖、`showStatus` 收 `const char*`） | — |
+
+### 剩余任务
+
+**改造本身**
+
+1. **6.7 GR II**：有 GR II 实机后拆分，并按 [known_issues.md](../known_issues.md)「支持与证据限制」第 4 条的清单回归 `RicohDriver` 迁移后的 GR II 全流程（目前 GR II 自阶段 2 起从未实机验证）。
+2. **阶段 8 运行时优化**：会改变时序，单独做、单独回归。可根治 K1（横屏快门写入阻塞主循环约 12 s）与 K7（内部 RAM 碎片）。
+3. **阶段 7 第二品牌**：先抓取富士或尼康的 BLE / Wi-Fi / 预览协议，再据此检验 `ICameraDriver` 是否够用。
+4. **理光驱动内部仍集中**：`RicohDriver.cpp`（约 2.9k 行）与 `ricoh_ble_client.cpp`（约 2.3k 行）虽已无型号分支，但仍是单个大文件、文件级全局状态；`services/BleCameraService`、`WifiPreviewService` 在目标分层（`transport/`、`media/`）中的归属未定。
+5. **识别证据收集未拆分**：`collectProtocolEvidence()` 仍在共用代码中引用 GR III / GR IV 的 UUID 与 handle（其 GATT 访问顺序影响相机是否断开，刻意保留）；`config.h` 因此仍 include 两个型号的配置头。
+6. **`CameraBinding`**：记录“相机归属哪个驱动”，第二个驱动出现时再加。
+
+**工程与流程**
+
+7. **发布流程**：`release.yml` 只发布全量固件；是否同时发布单型号固件待产品决定。
+8. **`esp_new_jpeg` 未固定版本**：下载链接无版本号（目前均解析为 v1.0.2），上游更新时可能变化。
+9. **`src/CLAUDE.md` 过时**：仍为 2026-06 平铺结构时期的内容，只加了过时提示，需按当前结构重写。
+
+**已知问题（暂缓，详见 [known_issues.md](../known_issues.md)「已知且暂缓处理」）**
+
+10. K1 横屏 BLE 快门写入阻塞约 12 s、K2 快门误判确认、K3 失败提示为空、K4 相机忙 / SD 卡满被拒、K5 Wi-Fi 全扫描首次失败后空等、K6 M5PM1 运行中 I2C 读失败、K7 内部 RAM 碎片、K8 GR IV 打开 LiveView 约 1.1 s、K9 GR IV 首次配对前几次连接失败、K10 日志文案误导。
 
 ## 目标
 

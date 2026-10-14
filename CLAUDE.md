@@ -16,7 +16,7 @@ M5Stack StickS3（ESP32-S3）固件：以 **BLE 为唯一在线入口**识别并
 | 目标板 | M5Stack StickS3（ESP32-S3-PICO-1-N8R8，8MB Flash / 8MB PSRAM），`board=esp32-s3-devkitc-1` |
 | 屏幕 | 240×135，经 M5Unified / LovyanGFX 渲染 |
 | 关键库 | `M5Unified`、`M5PM1`、`bitbank2/JPEGDEC@^1.8.2`、`bblanchon/ArduinoJson@^7.0.0`、`h2zero/NimBLE-Arduino@2.5.0` |
-| 语言 | C++17（Arduino 风格；旧模块平铺在 `src/`，新分层在 `src/{app,core,services,supervisor,ui,ricoh}/`） |
+| 语言 | C++17（Arduino 风格；旧模块平铺在 `src/`，新分层在 `src/{app,camera,brands,core,platform,services,supervisor,ui}/`） |
 | 许可证 | GPL-3.0 |
 
 ## 构建 / 烧录 / 监控
