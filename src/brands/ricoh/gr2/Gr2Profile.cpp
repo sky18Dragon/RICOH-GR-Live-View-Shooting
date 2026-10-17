@@ -13,6 +13,10 @@ CameraProtocolProfile makeGr2Profile() {
   profile.capabilities.supportsHttpShutter = true;
   profile.wifiActivationMethod = WifiActivationMethod::ManualOnly;
   profile.wifiCredentialMethod = WifiCredentialMethod::ManualConfiguration;
+  profile.liveViewWithoutMaxFps = true;
+  profile.fixedModelLabel = "RICOH GR II";
+  profile.httpShutterUsesGrRemoteSequence = true;
+  profile.httpWlanFinishPowersOff = true;
   return profile;
 }
 

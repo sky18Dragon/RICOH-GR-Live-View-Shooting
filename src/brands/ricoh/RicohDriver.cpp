@@ -172,9 +172,17 @@ int32_t pollPasskeyButtonEntry(RicohPasskeyPollAction action) {
   return result;
 }
 
-bool isGr2WifiOnlyProfile() {
-  return cameraProfile.protocolGenerationKnown &&
-         cameraProfile.protocolGeneration == RicohProtocolGeneration::Gr2Family;
+// The protocol of the camera paired last, as stored in its profile.
+const CameraProtocolProfile& storedCameraProtocol() {
+  return cameraProtocolProfile(cameraProfile.protocolGenerationKnown
+                                   ? cameraProfile.protocolGeneration
+                                   : RicohProtocolGeneration::Unknown);
+}
+
+// The stored camera has no BLE (GR II): there is no link to establish,
+// monitor or recover, and Wi-Fi credentials are configured by hand.
+bool storedCameraIsWifiOnly() {
+  return cameraIsWifiOnly(storedCameraProtocol());
 }
 
 const char* cameraPowerStateName(RicohCameraPowerState state) {
@@ -306,10 +314,7 @@ uint32_t cameraPowerProbeBackoffRemainingMs() {
 
 void scheduleCameraPowerProbeBackoff(const char* source) {
   const CameraProtocolProfile& connectedProfile = bleCamera.protocolProfile();
-  const CameraProtocolProfile& storedProfile = cameraProtocolProfile(
-      cameraProfile.protocolGenerationKnown
-        ? cameraProfile.protocolGeneration
-        : RicohProtocolGeneration::Unknown);
+  const CameraProtocolProfile& storedProfile = storedCameraProtocol();
   const uint32_t profileInterval = connectedProfile.standbyModeRequiresFreshReconnect
                                      ? connectedProfile.standbyProbeIntervalMs
                                      : storedProfile.standbyProbeIntervalMs;
@@ -446,7 +451,7 @@ bool hasUsableCachedWifiCredentials() {
   return cameraProfile.wifi.cached &&
          cameraProfile.wifi.credentialsValid &&
          cameraProfile.wifi.ssid.length() > 0 &&
-         (isGr2WifiOnlyProfile() || cameraProfile.bleAddress.length() > 0);
+         (storedCameraIsWifiOnly() || cameraProfile.bleAddress.length() > 0);
 }
 
 bool wifiCredentialsMatchProfile(const RicohBleWifiCredentials& credentials) {
@@ -468,7 +473,7 @@ void saveWifiCredentialCache(const char* source) {
       !cameraProfile.wifi.credentialsValid) {
     return;
   }
-  if (isGr2WifiOnlyProfile()) {
+  if (storedCameraIsWifiOnly()) {
     cameraProfile.wifi.cached = true;
     if (profileStore.save(cameraProfile)) {
       Serial.printf("WiFi cache: saved manual GR II profile (%s) ssid='%s' bssid='%s' channel=%u\n",
@@ -495,7 +500,7 @@ void saveWifiCredentialCache(const char* source) {
 
 void saveConnectedWifiBssidToCache(const char* source) {
   if (!grWifi.isConnected() || cameraProfile.wifi.ssid.length() == 0 ||
-      (!isGr2WifiOnlyProfile() && cameraProfile.bleAddress.length() == 0)) {
+      (!storedCameraIsWifiOnly() && cameraProfile.bleAddress.length() == 0)) {
     return;
   }
 
@@ -548,7 +553,7 @@ void applyBleWifiCredentials(const RicohBleWifiCredentials& credentials, const c
 }
 
 void scheduleWifiCacheRefresh() {
-  if (isGr2WifiOnlyProfile() || !bleCamera.isConnected() || cameraProfile.bleAddress.length() == 0) {
+  if (storedCameraIsWifiOnly() || !bleCamera.isConnected() || cameraProfile.bleAddress.length() == 0) {
     return;
   }
   wifiCacheRefresh.pending = true;
@@ -817,7 +822,7 @@ bool ensureCameraPowerReadyForWifi(const char* source) {
 }
 
 bool ensureCameraPowerReadyForController(const char* source) {
-  if (isGr2WifiOnlyProfile()) {
+  if (storedCameraIsWifiOnly()) {
     return true;
   }
   return ensureCameraPowerReadyForWifi(source != nullptr ? source : "camera power");
@@ -844,7 +849,7 @@ void subscribeCameraStatusNotifyIfNeeded(const char* when) {
 }
 
 bool activateCameraWifiOverBle() {
-  if (isGr2WifiOnlyProfile()) {
+  if (storedCameraIsWifiOnly()) {
     // GR II has no BLE radio. The user enables Wi-Fi on the camera body before
     // the StickS3 joins the already-advertising access point.
     return true;
@@ -930,7 +935,7 @@ bool hasStoredBleIdentity() {
 }
 
 bool hasConfiguredCameraProfile() {
-  return isGr2WifiOnlyProfile() ? hasUsableCachedWifiCredentials()
+  return storedCameraIsWifiOnly() ? hasUsableCachedWifiCredentials()
                                 : hasStoredBleIdentity();
 }
 
@@ -1163,7 +1168,7 @@ bool resetBlePairingIfRequested() {
 }
 
 bool runBleDiscoveryAtBoot() {
-  if (isGr2WifiOnlyProfile()) {
+  if (storedCameraIsWifiOnly()) {
     showStatusIfChanged("GR II WiFi", "Saved WLAN profile", cameraProfile.wifi.ssid,
                         "No Bluetooth", true);
     setCameraFlowState(CameraFlowState::BleReady, "GR II WiFi-only profile ready");
@@ -1406,7 +1411,7 @@ uint32_t bleParkedAtMs = 0;
 bool bleLinkHealthy() {
   // For GR II this is the controller's logical prerequisite signal: there is
   // deliberately no BLE link to establish or monitor.
-  return isGr2WifiOnlyProfile() || bleCamera.isConnected() || bleParkedForPreview;
+  return storedCameraIsWifiOnly() || bleCamera.isConnected() || bleParkedForPreview;
 }
 
 bool bleStillConnectedForWifi() {
@@ -1420,9 +1425,7 @@ const CameraProtocolProfile& knownCameraProtocol() {
   if (connected.generation != RicohProtocolGeneration::Unknown) {
     return connected;
   }
-  return cameraProtocolProfile(cameraProfile.protocolGenerationKnown
-                                   ? cameraProfile.protocolGeneration
-                                   : RicohProtocolGeneration::Unknown);
+  return storedCameraProtocol();
 }
 
 bool cameraSupportsWifiOnlyLandscape() {
@@ -1433,7 +1436,7 @@ bool cameraSupportsWifiOnlyLandscape() {
 // Landscape shoots over HTTP only, including the moments where BLE is still
 // up bringing the access point online.
 bool shutterUsesHttp() {
-  return isGr2WifiOnlyProfile() || bleParkedForPreview ||
+  return storedCameraIsWifiOnly() || bleParkedForPreview ||
          (flowController.previewRequested() && cameraSupportsWifiOnlyLandscape());
 }
 
@@ -1617,8 +1620,8 @@ void applyLiveViewSpotFocusSetting() {
 }
 
 bool openLiveViewForController() {
-  grApi.setLiveViewMaxFps(isGr2WifiOnlyProfile() ? 0 : LIVEVIEW_MAX_FPS);
-  if (!isGr2WifiOnlyProfile()) {
+  grApi.setLiveViewMaxFps(storedCameraProtocol().liveViewWithoutMaxFps ? 0 : LIVEVIEW_MAX_FPS);
+  if (storedCameraProtocol().fixedModelLabel == nullptr) {
     if (!cameraProps.ok) {
       // One props read before the stream opens supplies resoList, model and
       // battery together, so nothing has to compete with the stream for them.
@@ -1711,7 +1714,7 @@ void showShutterBleNotReadyForController() {
   g_host->onShutterResult(false);
   const bool overHttp = shutterUsesHttp();
   const char* hint = "Back to BLE scan";
-  if (isGr2WifiOnlyProfile()) {
+  if (storedCameraIsWifiOnly()) {
     hint = "Enable GR II WiFi";
   } else if (overHttp) {
     hint = "Portrait: BLE shutter";
@@ -1760,7 +1763,7 @@ bool retryShutterAfterGr3StartupMode() {
 
 bool shootAutofocusForController() {
   g_host->onShutterStarted();
-  if (isGr2WifiOnlyProfile()) {
+  if (storedCameraProtocol().httpShutterUsesGrRemoteSequence) {
     Serial.println("Button A: GR II shutter over official GR Remote HTTP sequence");
     return shootGr2(grApi, PROPS_TIMEOUT_MS);
   }
@@ -2026,7 +2029,7 @@ uint32_t lastLiveViewActivityAtForController() {
 }
 
 bool reasonRequiresBleRescan(const char* reason) {
-  if (isGr2WifiOnlyProfile()) {
+  if (storedCameraIsWifiOnly()) {
     return true;
   }
   if (reason == nullptr) {
@@ -2056,7 +2059,7 @@ void disconnectAllTransportsToBleScan(const char* reason) {
 }
 
 bool resetBleStackBeforeScanAfterLinkLoss(const char* reason) {
-  if (isGr2WifiOnlyProfile()) {
+  if (storedCameraIsWifiOnly()) {
     (void)reason;
     return true;
   }
@@ -2085,7 +2088,7 @@ bool finishCameraWifiOverHttpForController() {
     return false;
   }
   closeLiveView("portrait WLAN finish");
-  if (isGr2WifiOnlyProfile()) {
+  if (storedCameraProtocol().httpWlanFinishPowersOff) {
     // GR Remote's GR II /v1/device/finish endpoint powers the camera off; it
     // is not the GR III/IV WLAN handoff endpoint. Leave the manually enabled
     // AP running and only close the local stream when needed.
@@ -2103,7 +2106,7 @@ void clearBleDisconnectReasonForController() {
 }
 
 bool connectCachedWifiFromProfileForController() {
-  if (isGr2WifiOnlyProfile()) {
+  if (storedCameraIsWifiOnly()) {
     Serial.printf("GR II WiFi: joining manually enabled AP ssid='%s' timeout=%lums\n",
                   cameraProfile.wifi.ssid.c_str(),
                   static_cast<unsigned long>(WIFI_CONNECT_TIMEOUT_MS));
@@ -2133,7 +2136,7 @@ void onCachedWifiConnectFailedForController() {
 }
 
 bool readFreshWifiCredentialsForController() {
-  if (isGr2WifiOnlyProfile()) {
+  if (storedCameraIsWifiOnly()) {
     pendingFreshWifiCredentials = RicohBleWifiCredentials{};
     pendingFreshWifiCredentials.ssid = cameraProfile.wifi.ssid;
     pendingFreshWifiCredentials.passphrase = cameraProfile.wifi.passphrase;
@@ -2152,7 +2155,7 @@ bool readFreshWifiCredentialsForController() {
 }
 
 void applyFreshWifiCredentialsForController() {
-  if (isGr2WifiOnlyProfile()) {
+  if (storedCameraIsWifiOnly()) {
     cameraProfile.wifi.source = WifiCredentialSource::ManualConfiguration;
     cameraProfile.wifi.cached = cameraProfile.wifi.credentialsValid;
     saveWifiCredentialCache("GR II web setup");
@@ -2164,7 +2167,7 @@ void applyFreshWifiCredentialsForController() {
 }
 
 bool connectFreshWifiFromProfileForController() {
-  return connectWifiFromProfile(true, !isGr2WifiOnlyProfile());
+  return connectWifiFromProfile(true, !storedCameraIsWifiOnly());
 }
 
 void onFreshWifiConnectedForController() {
@@ -2239,12 +2242,13 @@ rvf::RicohFlowActions makeAppFlowActions() {
 }
 
 void refreshPropsIfDue(bool force) {
-  if (isGr2WifiOnlyProfile()) {
+  const char* fixedModelLabel = storedCameraProtocol().fixedModelLabel;
+  if (fixedModelLabel != nullptr) {
     // The official GR Remote uses /v1/params/device rather than /v1/props.
     // The current UI only needs a stable model label here; avoid generating a
     // guaranteed 404 once per minute on the GR II.
     cameraProps.ok = true;
-    cameraProps.model = "RICOH GR II";
+    cameraProps.model = fixedModelLabel;
     cameraProps.battery = "";
     lastPropsAt = millis();
     deferredPropsRefreshAfter = 0;
@@ -2286,7 +2290,9 @@ void resetBlePairingFromKey2() {
     return;
   }
   resettingPairing = true;
-  const bool resettingGr2 = isGr2WifiOnlyProfile() || gr2Provisioning.active();
+  const bool resettingGr2 = storedCameraIsWifiOnly() || gr2Provisioning.active();
+  const RicohProtocolGeneration resettingGr2Generation =
+      storedCameraIsWifiOnly() ? cameraProfile.protocolGeneration : selectedPairingGeneration;
   if (gr2Provisioning.active()) {
     gr2Provisioning.stop();
   }
@@ -2359,9 +2365,7 @@ void resetBlePairingFromKey2() {
   }
 
   pairingModelConfirmed = false;
-  requestPairingGuide(resettingGr2
-                            ? RicohProtocolGeneration::Gr2Family
-                            : defaultPairingGeneration());
+  requestPairingGuide(resettingGr2 ? resettingGr2Generation : defaultPairingGeneration());
   showStatusIfChanged("Select camera", "B: model", "A: confirm", "", true);
   setCameraFlowState(CameraFlowState::BleScan, "Reset pairing");
   lastFrameAt = millis();
@@ -2380,7 +2384,7 @@ bool beginSelectedCameraPairing(RicohProtocolGeneration generation) {
                 ricohProtocolGenerationName(generation),
                 ricohSecurityProfileName(securityProfile));
 
-  if (generation == RicohProtocolGeneration::Gr2Family) {
+  if (cameraNeedsManualWifiProvisioning(cameraProtocolProfile(generation))) {
     gr2ProvisioningPreparing = true;
     flowController.setPreviewRequested(false);
     setCameraFlowState(CameraFlowState::WifiCredentialsReady, "GR II setup preparing");
@@ -2390,10 +2394,9 @@ bool beginSelectedCameraPairing(RicohProtocolGeneration generation) {
 
     cameraProfile = CameraProfile{};
     cameraProfile.cameraName = "RICOH GR II";
-    cameraProfile.protocolGeneration = RicohProtocolGeneration::Gr2Family;
+    cameraProfile.protocolGeneration = generation;
     cameraProfile.protocolGenerationKnown = true;
-    cameraProfile.capabilityVersion =
-        cameraProtocolProfile(RicohProtocolGeneration::Gr2Family).capabilityVersion;
+    cameraProfile.capabilityVersion = cameraProtocolProfile(generation).capabilityVersion;
     cameraProfile.wifi.cameraIp = GR_HOST;
     cameraProfile.wifi.cached = false;
     cameraProfile.wifi.credentialsValid = false;
@@ -2469,7 +2472,7 @@ bool handleGr2ProvisioningInput(bool resetRequested) {
     cameraProfile = CameraProfile{};
     cameraProfile.wifi.cameraIp = GR_HOST;
     pairingModelConfirmed = false;
-    requestPairingGuide(RicohProtocolGeneration::Gr2Family);
+    requestPairingGuide(selectedPairingGeneration);
     setCameraFlowState(CameraFlowState::BleScan, "GR II setup cancelled");
     showStatusIfChanged("Select camera", "B: model", "A: confirm", "", true);
     return true;
@@ -2703,14 +2706,17 @@ void RicohDriver::begin(ICameraHost& host) {
   applyDefaultProfile();
   if (!hasConfiguredCameraProfile()) {
     pairingModelConfirmed = false;
-    requestPairingGuide(isGr2WifiOnlyProfile()
-                            ? RicohProtocolGeneration::Gr2Family
+    requestPairingGuide(storedCameraIsWifiOnly()
+                            ? cameraProfile.protocolGeneration
                             : defaultPairingGeneration());
   }
-  if (isGr2WifiOnlyProfile()) {
+  if (storedCameraIsWifiOnly()) {
+    // No BLE shutter to fall back on: the preview stays up in portrait too.
     flowController.setPreviewRequested(true);
+  }
+  if (storedCameraProtocol().fixedModelLabel != nullptr) {
     cameraProps.ok = true;
-    cameraProps.model = "RICOH GR II";
+    cameraProps.model = storedCameraProtocol().fixedModelLabel;
   }
 }
 
@@ -2789,7 +2795,7 @@ void RicohDriver::setUiPreviewIntent(bool landscape, bool modelSelectionActive) 
   flowController.setPreviewRequested(!modelSelectionActive &&
                                     !gr2ProvisioningPreparing &&
                                     !gr2Provisioning.active() &&
-                                    (isGr2WifiOnlyProfile() || landscape));
+                                    (storedCameraIsWifiOnly() || landscape));
 }
 
 bool RicohDriver::confirmModel(CameraModelId model) {

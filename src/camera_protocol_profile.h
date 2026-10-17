@@ -128,6 +128,18 @@ struct CameraProtocolProfile {
   // A read-only discovery connection made with the default security baseline
   // can be promoted to this model in place, without reconnecting.
   bool discoveryConnectionPromotable = false;
+  // HTTP quirks of the GR II firmware; the defaults are GR III/IV behaviour.
+  // GET /v1/liveview goes out bare, without ?maxfps=.
+  bool liveViewWithoutMaxFps = false;
+  // No /v1/props (GR Remote reads /v1/params/device instead). When set, props
+  // are never fetched and this model label is shown.
+  const char* fixedModelLabel = nullptr;
+  // The shutter is GR Remote's one-shot (start + finish fallback) sequence
+  // with af=camera, not POST /v1/camera/shoot af=on.
+  bool httpShutterUsesGrRemoteSequence = false;
+  // The HTTP WLAN finish endpoint powers the camera off rather than handing
+  // its access point back, so it is never sent.
+  bool httpWlanFinishPowersOff = false;
   uint16_t capabilityVersion = 1;
 };
 
@@ -158,6 +170,10 @@ bool canPromoteDiscoveryConnectionInPlace(RicohSecurityProfileId activeProfile,
 const RicohSecurityProfile& ricohSecurityProfile(RicohSecurityProfileId id);
 const char* ricohSecurityProfileName(RicohSecurityProfileId id);
 
+// No BLE at all: the user enables the camera AP on the body and the
+// controller joins it with manually configured credentials.
+bool cameraIsWifiOnly(const CameraProtocolProfile& profile);
+bool cameraNeedsManualWifiProvisioning(const CameraProtocolProfile& profile);
 bool protocolAllowsBleSideEffect(const CameraProtocolProfile& profile, BleSideEffect effect);
 bool operationModeAllowsWifi(const CameraProtocolProfile& profile,
                              RicohCameraOperationMode mode,

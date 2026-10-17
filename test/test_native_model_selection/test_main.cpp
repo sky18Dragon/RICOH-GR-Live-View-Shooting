@@ -89,6 +89,10 @@ void testMissingModelsGetTheInertUnknownProfile() {
       TEST_ASSERT_EQUAL(static_cast<int>(RicohProtocolGeneration::Unknown), static_cast<int>(profile.generation));
       TEST_ASSERT_FALSE(protocolAllowsBleSideEffect(profile, BleSideEffect::WifiActivation));
       TEST_ASSERT_FALSE(protocolAllowsBleSideEffect(profile, BleSideEffect::Shutter));
+      // Nor does a missing GR II leave its Wi-Fi-only paths reachable.
+      TEST_ASSERT_FALSE(cameraIsWifiOnly(profile));
+      TEST_ASSERT_FALSE(cameraNeedsManualWifiProvisioning(profile));
+      TEST_ASSERT_NULL(profile.fixedModelLabel);
       TEST_ASSERT_EQUAL(static_cast<int>(RicohSecurityProfileId::Unknown),
                         static_cast<int>(securityProfileForGeneration(generations[i])));
     }

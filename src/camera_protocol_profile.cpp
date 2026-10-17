@@ -102,6 +102,14 @@ const char* ricohSecurityProfileName(RicohSecurityProfileId id) {
   return "UNKNOWN";
 }
 
+bool cameraIsWifiOnly(const CameraProtocolProfile& profile) {
+  return profile.wifiActivationMethod == WifiActivationMethod::ManualOnly;
+}
+
+bool cameraNeedsManualWifiProvisioning(const CameraProtocolProfile& profile) {
+  return profile.wifiCredentialMethod == WifiCredentialMethod::ManualConfiguration;
+}
+
 bool protocolAllowsBleSideEffect(const CameraProtocolProfile& profile, BleSideEffect effect) {
   if (!profile.capabilities.hasBle) {
     return false;

@@ -641,6 +641,30 @@ void testGr3CredentialShapeAllowsOptionalChannel() {
   TEST_ASSERT_FALSE(validGr3WifiCredentials("GR_TEST", "", 1));
 }
 
+// Stage 6.7: RicohDriver used to branch on generation == Gr2Family. Every
+// profile parameter that replaced those branches must select exactly GR II,
+// for every generation byte a stored profile could carry.
+void testGr2BranchesBecameProfileParameters() {
+  for (int raw = 0; raw <= 255; ++raw) {
+    const RicohProtocolGeneration generation = static_cast<RicohProtocolGeneration>(raw);
+    const bool gr2 = generation == RicohProtocolGeneration::Gr2Family;
+    const CameraProtocolProfile& profile = cameraProtocolProfile(generation);
+    TEST_ASSERT_EQUAL(gr2, cameraIsWifiOnly(profile));
+    TEST_ASSERT_EQUAL(gr2, cameraNeedsManualWifiProvisioning(profile));
+    TEST_ASSERT_EQUAL(gr2, profile.liveViewWithoutMaxFps);
+    TEST_ASSERT_EQUAL(gr2, profile.httpShutterUsesGrRemoteSequence);
+    TEST_ASSERT_EQUAL(gr2, profile.httpWlanFinishPowersOff);
+    TEST_ASSERT_EQUAL(gr2, profile.fixedModelLabel != nullptr);
+    // A Wi-Fi-only camera must never be offered a BLE side effect.
+    if (gr2) {
+      TEST_ASSERT_EQUAL_STRING("RICOH GR II", profile.fixedModelLabel);
+      TEST_ASSERT_FALSE(profile.capabilities.hasBle);
+      TEST_ASSERT_FALSE(protocolAllowsBleSideEffect(profile, BleSideEffect::WifiActivation));
+      TEST_ASSERT_FALSE(protocolAllowsBleSideEffect(profile, BleSideEffect::Shutter));
+    }
+  }
+}
+
 }  // namespace
 
 int main() {
@@ -675,5 +699,6 @@ int main() {
   RUN_TEST(testLandscapeKeepsBleShutterForAllGenerations);
   RUN_TEST(testOnlyGr4TreatsCachedWifiChannelAsAGuess);
   RUN_TEST(testGr3CredentialShapeAllowsOptionalChannel);
+  RUN_TEST(testGr2BranchesBecameProfileParameters);
   return UNITY_END();
 }
