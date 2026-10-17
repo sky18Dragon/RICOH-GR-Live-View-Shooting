@@ -28,7 +28,7 @@ flowchart LR
 | `src/services/BleCameraService.*` | 对 Controller 暴露统一 Result API、Profile 和安全状态 |
 | `src/camera_profile_schema.*` | 可 Native 测试的 NVS metadata v3→v4 升级/往返规则 |
 | `src/camera_profile_store.*` | NVS 保存 BLE 身份、代际、能力版本、凭据来源与有效性、Wi-Fi 缓存 |
-| `src/gr2_provisioning_portal.*` | GR II 临时热点、DNS/HTTP 配网页面、附近 WLAN 选择与凭据提交 |
+| `src/brands/ricoh/gr2/Gr2ProvisioningPortal.*` | GR II 临时热点、DNS/HTTP 配网页面、附近 WLAN 选择与凭据提交 |
 | `src/main.cpp` | 宿主：显示、按键、IMU、配对引导、板级电源、Supervisor，经 `ICameraDriver` 访问相机 |
 | `src/brands/ricoh/RicohDriver.*` / `src/brands/ricoh/flow/*` | 理光工作流状态机、Power/Operation Mode 门控、Sleep Guard、恢复与快门 |
 | `src/gr_wifi.*` / `src/services/WifiPreviewService.*` | STA 连接，成功后回采实际 BSSID/Channel，HTTP LiveView |

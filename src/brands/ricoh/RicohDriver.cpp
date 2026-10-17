@@ -14,7 +14,7 @@
 #include "flow/RicohFlowController.h"
 #include "../../core/Logger.h"
 #include "../../gr_api.h"
-#include "../../gr2_provisioning_portal.h"
+#include "RicohGr2Support.h"
 #include "../../gr_wifi.h"
 #include "../../liveview_focus_policy.h"
 #include "../../liveview_reso_policy.h"
@@ -1762,7 +1762,7 @@ bool shootAutofocusForController() {
   g_host->onShutterStarted();
   if (isGr2WifiOnlyProfile()) {
     Serial.println("Button A: GR II shutter over official GR Remote HTTP sequence");
-    return grApi.shootGr2(PROPS_TIMEOUT_MS);
+    return shootGr2(grApi, PROPS_TIMEOUT_MS);
   }
   if (shutterUsesHttp()) {
     // Failures are reported by onShutterFailedForController.

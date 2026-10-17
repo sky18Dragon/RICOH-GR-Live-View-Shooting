@@ -1,4 +1,4 @@
-#include "gr2_shutter_policy.h"
+#include "Gr2ShutterPolicy.h"
 
 #include <cctype>
 #include <cstring>

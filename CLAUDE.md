@@ -52,7 +52,7 @@ python scripts/check_model_includes.py  # 型号目录 include 规则
 | `src/supervisor/` | `SystemSupervisor` 健康检查事件 |
 | `src/ui/` | 按键命令、姿态、配对引导、UI 协调/动画/音效 |
 | `src/brands/ricoh/common/` | 理光各型号共用：`IRicohBleProtocol`（型号协议接口）、`RicohGattSession`（GATT 原语，由 `RicohBleClient` 在 NimBLE 上实现）、协议路由、安全配置、共用 GATT UUID |
-| `src/brands/ricoh/gr2/` · `gr3/` · `gr4/` | `Gr*Profile`：型号配置表（能力位与规则参数，如 `wifiRequiresOperationModeRead`、`waitsInBleStartupMode`）与安全配置，`camera_protocol_profile.cpp` 只读参数不判断型号。各型号 BLE 协议：开关相机 Wi-Fi、读电源、订阅电源通知、请求拍摄模式、读取 Wi-Fi 凭据（GR IV 文本解析在 `Gr4WifiCredentialParser`）、配对策略、型号专用 handle / UUID（`Gr3BleConfig.h` / `Gr4BleConfig.h`）；native 用 `FakeGattSession` 测试 |
+| `src/brands/ricoh/gr2/` · `gr3/` · `gr4/` | GR II 另有 Wi-Fi 配网门户 `Gr2ProvisioningPortal` 与 HTTP 快门 `Gr2HttpShutter`（经 `RicohGr2Support.h` 按 `RVF_RICOH_GR2` 接入，关闭时为空实现）。`Gr*Profile`：型号配置表（能力位与规则参数，如 `wifiRequiresOperationModeRead`、`waitsInBleStartupMode`）与安全配置，`camera_protocol_profile.cpp` 只读参数不判断型号。各型号 BLE 协议：开关相机 Wi-Fi、读电源、订阅电源通知、请求拍摄模式、读取 Wi-Fi 凭据（GR IV 文本解析在 `Gr4WifiCredentialParser`）、配对策略、型号专用 handle / UUID（`Gr3BleConfig.h` / `Gr4BleConfig.h`）；native 用 `FakeGattSession` 测试 |
 
 **平铺模块（旧，仍是主要实现）**：
 
@@ -67,7 +67,7 @@ python scripts/check_model_includes.py  # 型号目录 include 规则
 | 持久化 | [`src/camera_profile_store.*`](src/camera_profile_store.h) · [`src/platform/AppSettingsStore.*`](src/platform/AppSettingsStore.h) | 理光相机档案（NVS `cam.ricoh`，单个 JSON 快照：BLE 身份、Wi-Fi 缓存、IP）；应用设置（NVS `app`：显示镜像） |
 | 输入 | [`src/buttons.*`](src/buttons.h) | 仅轮询 `M5.BtnA` |
 | 配置 | [`src/config.h`](src/config.h) | 全局常量：BLE GATT 句柄、超时、扫描次数、缩放策略、Service UUID |
-| 纯逻辑策略 | `src/*_policy.*`、`camera_profile_schema.*`、`camera_protocol_profile.*`、`gr2_*` | 可在 native 环境测试的决策逻辑 |
+| 纯逻辑策略 | `src/*_policy.*`、`camera_profile_schema.*`、`camera_protocol_profile.*` | 可在 native 环境测试的决策逻辑 |
 
 详细接口、依赖、状态机说明见 [`src/CLAUDE.md`](src/CLAUDE.md)。
 

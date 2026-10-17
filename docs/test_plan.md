@@ -18,8 +18,8 @@ git diff -- AGENTS.md docs logs
 - `camera_identity.cpp`
 - `camera_profile_schema.cpp`
 - `camera_protocol_profile.cpp`
-- `gr2_provisioning_logic.cpp`
-- `gr2_shutter_policy.cpp`
+- `brands/ricoh/gr2/Gr2ProvisioningLogic.cpp`
+- `brands/ricoh/gr2/Gr2ShutterPolicy.cpp`
 - `mjpeg_stream.cpp`
 - `ui/ButtonInput.cpp`
 - `ui/OrientationTracker.cpp`

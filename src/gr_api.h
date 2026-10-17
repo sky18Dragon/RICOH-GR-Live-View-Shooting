@@ -26,10 +26,8 @@ public:
   // PUT /v1/params/lens with body focusSetting=<enum>. Must run before
   // GET /v1/liveview so it does not share the MJPEG keep-alive.
   bool setFocusSetting(const char* setting, uint32_t timeoutMs);
-  // GR II follows the official GR Remote sequence: try the one-shot endpoint
-  // with camera autofocus, then fall back to start + finish when the camera
-  // reports the legacy precondition response.
-  bool shootGr2(uint32_t timeoutMs);
+  // POST <path> with an empty body; the JSON reply lands in responseBody.
+  bool postCommand(const char* path, uint32_t timeoutMs, String& responseBody);
   // Ask the camera to shut down its WLAN AP. A dropped connection after the
   // request is expected because the endpoint tears down its own transport.
   bool finishWlan(uint32_t timeoutMs);
@@ -44,6 +42,7 @@ public:
   bool isLiveViewOpen();
   int readLiveView(uint8_t* dst, size_t len);
   const String& lastError() const;
+  void setError(const String& message);
 
 private:
   bool connectClient(WiFiClient& client, uint32_t timeoutMs);
@@ -52,9 +51,7 @@ private:
   int parseContentLength(const String& headers) const;
   bool sendForm(const char* method, const char* path, const char* body, uint32_t timeoutMs);
   bool postForm(const char* path, const char* body, uint32_t timeoutMs);
-  bool postGr2Command(const char* path, uint32_t timeoutMs, String& responseBody);
   void parsePropsJson(const String& json, CameraProps& props) const;
-  void setError(const String& message);
   int requestLiveView(bool includeResolution);
 
   WiFiClient _liveClient;

@@ -9,8 +9,8 @@
 void setUp(void) {}
 void tearDown(void) {}
 
-#include "gr2_provisioning_logic.h"
-#include "gr2_shutter_policy.h"
+#include "brands/ricoh/gr2/Gr2ProvisioningLogic.h"
+#include "brands/ricoh/gr2/Gr2ShutterPolicy.h"
 #include "brands/ricoh/common/RicohBleProtocolRouter.h"
 #include "brands/ricoh/gr3/Gr3Profile.h"
 #include "reference_profile_before_6_6.h"

@@ -3,7 +3,6 @@
 #include <cstring>
 
 #include "config.h"
-#include "gr2_shutter_policy.h"
 
 namespace {
 constexpr uint32_t kDefaultConnectTimeoutMs = 5000;
@@ -275,47 +274,7 @@ bool GrApi::setFocusSetting(const char* setting, uint32_t timeoutMs) {
   return sendForm("PUT", "/v1/params/lens", body, timeoutMs);
 }
 
-bool GrApi::shootGr2(uint32_t timeoutMs) {
-  String body;
-  if (!postGr2Command(GR2_SHUTTER_ONESHOT_PATH, timeoutMs, body)) {
-    return false;
-  }
-
-  // GR Remote treats errMsg=OK as the completed one-shot path. Some GR II
-  // states instead return HTTP 200 with "Precondition Failed" in the JSON and
-  // require the explicit press/release pair used by older firmware.
-  const Gr2InitialShutterDecision decision = evaluateGr2InitialShutterResponse(body.c_str());
-  if (decision.action == Gr2InitialShutterAction::Complete) {
-    _lastError = "";
-    return true;
-  }
-  if (decision.action == Gr2InitialShutterAction::Fail) {
-    setError(decision.errorMessage.c_str());
-    return false;
-  }
-
-  if (!postGr2Command(GR2_SHUTTER_START_PATH, timeoutMs, body)) {
-    return false;
-  }
-  std::string phaseError;
-  if (!gr2ShutterPhaseSucceeded(body.c_str(), "start", phaseError)) {
-    setError(phaseError.c_str());
-    return false;
-  }
-  delay(80);
-  if (!postGr2Command(GR2_SHUTTER_FINISH_PATH, timeoutMs, body)) {
-    return false;
-  }
-  if (!gr2ShutterPhaseSucceeded(body.c_str(), "finish", phaseError)) {
-    setError(phaseError.c_str());
-    return false;
-  }
-
-  _lastError = "";
-  return true;
-}
-
-bool GrApi::postGr2Command(const char* path, uint32_t timeoutMs, String& responseBody) {
+bool GrApi::postCommand(const char* path, uint32_t timeoutMs, String& responseBody) {
   responseBody = "";
   if (path == nullptr || path[0] != '/') {
     setError("Invalid GR II command path");

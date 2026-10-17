@@ -1,9 +1,9 @@
-#include "gr2_provisioning_portal.h"
+#include "Gr2ProvisioningPortal.h"
 
 #include <WiFi.h>
 
-#include "config.h"
-#include "gr2_provisioning_logic.h"
+#include "../../../config.h"
+#include "Gr2ProvisioningLogic.h"
 
 namespace {
 constexpr uint16_t kDnsPort = 53;
