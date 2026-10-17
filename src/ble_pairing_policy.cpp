@@ -196,6 +196,14 @@ PasskeyEntryStatus PasskeyButtonEntry::status(uint32_t nowMs) const {
   return PasskeyEntryStatus::Editing;
 }
 
+uint32_t PasskeyButtonEntry::remainingMs(uint32_t nowMs) const {
+  if (!_active || _index >= 6 || _timeoutMs == 0) {
+    return 0;
+  }
+  const uint32_t elapsed = static_cast<uint32_t>(nowMs - _startedAtMs);
+  return elapsed >= _timeoutMs ? 0 : _timeoutMs - elapsed;
+}
+
 int32_t PasskeyButtonEntry::code() const {
   int32_t code = 0;
   for (uint8_t i = 0; i < 6; ++i) {

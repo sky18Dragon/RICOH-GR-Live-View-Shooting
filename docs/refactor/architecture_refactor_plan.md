@@ -1,4 +1,6 @@
-﻿# RICOH GR Live View Shooting 嵌入式架构重构计划
+# RICOH GR Live View Shooting 嵌入式架构重构计划
+
+> 历史文档：阶段 0–10 已完成。后续方向以 [multi_brand_architecture_plan.md](multi_brand_architecture_plan.md)（方案 A）为准。阶段 1 留下的空骨架（`CameraService`、`ShutterService`、`UiManager`、`DisplayDriver`、`ButtonDriver`、`BoardConfig`、`AppConfig`）一直没有接入，已于 2026-10-13 删除；常量统一以 `config.h` 为准。
 
 ## 当前结论
 

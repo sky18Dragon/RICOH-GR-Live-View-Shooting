@@ -87,14 +87,14 @@ GR III 凭据只要求非空 SSID + Passphrase；Channel `0` 或 `1..11` 有效�
 1. 交换 MTU并完整发现服务。
 2. 对受保护 SSID 做一次未认证读取，触发相机等待配对。
 3. 等待约 300 ms 后调用安全连接。
-4. 相机显示六位码；StickS3 Button A 短按改数字、Button B 短按移动下一位、Button A 长按提交，Button B 长按取消，45 秒窗口内完成。串口六位数字输入仅为调试后备。
+4. 相机显示六位码；StickS3 Button A 短按改数字、Button B 短按移动下一位、Button A 长按提交，Button B 长按取消，28 秒窗口内完成（屏幕倒计时；GR IIIx 约 30 秒后以 0x213 放弃配对）。串口六位数字输入仅为调试后备。
 5. 只有 encrypted + authenticated + bonded 后才读取凭据或写控制特征。
 
 配对界面和普通日志都不输出完整 Passkey。普通日志只输出 Passphrase 是否存在，不输出其内容。
 
 Locked 状态出现新的 Passkey Entry、Numeric Comparison 或明确的 ATT Insufficient Authentication/Authorization/Encryption 时进入 `BondInvalid`。固件不删除 Bond、不覆盖 Profile、不连接其他相机，也不自动重新配对；只有用户先从相机端删除 StickS3，再长按 Button B，才会清 Profile、Wi-Fi 缓存和全部 NimBLE Bond。
 
-Profile v4 使用单个 `profile_v4` NVS 字符串保存完整权威快照；旧的逐字段 Key 仅作为向后兼容镜像。权威快照写成功后才更新镜像，避免配对未完成或多 Key 写入中途掉电时覆盖原单相机 Profile。
+Profile v4 是 NVS namespace `cam.ricoh` 中单个 `profile` 字符串保存的完整快照，一次写入即生效，掉电不会留下半套字段。固件升级总是整片擦除，因此不再读取或镜像旧的逐字段 Key。
 
 ## GR IV 固定 Handle 协议
 

@@ -176,13 +176,13 @@ Result BleCameraService::shoot(bool autofocus) {
     return Result::success();
 }
 
-Result BleCameraService::openWifi() {
+Result BleCameraService::openWifi(bool startupModeProbe) {
     Result ready = requireClient("openWifi");
     if (ready.failed()) {
         publish(AppEventType::ErrorRaised, static_cast<int>(ready.code), "openWifi");
         return ready;
     }
-    if (!_client->openWifi()) {
+    if (!_client->openWifi(startupModeProbe)) {
         publish(AppEventType::ErrorRaised, static_cast<int>(ErrorCode::BleConnectFailed), "openWifi");
         return Result::failure(ErrorCode::BleConnectFailed, _client->lastError());
     }
@@ -236,6 +236,17 @@ Result BleCameraService::readOperationMode(RicohCameraOperationMode& mode) {
     return Result::success();
 }
 
+Result BleCameraService::requestCaptureOperationMode() {
+    Result ready = requireClient("requestCaptureOperationMode");
+    if (ready.failed()) {
+        return ready;
+    }
+    if (!_client->requestCaptureOperationMode()) {
+        return Result::failure(ErrorCode::Unknown, _client->lastError());
+    }
+    return Result::success();
+}
+
 Result BleCameraService::enablePowerStateNotify() {
     Result ready = requireClient("enablePowerStateNotify");
     if (ready.failed()) {
@@ -247,6 +258,56 @@ Result BleCameraService::enablePowerStateNotify() {
         return Result::failure(ErrorCode::Unknown, _client->lastError());
     }
     return Result::success();
+}
+
+Result BleCameraService::enableCameraStatusNotify() {
+    Result ready = requireClient("enableCameraStatusNotify");
+    if (ready.failed()) {
+        return ready;
+    }
+    if (!_client->enableCameraStatusNotify()) {
+        return Result::failure(ErrorCode::Unknown, _client->lastError());
+    }
+    return Result::success();
+}
+
+bool BleCameraService::statusNotifyAttempted() const {
+    return _client != nullptr && _client->statusNotifyAttempted();
+}
+
+uint32_t BleCameraService::shotEventSequence() const {
+    return _client != nullptr ? _client->shotEventSequence() : 0;
+}
+
+bool BleCameraService::shotNotifyActive() const {
+    return _client != nullptr && _client->shotNotifyActive();
+}
+
+Result BleCameraService::applyConnParams(const BleConnParams& params, const char* reason) {
+    Result ready = requireClient("applyConnParams");
+    if (ready.failed()) {
+        return ready;
+    }
+    if (!_client->applyConnParams(params, reason)) {
+        return Result::failure(ErrorCode::Unknown, _client->lastError());
+    }
+    return Result::success();
+}
+
+bool BleCameraService::readConnParams(BleConnParams& params) const {
+    return _client != nullptr && _client->readConnParams(params);
+}
+
+uint32_t BleCameraService::peerConnParamRequests() const {
+    return _client != nullptr ? _client->peerConnParamRequests() : 0;
+}
+
+uint32_t BleCameraService::connectionSerial() const {
+    return _client != nullptr ? _client->connectionSerial() : 0;
+}
+
+int BleCameraService::batteryLevel() const {
+    return _client != nullptr ? _client->batteryLevel() : -1;
 }
 
 bool BleCameraService::consumePowerOffNotification() {

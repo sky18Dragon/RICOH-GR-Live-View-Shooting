@@ -1,0 +1,79 @@
+0.0s Power: M5PM1 button read failed err=-7; disabling M5PM1 polling and using M5Unified
+0.0s BLE: Ricoh shutter OperationRequest START param=1 autofocus=1 prep=DIRECT
+17.1s BLE: Ricoh shutter OperationRequest START param=1 autofocus=1 prep=DIRECT
+22.4s BLE: Ricoh shutter OperationRequest START param=1 autofocus=1 prep=DIRECT
+30.0s BLE: power profile=GR3_FAMILY value=0x01
+30.1s BLE: operation mode read value=0x00 state=CAPTURE
+30.2s BLE: power notify enabled method=UUID_DESCRIPTOR
+30.4s Flow: CHECKING_CAMERA_POWER -> ACTIVATING_WIFI (BLE WiFi ON) uptime=45730ms
+30.4s BLE WLAN activation method=NETWORK_TYPE_UUID result=OK
+30.4s Flow: ACTIVATING_WIFI -> CONNECTING_WIFI (landscape resumes cached WiFi params) uptime=45870ms
+32.4s WiFi: connect completed in 1886ms total=2009ms assoc=1671ms got_ip=1797ms requested_channel=0 actual_channel=6 status=CONNECTED security_reset=0
+32.4s [I][WIFI] connected in 2009ms ip=192.168.0.3 rssi=-48
+32.4s WiFi cache: unchanged after cached connect; NVS write skipped
+32.4s Flow: CONNECTING_WIFI -> PREVIEW_STARTING (WiFi connected) uptime=47882ms
+32.5s HTTP: opening LiveView path=/v1/liveview?maxfps=7
+32.8s [I][PREVIEW] liveview opened in 384ms
+32.8s LiveView: connected; props deferred until first frame + 1500ms
+32.8s Flow: PREVIEW_STARTING -> PREVIEW_RUNNING (LiveView opened) uptime=48266ms
+32.8s UI Canvas: switch portrait -> landscape heap=164832 psram=7974659
+32.8s UI Canvas: ready 240x135 storage=internal heap=99804 psram=8039479
+32.8s [I][FRAME] buffer storage=psram cap=262144 stream=0 rendered=0 dropped=0 last=0 max=0 current=4268 free_int=99884 largest_int=90100 free_psram=8041807
+32.9s JPEG: viewport synced 240x135
+34.8s [I][HTTP] props fetched in 502ms
+36.4s Power indicator: charging=0
+39.7s [I][PREVIEW] stats fps=3.9 rate=129.5KiB/s jpeg=720x480 decode=39.4/40ms render=52.6/54ms read=2ms mjpeg_cb=2ms
+42.8s Power indicator: charging=1
+42.8s [I][FRAME] buffer storage=psram cap=262144 stream=46 rendered=46 dropped=0 last=32615 max=33219 current=6681 free_int=75368 largest_int=65524 free_psram=8046463
+44.2s Power indicator: charging=0
+44.7s [I][PREVIEW] stats fps=5.8 rate=188.1KiB/s jpeg=720x480 decode=39.2/40ms render=52.5/54ms read=0ms mjpeg_cb=2ms
+47.2s Power indicator: charging=1
+49.7s [I][PREVIEW] stats fps=6.0 rate=188.0KiB/s jpeg=720x480 decode=39.5/41ms render=52.7/54ms read=0ms mjpeg_cb=2ms
+52.9s [I][FRAME] buffer storage=psram cap=262144 stream=108 rendered=108 dropped=0 last=32720 max=33219 current=159 free_int=75624 largest_int=65524 free_psram=8037151
+54.7s [I][PREVIEW] stats fps=6.8 rate=222.2KiB/s jpeg=720x480 decode=39.3/40ms render=52.4/54ms read=0ms mjpeg_cb=1ms
+59.7s [I][PREVIEW] stats fps=6.1 rate=195.1KiB/s jpeg=720x480 decode=39.7/41ms render=52.8/54ms read=2ms mjpeg_cb=55ms
+60.5s BLE: Ricoh shutter OperationRequest START param=1 autofocus=1 prep=DIRECT
+62.9s [I][FRAME] buffer storage=psram cap=262144 stream=169 rendered=169 dropped=0 last=33195 max=33410 current=31017 free_int=75576 largest_int=65524 free_psram=8046463
+64.7s [I][PREVIEW] stats fps=6.0 rate=177.2KiB/s jpeg=720x480 decode=38.2/41ms render=51.3/54ms read=0ms mjpeg_cb=2ms
+68.3s Power indicator: charging=0
+69.7s [I][PREVIEW] stats fps=5.0 rate=162.7KiB/s jpeg=720x480 decode=39.5/41ms render=52.7/54ms read=0ms mjpeg_cb=2ms
+71.4s Power indicator: charging=1
+72.9s [I][FRAME] buffer storage=psram cap=262144 stream=222 rendered=222 dropped=0 last=43117 max=43177 current=284 free_int=75416 largest_int=65524 free_psram=8037151
+74.8s [I][PREVIEW] stats fps=4.8 rate=176.9KiB/s jpeg=720x480 decode=43.7/47ms render=56.8/61ms read=1ms mjpeg_cb=62ms
+79.8s [I][PREVIEW] stats fps=3.6 rate=154.1KiB/s jpeg=720x480 decode=47.3/48ms render=60.3/61ms read=2ms mjpeg_cb=61ms
+79.9s UI Canvas: switch landscape -> portrait heap=75784 psram=8046463
+79.9s UI Canvas: ready 135x240 storage=psram heap=140464 psram=7981643
+79.9s LiveView: closing (portrait WLAN finish)
+80.2s HTTP WLAN finish: request=SENT detail=camera disconnect expected
+80.4s BLE WLAN deactivation method=NETWORK_TYPE_UUID value=0x00 result=OK
+83.6s BLE: power profile=GR3_FAMILY value=0x01
+83.7s BLE: operation mode read value=0x00 state=CAPTURE
+83.8s BLE: power notify enabled method=UUID_DESCRIPTOR
+83.9s Flow: CHECKING_CAMERA_POWER -> ACTIVATING_WIFI (BLE WiFi ON) uptime=99330ms
+84.0s BLE WLAN activation method=NETWORK_TYPE_UUID result=OK
+84.0s Flow: ACTIVATING_WIFI -> CONNECTING_WIFI (landscape resumes cached WiFi params) uptime=99470ms
+87.6s WiFi: disconnected reason=201(NO_AP_FOUND) rssi=-128 elapsed=3412ms
+87.6s WiFi: AP not found; retrying scan in same budget retry=1/2
+87.8s WiFi: connect completed in 118ms total=3776ms assoc=55ms got_ip=92ms requested_channel=0 actual_channel=6 status=CONNECTED security_reset=0
+87.8s [I][WIFI] connected in 3776ms ip=192.168.0.3 rssi=-83
+87.8s WiFi cache: unchanged after cached connect; NVS write skipped
+87.8s Flow: CONNECTING_WIFI -> PREVIEW_STARTING (WiFi connected) uptime=103250ms
+87.9s HTTP: opening LiveView path=/v1/liveview?maxfps=7
+88.2s [I][PREVIEW] liveview opened in 382ms
+88.2s LiveView: connected; props deferred until first frame + 1500ms
+88.2s Flow: PREVIEW_STARTING -> PREVIEW_RUNNING (LiveView opened) uptime=103632ms
+88.2s UI Canvas: switch portrait -> landscape heap=140584 psram=7981643
+88.2s UI Canvas: ready 240x135 storage=internal heap=75516 psram=8044135
+88.2s [I][FRAME] buffer storage=psram cap=262144 stream=248 rendered=0 dropped=0 last=0 max=0 current=1396 free_int=75348 largest_int=63476 free_psram=8046463
+89.3s BLE: Ricoh shutter OperationRequest START param=1 autofocus=1 prep=DIRECT
+93.4s [I][PREVIEW] stats fps=2.3 rate=75.6KiB/s jpeg=720x480 decode=41.8/48ms render=54.8/61ms read=2ms mjpeg_cb=2ms
+93.9s BLE: Ricoh shutter OperationRequest START param=1 autofocus=1 prep=DIRECT
+94.7s [I][HTTP] props fetched in 380ms
+98.2s [I][FRAME] buffer storage=psram cap=262144 stream=274 rendered=26 dropped=0 last=42994 max=44141 current=30003 free_int=75668 largest_int=63476 free_psram=8046463
+98.5s [I][PREVIEW] stats fps=3.2 rate=109.5KiB/s jpeg=720x480 decode=42.5/47ms render=55.8/61ms read=1ms mjpeg_cb=62ms
+103.5s [I][PREVIEW] stats fps=5.8 rate=242.0KiB/s jpeg=720x480 decode=46.2/47ms render=59.3/60ms read=3ms mjpeg_cb=62ms
+108.2s [I][FRAME] buffer storage=psram cap=262144 stream=326 rendered=78 dropped=0 last=43054 max=44141 current=41012 free_int=75252 largest_int=42996 free_psram=8046463
+108.5s [I][PREVIEW] stats fps=4.6 rate=198.5KiB/s jpeg=720x480 decode=46.2/47ms render=59.3/60ms read=0ms mjpeg_cb=2ms
+113.5s [I][PREVIEW] stats fps=4.8 rate=201.9KiB/s jpeg=720x480 decode=46.5/47ms render=59.7/61ms read=1ms mjpeg_cb=1ms
+118.2s [I][FRAME] buffer storage=psram cap=262144 stream=378 rendered=130 dropped=0 last=42943 max=44141 current=2653 free_int=75500 largest_int=63476 free_psram=8037151
+118.6s [I][PREVIEW] stats fps=5.5 rate=225.2KiB/s jpeg=720x480 decode=46.3/47ms render=59.4/60ms read=2ms mjpeg_cb=62ms

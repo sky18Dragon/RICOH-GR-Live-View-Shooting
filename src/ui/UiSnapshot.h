@@ -1,11 +1,11 @@
 #pragma once
 
-#include "../app/AppState.h"
+#include "../camera/CameraPhase.h"
 
 namespace rvf {
 
 struct UiSnapshot {
-    AppState appState = AppState::Booting;
+    CameraPhase cameraPhase = CameraPhase::Booting;
     bool bleConnected = false;
     bool wifiConnected = false;
     bool previewRunning = false;
@@ -13,8 +13,8 @@ struct UiSnapshot {
     bool cameraSleepLike = false;
     bool resettingPairing = false;
     bool pairingGuideActive = false;
-    bool pairingGuideGr2Selected = false;
-    bool pairingGuideGr4Selected = false;
+    // CameraRegistry index of the highlighted model while the guide is shown.
+    uint8_t pairingGuideSelectedIndex = 0;
     bool wifiProvisioningActive = false;
     bool wifiProvisioningPreparing = false;
     bool hasFrame = false;

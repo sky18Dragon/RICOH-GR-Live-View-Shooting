@@ -2,13 +2,9 @@
 
 #include <Arduino.h>
 
-namespace rvf {
+#include "PreviewFrameBufferStorage.h"
 
-enum class PreviewFrameBufferStorage {
-    Unknown,
-    Psram,
-    InternalRam,
-};
+namespace rvf {
 
 struct PreviewFrameStats {
     bool attached = false;

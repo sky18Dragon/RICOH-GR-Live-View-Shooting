@@ -1,13 +1,13 @@
-﻿#pragma once
+#pragma once
 
 #include "../core/AppMessage.h"
 #include "../core/PeriodicTask.h"
-#include "../app/AppState.h"
+#include "../camera/CameraPhase.h"
 
 namespace rvf {
 
 struct SystemHealthSnapshot {
-    AppState appState = AppState::Booting;
+    CameraPhase cameraPhase = CameraPhase::Booting;
     bool bleConnected = false;
     bool wifiConnected = false;
     bool previewRunning = false;

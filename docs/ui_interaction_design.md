@@ -1,5 +1,7 @@
 # StickS3 UI 与交互设计
 
+> 2026-10-14 改名说明：文中 `AppController` / `AppState` 现为 [`brands/ricoh/flow/`](../src/brands/ricoh/flow/RicohFlowController.h) 下的 `RicohFlowController` / `RicohFlowState`；UI 不再直接读取工作流状态，而是读取品牌无关的 `CameraPhase`（映射见 `brands/ricoh/RicohCameraPhase.h`）。
+
 ## 范围与边界
 
 本次重构只改变表现层、输入时序适配、IMU 姿态识别、声音反馈和 `main.cpp` 中必要的 UI 集成。相机连接和控制仍由现有 `AppController` 与服务层负责。

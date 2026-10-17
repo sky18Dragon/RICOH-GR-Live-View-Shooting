@@ -2,7 +2,9 @@
 
 [← 根目录 CLAUDE.md](../CLAUDE.md) ｜ 生成时间：2026-06-29 17:19:32 CST
 
-`src/` 扁平存放全部固件源码（10 个 `.cpp`/`.h` 对 + `config.h`，约 3711 行）。本文按层记录每个模块的职责、对外接口、依赖与实现要点。
+> ⚠️ 本文写于 2026-06-29 的平铺结构时期，下方行数与「单例清单」已过时（`main.cpp` 现约 3.4k 行、`ricoh_ble_client.cpp` 约 2.7k 行，并新增 `app/ core/ services/ supervisor/ ui/ ricoh/` 分层）。当前目录与分层以根目录 [CLAUDE.md](../CLAUDE.md) 为准；协议与行为约定部分仍然有效。
+
+本文按层记录每个模块的职责、对外接口、依赖与实现要点。
 
 ## 文件清单
 
@@ -11,7 +13,8 @@
 | `main.cpp` | 1011 | 编排 | 主状态机 + 连接流程 + 保护态 + 按键分发 |
 | `ricoh_ble_client.{cpp,h}` | 1009 / 59 | BLE | RICOH BLE 全协议：扫描/连接/凭据/快门/电源通知 |
 | `gr_wifi.{cpp,h}` | 189 / 28 | Wi-Fi | ESP32 STA 连相机 AP |
-| `gr_api.{cpp,h}` | 342 / 35 | HTTP | `/v1/props` + `/v1/liveview` MJPEG |
+| `gr_api.{cpp,h}` | 342 / 35 | HTTP | `/v1/props` + `/v1/params/lens` + `/v1/liveview` MJPEG |
+| `liveview_focus_policy.h` | — | HTTP | LiveView 前 `focusSetting=spot` body 白名单与 JSON `errMsg` 判定 |
 | `camera_identity.{cpp,h}` | 49 / 5 | 相机身份 | 从 Wi-Fi SSID 推导候选 BLE 名称 |
 | `display.{cpp,h}` | 336 / 50 | 渲染 | 屏幕 UI：boot/status/error/overlay |
 | `jpeg_decoder.{cpp,h}` | — | 渲染 | `esp_new_jpeg` 解码到 RGB565，居中裁剪到画布 |
@@ -51,16 +54,16 @@ BleScan → BleReady → WifiConnecting → HttpProbe → LiveViewRunning
 
 ### 电源门控
 
-`ensureCameraPowerReadyForWifi(source)`：开 Wi-Fi 前必须 `bleCamera.readPowerState()`（最多 `RICOH_BLE_POWER_READ_RETRIES=2` 次）确认为 `On`，并 `bleCamera.enablePowerStateNotify()` 订阅电源 CCCD。`Off/Unknown` → 进保护态；`cameraManualWakeOverride` 可旁路。
+`ensureCameraPowerReadyForWifi(source)`：开 Wi-Fi 前必须 `bleCamera.readPowerState()`（最多 `RICOH_BLE_POWER_READ_RETRIES=2` 次）确认为 `On`，并 `bleCamera.enablePowerStateNotify()` 订阅电源 CCCD。竖持复用缓存凭据时也会先走同一检查，避免关机相机因仍广播 BLE 而进入快门界面。`Off/Unknown` → 进保护态。GR III 系列电源 ON 但 OperationMode=`bleStartup` 时不进保护态：保持 BLE，先读 OperationModeList（`[count, modes...]`），列表含 capture 时写 OperationMode=`0x00`（该模式下相机拒绝 Shutter 写入，ATT `0x80`）；随后按 `RICOH_BLE_GR3_STARTUP_MODE_POLL_MS` 重读模式，最多等 `RICOH_BLE_GR3_STARTUP_MODE_WAIT_MS`；仍未切换则以 `openWifi(true)` 试写一次 NetworkType，相机拒绝时回到 `BleReady` 继续等待。`powerOffTransfer` 与真实关机信号仍走保护态。
 
 ### `setup()` / `loop()`
 
 - `setup()`：`Serial` → `ui.begin()` → boot 画面 → 等串口 → `buttons/decoder/grWifi.begin()` → `applyDefaultProfile()` → PSRAM 检查 → 分配 `frameBuffer`（PSRAM 优先，回退内部 RAM，失败则停机）→ `mjpeg.begin(frameBuffer, ..., onJpegFrame)` → `runCameraFlowOnce()`。
 - `loop()`（每轮 `delay(1)`）：
-  1. `handleButtons()` — 仅 `M5.BtnA`：保护态则 `requestManualCameraWake`，否则 `triggerShutterFromButtonA()`（`bleCamera.shoot(true)`）。
+  1. `handleButtons()` — 仅 `M5.BtnA`：保护态则 `requestManualCameraWake`，否则 `triggerShutterFromButtonA()`；竖持走 `bleCamera.shoot(true)`，横持只走 HTTP `grApi.shoot()`（横持 LiveView 推流后 BLE 已释放）。
   2. `serviceCameraFlowIfNeeded()` — 非运行态按 `BLE_SCAN_RETRY_INTERVAL_MS` 周期推进。
   3. `ensureWiFi()` — LiveView 中 Wi-Fi 掉线即恢复。
-  4. `refreshPropsIfDue()` — 每 `PROPS_REFRESH_INTERVAL_MS=60s` 刷新 `/v1/props`。
+  4. `refreshPropsIfDue()` — 每 `PROPS_REFRESH_INTERVAL_MS=60s` 刷新 `/v1/props`；BLE 已连接且 BatteryLevel 通知可用时跳过周期刷新，电量改由 BLE 更新。首次 LiveView 打开前强制读取一次 props（取 `resoList`）。
   5. `ensureLiveView()` — 读 MJPEG → `mjpeg.process()`；处理 BLE/Wi-Fi/LiveView 掉线与 stall 看门狗。
   6. `updateStatusUiIfDue()` — 每 `UI_STATUS_INTERVAL_MS=1s` 刷新非 LiveView 状态。
 
@@ -90,6 +93,7 @@ BleScan → BleReady → WifiConnecting → HttpProbe → LiveViewRunning
 | `openWifi()` | 写 `0x0135`=`0x01` 唤醒相机 Wi-Fi |
 | `readPowerState(&state)` / `enablePowerStateNotify()` | 读/订阅电源状态 `0x00EB`/CCCD `0x00EC` |
 | `consumePowerOffNotification()` | 取走一次电源 `0x00` 通知 |
+| `enableCameraStatusNotify()` | 每条连接一次，先按服务完整发现特征再订阅 BatteryLevel / ShotCount / CaptureStatus（GR III 需认证加密）；已绑定重连也会交换 ATT_MTU，避免 MTU 23 时 128 位 UUID 发现阻塞主循环。`batteryLevel()` 给出电量，`shotEventSequence()` 在每次 ShotCount/CaptureStatus 通知时递增，用于快门确认 |
 | `waitForWifiCredentials(&cred, timeoutMs)` | 轮询读取 `0x0138` SSID / `0x013A` 密码 / `0x0140` BSSID |
 | `disconnect()` / `resetStack(clearObjects=false)` | 断连 / 重建 BLE 栈（手动唤醒用 `clearObjects=true`） |
 | `consumeDisconnectReason()` / `clearDisconnectReason()` | 取走/清除 GAP 断连 reason |
@@ -123,10 +127,12 @@ BleScan → BleReady → WifiConnecting → HttpProbe → LiveViewRunning
 `GrApi` 用裸 `WiFiClient` 手写 HTTP（无 HTTPClient 库），适配相机 LiveView 长连接。
 
 - `setEndpoint(host, port=80)` / 默认 `GR_HOST=192.168.0.1:80`。
-- `fetchProps(props, timeoutMs)`：`GET /v1/props HTTP/1.1`（`Connection: close`），`parsePropsJson` 用 ArduinoJson 兼容多键名（`model`/`modelName`/`model_name`、`batteryLevel`/`battery_level`、`batteryState`/`battery_state`），输出 `CameraProps{model, battery}`。
-- `openLiveView()` / `closeLiveView()` / `isLiveViewOpen()`：`GET /v1/liveview HTTP/1.1`，**保持连接**，`_liveClient` 复用。
+- `fetchProps(props, timeoutMs)`：`GET /v1/props HTTP/1.1`（`Connection: close`），`parsePropsJson` 用 ArduinoJson 兼容多键名（`model`/`modelName`/`model_name`、`batteryLevel`/`battery_level`、`batteryState`/`battery_state`、`focusSetting`），输出 `CameraProps{model, battery, focusSetting}`。
+- `openLiveView()` / `closeLiveView()` / `isLiveViewOpen()`：`GET /v1/liveview?maxfps=<LIVEVIEW_MAX_FPS>[&reso=WxH] HTTP/1.1`（GR II 用 `setLiveViewMaxFps(0)` 保持无参数），**保持连接**，`_liveClient` 复用。`reso` 默认关闭（`LIVEVIEW_REQUEST_RESO=false`）：GR IIIx V1.50 在带 `reso=720x480` 的横屏预览中拍摄后死机，且其 `resoList` 只有 720x480/1080x720。开启时由 `liveview_reso_policy` 挑选不小于 216×144、3:2（容差 1%）且严格小于默认 720×480 的最小尺寸；相机返回 4xx 时去掉 `reso` 重试一次并在本次会话内不再使用。
+- `setFocusSetting(value, timeoutMs)`：`PUT /v1/params/lens`，body `focusSetting=<enum>`（R-Core GR IV `webapid` 唯一可写镜头字段）。GR III/IV 在 **GET /v1/liveview 之前**写成 `spot`（点对焦/中心点）；仅竖持离开预览时还原。失败只记日志。不在 MJPEG 推流中另发 `/v1/lens/focus` 或带 query 的 shoot。
+- `shoot(timeoutMs)`：`POST /v1/camera/shoot`，表单体 `af=on&pos=50,50`（GR IIIx v1.60 固件确认解析这两个 key；空 body 缺省 `af=off`。`af=on` 会在数十毫秒内返回 HTTP 成功，对焦/写文件仍在进行）。横持成功后先等 2s 再 `GET /v1/liveview`，等到 JPEG 才算重开成功；空 200 流在 Wi-Fi 上重试，不拆 BLE。GR II 仍走 `brands/ricoh/gr2/Gr2HttpShutter` 的 `shootGr2()`（`af=camera`，经 `GrApi::postCommand`）。**当前 GR III/IV 关闭 `allowBlePreviewParking`，横屏快门走 BLE，此 HTTP 快门路径不会被使用。**
 - `readLiveView(dst, len)`：从 `_liveClient` 读 MJPEG 字节流；`>0` 字节数、`0` 暂无数据、`<0` 错误。
-- 内部：`connectClient`（连接 + 超时）、`readHttpHeaders`/`parseHttpStatus`/`parseContentLength`、`lastError`。
+- 内部：`connectClient`（连接 + 超时）、`postForm`、`readHttpHeaders`/`parseHttpStatus`/`parseContentLength`、`lastError`。
 
 ---
 
@@ -168,8 +174,7 @@ Espressif `esp_new_jpeg` 库解码单帧到 RGB565 buffer，再裁剪到画布�
 
 `CameraProfileStore` 基于 `Preferences`（NVS）。
 
-- namespace `"ricoh2"`，`profileVersion=3`。
-- 键：`proto_ver`/`cam_name`/`ble_addr`/`ble_addr_type`/`ble_bonded`/`cam_ip`。
+- （已过时，见根目录 CLAUDE.md「关键约定」第 6 条）现为 namespace `"cam.ricoh"` 单个 `profile` JSON 快照；显示镜像在 namespace `"app"`。
 - `load()`/`save()`/`saveBleIdentity(name, addr[, type, bonded])`/`clear()`；`getStringIfPresent` 缺键返回空串。
 - 持久化 BLE 身份、相机 IP 和 Wi-Fi 缓存；保护态不写 NVS。
 
