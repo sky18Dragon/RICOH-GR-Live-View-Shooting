@@ -5,7 +5,7 @@
 1. **GR IIIx 已在本分支固件上实机验证，GR III 与 HDF 版本仍需独立验证**：设备端 Passkey、UUID WLAN、凭据、Capture 门控、Bond 自愈已经实现并通过 Native/编译验证；GR IIIx 详细矩阵与去密日志待补充，GR III/GR III HDF/GR IIIx HDF 不应仅凭 GR IIIx 结果升级为已验证。
 2. **GR IV 已在本分支固件上实机回归（2026-10-14）**：首次配对、竖屏 BLE 快门、横屏 LiveView + BLE 快门、横竖反复切换、关机保护与手动唤醒、重启后快速重连、长按 B 重置配对均通过。GR IV HDF 仍未在本分支验证。
 3. **GR III HDF / GR IIIx HDF 只有实验性支持**：没有独立实机 GATT 证据，不能仅按产品名称假设与非 HDF 版本相同。
-4. **GR II 已完成实机验证**：Wi-Fi-only 配网、相机 AP 连接、LiveView 与 HTTP 快门链路已在真实相机上验证通过；实现不依赖 BLE，也不包含虚构的 BLE UUID/Handle。**`RicohDriver` 迁移（2026-10-13）后尚未回归：目前没有 GR II 实机可测（2026-10-14 记录）。** 有机器后按顺序回归：长按 B 重置后选 GR II → 网页配网保存 → 加入相机 AP 并出 LiveView → 竖屏仍保持预览、Button A HTTP 快门（`shootGr2`）→ 重启后用 NVS 中的手动凭据直接连接 → 长按 B 取消配网 / 清除 WLAN 配置。重点核对 `handleGr2ProvisioningInput()` 与宿主 `serviceProvisioning()` 的拆分，以及 `setUiPreviewIntent()` 中 GR II 竖屏仍请求预览的规则。
+4. **GR II 已完成实机验证**：Wi-Fi-only 配网、相机 AP 连接、LiveView 与 HTTP 快门链路已在真实相机上验证通过；实现不依赖 BLE，也不包含虚构的 BLE UUID/Handle。**2026-10-17 已在 6.7 改造后的全量固件上实机回归通过**（配网、加入相机 AP 出 LiveView、竖 / 横屏 `shootGr2` 快门、重启直连、长按 B 清除 WLAN 后改配 GR IV）；配网中途长按 B 取消、单 GR II 固件 `sticks3-ricoh-gr2` 尚未实测。回归清单：长按 B 重置后选 GR II → 网页配网保存 → 加入相机 AP 并出 LiveView → 竖屏仍保持预览、Button A HTTP 快门（`shootGr2`）→ 重启后用 NVS 中的手动凭据直接连接 → 长按 B 取消配网 / 清除 WLAN 配置。重点核对 `handleGr2ProvisioningInput()` 与宿主 `serviceProvisioning()` 的拆分，以及 `setUiPreviewIntent()` 中 GR II 竖屏仍请求预览的规则。
 
 ## 运行行为与待调优点
 
@@ -34,6 +34,7 @@
 | K8 | GR IV 打开 LiveView 约 1.0–1.2 s | 加快 Wi-Fi join 后由约 0.4 s 变长 | 推测相机 HTTP 服务尚未就绪；持续观察 |
 | K9 | GR IV 首次配对前几次连接失败 | 前 8 次 `connect failed reason=574`，广播名为空，约 14 s 后成功 | 相机侧未就绪，自动重试可覆盖 |
 | K10 | 日志文案误导 | 横屏用缓存参数恢复时也打印 `WiFi cache: saved (fresh BLE connect)` | 仅文案 |
+| K11 | GR II 预览开头的 1484 字节帧解码失败 | 每次打开 / 快门后重开 LiveView 的约 1.5–2 s 内，GR II 连续发送 1484 字节的帧，`esp_new_jpeg` 报 `Not supported JPEG standard`（rc=-7），每帧 4 行错误日志；之后 640×480 正常帧解码正常。疑为相机占位帧使用解码器不支持的 JPEG 变体（未抓帧确认）。解码链路未在 6.7 改动 | 预览晚约 2 s 出图、日志刷屏；可抓帧确认格式后跳过该帧并限流日志 |
 
 ## 安全不变量
 

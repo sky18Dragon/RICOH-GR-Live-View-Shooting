@@ -14,12 +14,12 @@
 | 阶段 | 内容 | 状态 | 实机回归 |
 | --- | --- | --- | --- |
 | 0 | CI 运行 native 测试；死骨架清理；`main.cpp` 状态归组；测试按功能区拆分 | ✅ | — |
-| 1–2 | `ICameraDriver` / `ICameraHost`；理光流程移入 `RicohDriver` | ✅ | GR III 系列、GR IV ✅；GR II ❌（无实机） |
+| 1–2 | `ICameraDriver` / `ICameraHost`；理光流程移入 `RicohDriver` | ✅ | GR III 系列、GR IV ✅；GR II ✅（2026-10-17，随 6.7 回归） |
 | 3 | 机型注册表、`CameraPhase`、`AppRuntime` + `SimCameraDriver` | ✅ | GR III 系列 ✅ |
 | 4 | 存储拆分（`cam.ricoh` 档案 / `app` 设置，升级整片擦除不迁移） | ✅ | GR III 系列 ✅ |
 | 5 | 编译期选型号 `RVF_RICOH_GR2/GR3/GR4`、单型号固件环境、CI 构建矩阵、include 规则检查、依赖版本固定 | ✅ | GR III 系列、GR IV ✅（含单型号固件拒绝其他型号） |
 | 6.1–6.6 | 理光 BLE 操作 / 凭据读取 / 协议识别 / 配对与状态通知 / 型号规则全部下沉到 `brands/ricoh/{gr3,gr4}`，共用代码只读参数 | ✅ | GR III 系列、GR IV ✅ |
-| 6.7 | GR II Wi-Fi-only 路径：`gr2_*` 模块与 `shootGr2` 移入 `brands/ricoh/gr2`；`isGr2WifiOnlyProfile()` 分支改读配置参数；新增 `sticks3-ricoh-gr2` / `native-gr2` | ✅ 代码完成（2026-10-17） | ⏳ GR II 回归中 |
+| 6.7 | GR II Wi-Fi-only 路径：`gr2_*` 模块与 `shootGr2` 移入 `brands/ricoh/gr2`；`isGr2WifiOnlyProfile()` 分支改读配置参数；新增 `sticks3-ricoh-gr2` / `native-gr2` | ✅ | GR II ✅（全量固件，2026-10-17）；单 GR II 固件未实测 |
 | 7 | 第二品牌样板驱动（富士 / 尼康） | ⏸ 需先抓包确认协议 | — |
 | 8 | 运行时：驱动非阻塞、预览独立 FreeRTOS 任务、去 `String`、三段式 tick 合并为单个 `tick()` | ⏳ 仅完成接口层（`ICameraDriver` 无 Arduino 依赖、`showStatus` 收 `const char*`） | — |
 
@@ -27,7 +27,7 @@
 
 **改造本身**
 
-1. **6.7 GR II 实机回归**：代码已完成（分支 `feature/gr2-driver-split`），按 [known_issues.md](../known_issues.md)「支持与证据限制」第 4 条的清单回归全量固件与 `sticks3-ricoh-gr2`；GR II 自阶段 2 起首次实机验证。GR II 配网流程的界面 / 日志文案仍写 “GR II”（逐字保留），仅在配网分支中出现。
+1. **6.7 GR II 补充回归（可选）**：配网中途长按 B 取消、单 GR II 固件 `sticks3-ricoh-gr2`。
 2. **阶段 8 运行时优化**：会改变时序，单独做、单独回归。可根治 K1（横屏快门写入阻塞主循环约 12 s）与 K7（内部 RAM 碎片）。
 3. **阶段 7 第二品牌**：先抓取富士或尼康的 BLE / Wi-Fi / 预览协议，再据此检验 `ICameraDriver` 是否够用。
 4. **理光驱动内部仍集中**：`RicohDriver.cpp`（约 2.9k 行）与 `ricoh_ble_client.cpp`（约 2.3k 行）虽已无型号分支，但仍是单个大文件、文件级全局状态；`services/BleCameraService`、`WifiPreviewService` 在目标分层（`transport/`、`media/`）中的归属未定。
@@ -42,7 +42,7 @@
 
 **已知问题（暂缓，详见 [known_issues.md](../known_issues.md)「已知且暂缓处理」）**
 
-10. K1 横屏 BLE 快门写入阻塞约 12 s、K2 快门误判确认、K3 失败提示为空、K4 相机忙 / SD 卡满被拒、K5 Wi-Fi 全扫描首次失败后空等、K6 M5PM1 运行中 I2C 读失败、K7 内部 RAM 碎片、K8 GR IV 打开 LiveView 约 1.1 s、K9 GR IV 首次配对前几次连接失败、K10 日志文案误导。
+10. K1 横屏 BLE 快门写入阻塞约 12 s、K2 快门误判确认、K3 失败提示为空、K4 相机忙 / SD 卡满被拒、K5 Wi-Fi 全扫描首次失败后空等、K6 M5PM1 运行中 I2C 读失败、K7 内部 RAM 碎片、K8 GR IV 打开 LiveView 约 1.1 s、K9 GR IV 首次配对前几次连接失败、K10 日志文案误导、K11 GR II 预览开头 1484 字节帧解码失败。
 
 ## 目标
 
@@ -358,7 +358,12 @@ GR III 与 GR IV 约 60–70% 的流程相同（电源门控、HTTP 预览、恢
 **2026-10-14 统一实机回归（6.3–6.6、依赖固定、阶段 5）**
 
 - GR III 系列与 GR IV 均通过（用户确认），覆盖：全量固件下两台相机的配对与协议识别、状态通知、横屏预览与快门、横竖切换、关机保护与唤醒、重启快速重连；单 GR IV / 单 GR III 固件的选机型列表与正常使用；单 GR III 固件拒绝 GR IV 相机（识别为 UNKNOWN，不配对、不开相机 Wi-Fi）。
-- 阶段 6 剩余：6.7 GR II Wi-Fi-only 路径（2026-10-17 代码完成，待 GR II 实机回归）。
+- 阶段 6 剩余：无。
+
+**2026-10-17 GR II 实机回归（6.7）**
+
+- 全量固件通过（用户确认）：长按 B 重置后选 GR II → 网页配网 → 加入相机 AP 出 LiveView（无 `maxfps`）→ 竖屏保持预览、竖 / 横屏 `shootGr2` 快门并重开 LiveView → 重启用 NVS 手动凭据直连 → 长按 B 清除 WLAN（不初始化 BLE）→ 改选 GR IV 重新配对，GR IV 预览、BLE 快门、竖屏 WLAN finish、关机保护均正常。
+- 未覆盖：配网中途长按 B 取消；单 GR II 固件。新发现 K11（GR II 预览开头 1484 字节帧解码失败），与 6.7 改动无关，暂缓。
 
 ### 执行注意事项
 
