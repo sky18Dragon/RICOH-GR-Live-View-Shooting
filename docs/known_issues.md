@@ -5,7 +5,7 @@
 1. **GR IIIx 已在本分支固件上实机验证，GR III 与 HDF 版本仍需独立验证**：设备端 Passkey、UUID WLAN、凭据、Capture 门控、Bond 自愈已经实现并通过 Native/编译验证；GR IIIx 详细矩阵与去密日志待补充，GR III/GR III HDF/GR IIIx HDF 不应仅凭 GR IIIx 结果升级为已验证。
 2. **GR IV 已在本分支固件上实机回归（2026-10-14）**：首次配对、竖屏 BLE 快门、横屏 LiveView + BLE 快门、横竖反复切换、关机保护与手动唤醒、重启后快速重连、长按 B 重置配对均通过。GR IV HDF 仍未在本分支验证。
 3. **GR III HDF / GR IIIx HDF 只有实验性支持**：没有独立实机 GATT 证据，不能仅按产品名称假设与非 HDF 版本相同。
-4. **GR II 已完成实机验证**：Wi-Fi-only 配网、相机 AP 连接、LiveView 与 HTTP 快门链路已在真实相机上验证通过；实现不依赖 BLE，也不包含虚构的 BLE UUID/Handle。**2026-10-17 已在 6.7 改造后的全量固件上实机回归通过**（配网、加入相机 AP 出 LiveView、竖 / 横屏 `shootGr2` 快门、重启直连、长按 B 清除 WLAN 后改配 GR IV）；配网中途长按 B 取消、单 GR II 固件 `sticks3-ricoh-gr2` 尚未实测。回归清单：长按 B 重置后选 GR II → 网页配网保存 → 加入相机 AP 并出 LiveView → 竖屏仍保持预览、Button A HTTP 快门（`shootGr2`）→ 重启后用 NVS 中的手动凭据直接连接 → 长按 B 取消配网 / 清除 WLAN 配置。重点核对 `handleGr2ProvisioningInput()` 与宿主 `serviceProvisioning()` 的拆分，以及 `setUiPreviewIntent()` 中 GR II 竖屏仍请求预览的规则。
+4. **GR II 已完成实机验证**：Wi-Fi-only 配网、相机 AP 连接、LiveView 与 HTTP 快门链路已在真实相机上验证通过；实现不依赖 BLE，也不包含虚构的 BLE UUID/Handle。**2026-10-17 已在 6.7 改造后的全量固件上实机回归通过**（配网、加入相机 AP 出 LiveView、竖 / 横屏 `shootGr2` 快门、重启直连、长按 B 清除 WLAN 后改配 GR IV），单 GR II 固件 `sticks3-ricoh-gr2` 同日实测通过；配网中途长按 B 取消尚未实测。回归清单：长按 B 重置后选 GR II → 网页配网保存 → 加入相机 AP 并出 LiveView → 竖屏仍保持预览、Button A HTTP 快门（`shootGr2`）→ 重启后用 NVS 中的手动凭据直接连接 → 长按 B 取消配网 / 清除 WLAN 配置。重点核对 `handleGr2ProvisioningInput()` 与宿主 `serviceProvisioning()` 的拆分，以及 `setUiPreviewIntent()` 中 GR II 竖屏仍请求预览的规则。
 
 ## 运行行为与待调优点
 
