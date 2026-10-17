@@ -20,6 +20,7 @@ jobs:
         environment:
           - m5stack-sticks3
           # Single-model firmware; building them is the per-model coupling check.
+          - sticks3-ricoh-gr2
           - sticks3-ricoh-gr3
           - sticks3-ricoh-gr4
 
@@ -91,5 +92,6 @@ jobs:
 
       - name: Run model-selection tests on single-model builds
         run: |
+          platformio test -e native-gr2
           platformio test -e native-gr3
           platformio test -e native-gr4

@@ -1,7 +1,7 @@
 # 多品牌 / 多型号相机架构重构计划
 
 > 状态：方案 A；阶段 0–6 已完成并在 GR III 系列 / GR IV 上实机回归（6.7 GR II 除外），阶段 7、8 未开始。进度与剩余任务见下方「当前进度与剩余任务」，逐步记录见「四、迁移路线」下的「执行记录」
-> 日期：2026-10-13（进度更新：2026-10-14）
+> 日期：2026-10-13（进度更新：2026-10-17）
 > 分析基线：分支 `feature/firmware-optimization`
 > 关联文档：[architecture_refactor_plan.md](architecture_refactor_plan.md)、[../project_overview.md](../project_overview.md)、[../power_state_policy.md](../power_state_policy.md)
 
@@ -19,7 +19,7 @@
 | 4 | 存储拆分（`cam.ricoh` 档案 / `app` 设置，升级整片擦除不迁移） | ✅ | GR III 系列 ✅ |
 | 5 | 编译期选型号 `RVF_RICOH_GR2/GR3/GR4`、单型号固件环境、CI 构建矩阵、include 规则检查、依赖版本固定 | ✅ | GR III 系列、GR IV ✅（含单型号固件拒绝其他型号） |
 | 6.1–6.6 | 理光 BLE 操作 / 凭据读取 / 协议识别 / 配对与状态通知 / 型号规则全部下沉到 `brands/ricoh/{gr3,gr4}`，共用代码只读参数 | ✅ | GR III 系列、GR IV ✅ |
-| 6.7 | GR II Wi-Fi-only 路径（`isGr2WifiOnlyProfile()` 约 27 处分支、根目录 `gr2_*` 文件）下沉到 `brands/ricoh/gr2` | ⏸ 待 GR II 实机 | — |
+| 6.7 | GR II Wi-Fi-only 路径：`gr2_*` 模块与 `shootGr2` 移入 `brands/ricoh/gr2`；`isGr2WifiOnlyProfile()` 分支改读配置参数；新增 `sticks3-ricoh-gr2` / `native-gr2` | ✅ 代码完成（2026-10-17） | ⏳ GR II 回归中 |
 | 7 | 第二品牌样板驱动（富士 / 尼康） | ⏸ 需先抓包确认协议 | — |
 | 8 | 运行时：驱动非阻塞、预览独立 FreeRTOS 任务、去 `String`、三段式 tick 合并为单个 `tick()` | ⏳ 仅完成接口层（`ICameraDriver` 无 Arduino 依赖、`showStatus` 收 `const char*`） | — |
 
@@ -27,7 +27,7 @@
 
 **改造本身**
 
-1. **6.7 GR II**：有 GR II 实机后拆分，并按 [known_issues.md](../known_issues.md)「支持与证据限制」第 4 条的清单回归 `RicohDriver` 迁移后的 GR II 全流程（目前 GR II 自阶段 2 起从未实机验证）。
+1. **6.7 GR II 实机回归**：代码已完成（分支 `feature/gr2-driver-split`），按 [known_issues.md](../known_issues.md)「支持与证据限制」第 4 条的清单回归全量固件与 `sticks3-ricoh-gr2`；GR II 自阶段 2 起首次实机验证。GR II 配网流程的界面 / 日志文案仍写 “GR II”（逐字保留），仅在配网分支中出现。
 2. **阶段 8 运行时优化**：会改变时序，单独做、单独回归。可根治 K1（横屏快门写入阻塞主循环约 12 s）与 K7（内部 RAM 碎片）。
 3. **阶段 7 第二品牌**：先抓取富士或尼康的 BLE / Wi-Fi / 预览协议，再据此检验 `ICameraDriver` 是否够用。
 4. **理光驱动内部仍集中**：`RicohDriver.cpp`（约 2.9k 行）与 `ricoh_ble_client.cpp`（约 2.3k 行）虽已无型号分支，但仍是单个大文件、文件级全局状态；`services/BleCameraService`、`WifiPreviewService` 在目标分层（`transport/`、`media/`）中的归属未定。
@@ -342,7 +342,9 @@ GR III 与 GR IV 约 60–70% 的流程相同（电源门控、HTTP 预览、恢
 - 6.3 协议识别下沉：证据收集 `collectProtocolEvidence()` 不拆（其 GATT 访问顺序与刷新次数影响相机是否中途断开），只把判定移入型号：`IRicohBleProtocol::matchEvidence()` 返回 None / Partial / Full，`detectionPriority()` 表示特异度（GR IV 2 > GR III 1）。`RicohBleProtocolRouter::detect()` 用通用规则：取特异度最高的 Full；若有更高特异度的型号出现 Partial 则判为未知。原 `detectRicohProtocol()` 从 `camera_protocol_profile` 移除，同名函数改由路由器提供。新测试把原判定函数逐字保留为参照，对 15 个布尔证据 × 计数 0–6 共 229,376 种组合逐一比较，全部一致；人为把 GR IV 特异度改低会立即失败。阶段 5 只编入部分型号时，路由器只询问已编入型号，其他相机会被判为未知。
 - 6.4 / 6.5 状态通知与连接 / 配对中的型号分支：`statusNotifyAllowed()`（GR III 要求认证加密，订阅过程本身两型号相同、留在共用代码）；GR III 的“异步读 SSID 触发配对”移为 `armPairing()`（会话新增 `startRead()`），`triggerPairingWithProtectedRead()` 保留为门控，因为它还决定配对前是否做完整服务发现；认证失败后的探测读移为 `probeAuthenticationError()`（会话新增 `probeRead()`）；GAP 事件处理器不再使用 GR IV 的开 / 关常量，改用路由该 handle 的型号的 `decodePowerState()`（路由时一并记录型号，断开时随 handle 清零），对 GR IV 的 256 个取值逐一验证与旧常量一致。`ricoh_ble_client.cpp` 中除证据收集与快门日志外不再出现型号常量。Native 共 162 例。
 - 6.6 型号规则改为配置参数：`camera_protocol_profile.cpp` 中按代际分支的策略改为读取 `CameraProtocolProfile` 的新参数——`securityProfile`、`wifiRequiresOperationModeRead`、`waitsInBleStartupMode`、`wifiRequiresAuthenticatedLink`、`discoveryConnectionPromotable`；`protocolAllowsBleSideEffect` 改看 `capabilities.hasBle`。各型号配置表、安全配置与 GR III 凭据校验移到 `brands/ricoh/{gr2,gr3,gr4}/Gr*Profile.cpp`（函数内静态对象，避免跨文件静态初始化顺序问题）。驱动的 GR III 安全门控改看 `wifiRequiresAuthenticatedLink`（日志改用代际名，输出仍为 `GR3_FAMILY`），配对引导默认机型改取注册表默认项；`RicohDriver.cpp` 不再出现 GR III / GR IV 代际常量。旧配置表与策略函数逐字保存在测试参考文件中：配置表逐字段比较一致；策略对 4 个代际 × 256 个模式字节 × 读取成败 × 全部副作用 / 安全配置穷举比较一致；人为修改 GR IV 参数会立即失败。Native 共 165 例。GR III 启动模式等待与快门 `BLE_STARTUP` 重试本身已由 `waitsInBleStartupMode` 驱动，流程代码留在驱动内（与驱动状态紧耦合），日志文字保留 “GR3”。
-- 尚未下沉：GR II Wi-Fi-only 路径（`isGr2WifiOnlyProfile()` 分支，留待有实机时）。
+- 6.7a GR II 模块下沉（2026-10-17）：`gr2_provisioning_portal` / `gr2_provisioning_logic` / `gr2_shutter_policy` 移为 `gr2/Gr2ProvisioningPortal`、`Gr2ProvisioningLogic`、`Gr2ShutterPolicy`；`GrApi::shootGr2` 改为 `gr2/Gr2HttpShutter` 中的自由函数 `shootGr2(GrApi&)`，经新公开的 `GrApi::postCommand`（原 `postGr2Command`）/ `setError`。`RicohDriver` 经 `RicohGr2Support.h` 使用 GR II 组件，`RVF_RICOH_GR2=0` 时为空实现，单型号固件不再链接配网 Web 服务器（`sticks3-ricoh-gr3` Flash −53 KB）。
+- 6.7b GR II 分支改为配置参数：`isGr2WifiOnlyProfile()` 改为 `storedCameraIsWifiOnly()`，读已存相机的配置（`cameraIsWifiOnly()`：Wi-Fi 启动方式为 ManualOnly）。GR II 的 HTTP 差异成为 `Gr2Profile` 参数：`liveViewWithoutMaxFps`、`fixedModelLabel`（"RICOH GR II"，无 `/v1/props`）、`httpShutterUsesGrRemoteSequence`、`httpWlanFinishPowersOff`；选机型改用 `cameraNeedsManualWifiProvisioning()`。`RicohDriver.cpp` 不再出现 `Gr2Family`。新测试对 0–255 每个代际字节检查各参数恰好只选中 GR II；人为改掉 GR II 参数会立即失败。字符串字面量除改由配置提供的型号名外逐条一致。Native 共 170 例。
+- 6.7c 单 GR II 固件：新增 `sticks3-ricoh-gr2`（Flash 1,474,485 字节，BLE 栈仍编入，GR III / IV 相机按识别规则拒绝）与 `native-gr2`，CI 同步。
 
 **2026-10-14 阶段 5（编译期选择型号）**
 
@@ -356,7 +358,7 @@ GR III 与 GR IV 约 60–70% 的流程相同（电源门控、HTTP 预览、恢
 **2026-10-14 统一实机回归（6.3–6.6、依赖固定、阶段 5）**
 
 - GR III 系列与 GR IV 均通过（用户确认），覆盖：全量固件下两台相机的配对与协议识别、状态通知、横屏预览与快门、横竖切换、关机保护与唤醒、重启快速重连；单 GR IV / 单 GR III 固件的选机型列表与正常使用；单 GR III 固件拒绝 GR IV 相机（识别为 UNKNOWN，不配对、不开相机 Wi-Fi）。
-- 阶段 6 剩余：6.7 GR II Wi-Fi-only 路径（待有实机）。
+- 阶段 6 剩余：6.7 GR II Wi-Fi-only 路径（2026-10-17 代码完成，待 GR II 实机回归）。
 
 ### 执行注意事项
 

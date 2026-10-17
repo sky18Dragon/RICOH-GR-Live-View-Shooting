@@ -26,8 +26,8 @@ platformio run                 # 编译
 platformio run -t upload       # 烧录（upload_speed=921600）
 platformio device monitor      # 串口日志（monitor_speed=115200）
 platformio test -e native      # host-side 纯逻辑单元测试
-platformio run -e sticks3-ricoh-gr3   # 只含 GR III 系列的固件（sticks3-ricoh-gr4 同理）
-platformio test -e native-gr4  # 单型号构建下的型号选择测试（native-gr3 同理）
+platformio run -e sticks3-ricoh-gr3   # 只含 GR III 系列的固件（sticks3-ricoh-gr2 / gr4 同理）
+platformio test -e native-gr4  # 单型号构建下的型号选择测试（native-gr2 / gr3 同理）
 python scripts/check_model_includes.py  # 型号目录 include 规则
 ```
 
