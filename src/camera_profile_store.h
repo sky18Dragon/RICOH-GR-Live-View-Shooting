@@ -40,21 +40,22 @@ struct CameraProfile {
   uint32_t profileVersion = CAMERA_PROFILE_SCHEMA_VERSION;
 };
 
+// The camera binding for the Ricoh driver: one JSON snapshot in NVS
+// namespace "cam.ricoh". Firmware upgrades always erase flash, so only the
+// current schema is read; a snapshot of any other version reads as unpaired.
 class CameraProfileStore {
 public:
-  bool begin();
+  // An empty profile (and true) when nothing is stored; false if NVS fails.
   bool load(CameraProfile& profile);
   bool save(const CameraProfile& profile);
+  // Replaces the stored Wi-Fi credentials when `bleAddress` is the stored camera.
   bool saveWifiCredentials(const String& bleAddress, const WifiCredential& wifi);
-  bool clearWifiCredentials();
-  bool clearBlePairing();
-  bool saveBleIdentity(const String& cameraName, const String& bleAddress);
-  bool saveBleIdentity(const String& cameraName, const String& bleAddress, uint8_t bleAddressType, bool bleBonded);
-  bool loadDisplayMirror(bool& mirrored);
-  bool saveDisplayMirror(bool mirrored);
-  bool clear();
+  // Forgets the camera; NimBLE bonds are cleared separately.
+  bool clearProfile();
 
 private:
+  bool begin();
+
   Preferences _prefs;
   bool _begun = false;
 };

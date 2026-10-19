@@ -1,0 +1,87 @@
+#pragma once
+
+#include <cstdint>
+
+namespace rvf {
+
+struct RicohFlowActions {
+    bool (*cameraSleepGuardBlocksFlow)(const char* reason) = nullptr;
+    bool (*cameraSleepGuardActive)() = nullptr;
+    void (*showCameraSleepGuardStatus)() = nullptr;
+
+    bool (*isBleConnected)() = nullptr;
+    bool (*isWifiConnected)() = nullptr;
+    bool (*consumePowerOffNotification)(const char* reason) = nullptr;
+    bool (*consumePowerOffDisconnect)(const char* reason) = nullptr;
+    void (*disconnectWifi)() = nullptr;
+    void (*clearBleDisconnectReason)() = nullptr;
+    void (*disconnectWifiLiveViewToBleReady)(const char* reason) = nullptr;
+    void (*disconnectAllTransportsToBleScan)(const char* reason) = nullptr;
+
+    bool (*runBleDiscovery)() = nullptr;
+    // Portrait with cached Wi-Fi params skips WLAN ON, so it must still prove
+    // the camera body is On before the BLE shutter scene. GR IV can advertise
+    // while powered off.
+    bool (*ensureCameraPowerReady)(const char* source) = nullptr;
+    bool (*activateCameraWifiOverBle)() = nullptr;
+    bool (*finishCameraWifiOverHttp)() = nullptr;
+    bool (*deactivateCameraWifiOverBle)() = nullptr;
+    bool (*reactivateCameraWifiForCachedResume)() = nullptr;
+    bool (*hasUsableCachedWifiCredentials)() = nullptr;
+    bool (*connectCachedWifiFromProfile)() = nullptr;
+    void (*onCachedWifiConnected)() = nullptr;
+    void (*onCachedWifiConnectFailed)() = nullptr;
+    bool (*readFreshWifiCredentials)() = nullptr;
+    void (*applyFreshWifiCredentials)() = nullptr;
+    bool (*connectFreshWifiFromProfile)() = nullptr;
+    void (*onFreshWifiConnected)() = nullptr;
+
+    void (*showStartingLiveView)() = nullptr;
+    bool (*openLiveView)() = nullptr;
+    void (*onLiveViewOpened)() = nullptr;
+    void (*onLiveViewOpenFailed)() = nullptr;
+    bool (*previewStreamRunning)() = nullptr;
+    bool (*readAndProcessLiveViewFrame)() = nullptr;
+    void (*logPreviewStats)() = nullptr;
+
+    bool (*cameraRecoveryInProgress)() = nullptr;
+    void (*setCameraRecoveryInProgress)(bool inProgress) = nullptr;
+    // Recovery needs BLE to bring the camera AP back, so a link released for
+    // the Wi-Fi-only landscape preview is restored before anything else.
+    void (*restoreReleasedBle)(const char* reason) = nullptr;
+    bool (*reasonRequiresBleRescan)(const char* reason) = nullptr;
+    void (*showRecoveryBleReadyRetry)(const char* reason) = nullptr;
+    void (*showRecoveryBleScan)(const char* reason) = nullptr;
+    bool (*resetBleStackBeforeScanAfterLinkLoss)(const char* reason) = nullptr;
+    void (*shortRecoveryDelay)() = nullptr;
+    void (*onRecoveryGuardBlocked)() = nullptr;
+    void (*onRecoveryFinished)(bool recovered) = nullptr;
+
+    void (*requestManualCameraWake)(const char* source) = nullptr;
+    bool (*shutterReady)() = nullptr;
+    bool (*shutterOverWifi)() = nullptr;
+    void (*showShutterBleNotReady)() = nullptr;
+    bool (*shootAutofocus)() = nullptr;
+    void (*onShutterOk)() = nullptr;
+    void (*onShutterFailed)() = nullptr;
+    bool (*previewKeptAfterShutterFailure)() = nullptr;
+    // GR III/IV drop the MJPEG keep-alive when HTTP shoot runs spot AF.
+    // Recycle GET /v1/liveview on Wi-Fi; do not unpark BLE.
+    bool (*reopenPreviewAfterHttpShutter)() = nullptr;
+    // An empty HTTP 200 liveview after capture is not a lost camera. Retry
+    // GET /v1/liveview on Wi-Fi instead of restoring BLE.
+    bool (*recyclePreviewAfterStall)() = nullptr;
+
+    void (*delayAndYield)(uint32_t delayMs) = nullptr;
+    uint32_t (*lastFrameAt)() = nullptr;
+    uint32_t (*lastLiveViewActivityAt)() = nullptr;
+    uint32_t (*lastCameraRecoveryAt)() = nullptr;
+    void (*setLastCameraRecoveryAt)(uint32_t timestampMs) = nullptr;
+    bool liveviewEnabled = true;
+    uint8_t wifiOpenAttempts = 0;
+    uint32_t retryDelayMs = 0;
+    uint32_t bleScanRetryIntervalMs = 0;
+    uint32_t liveViewStallTimeoutMs = 0;
+};
+
+}  // namespace rvf

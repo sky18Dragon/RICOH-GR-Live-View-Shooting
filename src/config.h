@@ -30,6 +30,10 @@ constexpr size_t STREAM_READ_BUFFER_SIZE = 8192;
 
 constexpr uint32_t WIFI_CONNECT_TIMEOUT_MS = 15000;
 constexpr uint32_t WIFI_CHANNEL_HINT_CONNECT_TIMEOUT_MS = 6000;
+// Channel-hinted join for cameras whose AP channel changes on every WLAN ON
+// (wifiChannelChangesOnRestart). A GR IV on the right channel joined within
+// 2.5 s; on the wrong one the 6 s hint was pure waiting before the full scan.
+constexpr uint32_t WIFI_UNSTABLE_CHANNEL_HINT_CONNECT_TIMEOUT_MS = 3000;
 // Start association as soon as the BLE WLAN-on write is acknowledged. The
 // previous 700 ms fixed sleep plus 1200 ms attempt is preserved as one 1900 ms
 // bounded attempt, allowing DHCP to complete as soon as the AP is actually up.
@@ -38,8 +42,58 @@ constexpr uint32_t WIFI_CACHED_CONNECT_GRACE_MS = 0;
 constexpr uint32_t WIFI_CACHE_REFRESH_DELAY_MS = 5000;
 constexpr uint32_t BLE_SCAN_RETRY_INTERVAL_MS = 1000;
 constexpr uint32_t PROPS_TIMEOUT_MS = 3500;
+// AF-then-shoot can outlast a props read. Matches the curl --max-time used
+// against GR IIIx /v1/camera/shoot with body af=on.
+constexpr uint32_t HTTP_SHOOT_TIMEOUT_MS = 15000;
 constexpr uint32_t WLAN_FINISH_TIMEOUT_MS = 1000;
 constexpr uint32_t LIVEVIEW_STALL_TIMEOUT_MS = 5000;
+// LiveView keeps BLE up for the shutter. When enabled, once the stream has run
+// BLE_LIVEVIEW_LOW_DUTY_SETTLE_MS the BLE link drops to the low-duty
+// parameters in ble_link_mode_policy.h (102.5 ms, latency 0). Off by default:
+// on a GR IIIx (2026-10-13) low duty averaged ~4.0 FPS and ended in a lost
+// shutter write + supervision timeout, while the connect-time 30-50 ms /
+// latency 1 link averaged ~6.2 FPS with every shot confirmed. Latency 1
+// already lets the camera answer only every other event, so its radio gained
+// little, and 102.5 ms sits 0.1 ms off the camera's own 102.4 ms beacon.
+#define BLE_LIVEVIEW_LOW_DUTY_ENABLED 0
+constexpr uint32_t BLE_LIVEVIEW_LOW_DUTY_SETTLE_MS = 1500;
+// Joining the camera AP right after BLE WLAN ON: the first attempt starts
+// before the AP beacons, sits ~3.4 s until NO_AP_FOUND, and the retry then
+// joins in ~0.6 s (GR IIIx, 2026-10-13). Re-issue the join when the STA has
+// not associated after this long instead of waiting out the doomed attempt.
+// A join that has associated (auth/DHCP in progress) is never interrupted.
+constexpr uint32_t WIFI_CONNECT_KICK_MS = 1500;
+// A full-channel scan (channel 0) plus join takes ~3.4 s; re-issuing the join
+// every 1.5 s restarted the scan before it finished, so full-scan joins only
+// succeeded once the kicks ran out (GR IV, 2026-10-13: 8.1 s instead of ~3.4 s).
+constexpr uint32_t WIFI_CONNECT_FULL_SCAN_KICK_MS = 4000;
+constexpr uint8_t WIFI_CONNECT_MAX_KICKS = 3;
+// A kick is only worth it with at least this much of the timeout left.
+constexpr uint32_t WIFI_CONNECT_KICK_MIN_REMAINING_MS = 1000;
+constexpr uint32_t BLE_LINK_MODE_RETRY_MS = 2000;
+// LINK: log line while previewing (RSSI average/min, Wi-Fi disconnects, BLE
+// negotiated parameters) for coexistence and antenna-placement testing.
+constexpr uint32_t LINK_STATS_LOG_INTERVAL_MS = 5000;
+constexpr uint32_t LINK_RSSI_SAMPLE_INTERVAL_MS = 1000;
+// The camera defaults to maxfps=90. Unthrottled, a GR IIIx's shared
+// CYW43455 Wi-Fi/BT radio starved the stream to <1 FPS and dropped BLE with
+// supervision timeouts; 7 held 4-7 FPS with working BLE shutter on GR IIIx
+// and GR IV. GR II has not been tested with the parameter and keeps 0.
+constexpr uint8_t LIVEVIEW_MAX_FPS = 7;
+// GR III/IV stream 720x480 when /v1/liveview carries no reso=. A GR IIIx on
+// V1.50 locked up (power LED off, battery pull needed) one second after a
+// landscape BLE shot with reso=720x480 on the stream, and its resoList holds
+// nothing smaller anyway, so reso= stays off until a model proves both a
+// smaller size and stability with it. Even when enabled, only sizes below the
+// default are ever requested.
+constexpr bool LIVEVIEW_REQUEST_RESO = false;
+constexpr uint16_t LIVEVIEW_DEFAULT_WIDTH = 720;
+constexpr uint16_t LIVEVIEW_DEFAULT_HEIGHT = 480;
+// Window after an acknowledged BLE shutter write in which a ShotCount or
+// CaptureStatus notification counts as the camera confirming the capture.
+// Expiry is only reported, never treated as failure: long exposures and
+// cameras that never send these notifications must keep working.
+constexpr uint32_t SHOT_CONFIRM_TIMEOUT_MS = 4000;
 constexpr uint32_t UI_STATUS_INTERVAL_MS = 1000;
 constexpr uint32_t POWER_BUTTON_POLL_MS = 50;
 constexpr uint32_t POWER_BUTTON_HOLD_MS = 1200;
@@ -77,13 +131,24 @@ constexpr uint32_t RICOH_BLE_SECURITY_WAIT_MS = 7000;
 // new bond. A new peer must finish bond persistence inside this window before
 // the connection is accepted and its profile can be saved.
 constexpr uint32_t RICOH_BLE_BOND_PERSIST_SETTLE_MS = 1000;
-constexpr uint32_t RICOH_BLE_PASSKEY_ENTRY_WAIT_MS = 45000;
+// On-screen passkey entry window. A GR IIIx dropped the link with 0x213 about
+// 30 s after asking for the passkey (2026-10-13), so a longer window only lets
+// the user keep typing into a pairing the camera has already abandoned. The
+// screen shows the countdown.
+constexpr uint32_t RICOH_BLE_PASSKEY_ENTRY_WAIT_MS = 28000;
+// After the passkey is submitted, time allowed for encryption + bonding to
+// finish (~4.5 s observed on a GR IIIx). Extends the security wait so a code
+// entered near the end of the window is not cut off mid-bond.
+constexpr uint32_t RICOH_BLE_PASSKEY_BOND_WAIT_MS = 10000;
 constexpr uint32_t PASSKEY_DIGIT_CONFIRM_HOLD_MS = 600;
 constexpr uint8_t FIRST_BOOT_BLE_PAIRING_ATTEMPTS = 12;
 #ifndef RVF_SERIAL_BOOT_WAIT_MS
 #define RVF_SERIAL_BOOT_WAIT_MS 0
 #endif
 constexpr uint32_t SERIAL_BOOT_WAIT_MS = RVF_SERIAL_BOOT_WAIT_MS;
+constexpr uint32_t SERIAL_BAUD = 115200;
+constexpr const char* FIRMWARE_BANNER = "RICOH GR StickS3 Remote Viewfinder V2";
+constexpr const char* FIRMWARE_BOOT_MESSAGE = "V2 booting...";
 constexpr uint32_t CAMERA_POWER_OFF_COOLDOWN_MS = 15000;
 constexpr uint32_t CAMERA_POWER_OFF_PROBE_BACKOFF_MS = 8000;
 constexpr uint32_t CAMERA_SLEEP_AUTO_POWER_OFF_MS = 30000;
@@ -98,6 +163,16 @@ constexpr uint32_t RICOH_BLE_POWER_NOTIFY_SETTLE_MS = 30;
 constexpr bool RICOH_BLE_REQUIRE_POWER_ON_BEFORE_WIFI = true;
 constexpr bool RICOH_BLE_ALLOW_WIFI_WHEN_POWER_UNKNOWN = false;
 constexpr bool RICOH_BLE_BLOCK_WIFI_IN_STANDBY_OPERATION_MODE = true;
+// GR IIIx V1.50 can report Power=ON with OperationMode=bleStartup right after
+// pairing. Keep the link, re-read the mode, then probe NetworkType once; the
+// camera's bled forwards that write without a mode check and the camera
+// answers with a GATT error if it refuses.
+constexpr uint32_t RICOH_BLE_GR3_STARTUP_MODE_WAIT_MS = 10000;
+constexpr uint32_t RICOH_BLE_GR3_STARTUP_MODE_POLL_MS = 1000;
+// In bleStartup the camera rejects Shutter writes (CaptureCommand::Release
+// fails, ATT 0x80). bled forwards an OperationMode write to the camera's
+// SetOperationMode; only request capture when OperationModeList offers it.
+constexpr bool RICOH_BLE_GR3_REQUEST_CAPTURE_IN_STARTUP_MODE = true;
 
 constexpr bool RICOH_BLE_AUTO_WLAN_ON_BOOT = true;
 constexpr uint32_t RICOH_BLE_POST_WLAN_ON_WAIT_MS = 0;
@@ -105,68 +180,9 @@ constexpr uint32_t RICOH_BLE_WIFI_CREDENTIAL_WAIT_MS = 10000;
 constexpr uint32_t RICOH_BLE_WIFI_CREDENTIAL_POLL_MS = 500;
 constexpr uint8_t WIFI_OPEN_ATTEMPTS = 3;
 
-// Handle mapping and AP value were verified from RICOH GR Android app BLE
-// traffic captured on 2026-06-27. OFF follows the Network Type characteristic
-// value mapping at the same strictly detected GR IV handle; keep write-with-
-// response and validate the transition on GR IV hardware.
-constexpr uint16_t RICOH_BLE_GR4_WLAN_POWER_HANDLE = 0x0135;
-constexpr uint8_t RICOH_BLE_GR4_WLAN_ON_VALUE = 0x01;
-constexpr uint8_t RICOH_BLE_GR4_WLAN_OFF_VALUE = 0x00;
-constexpr uint16_t RICOH_BLE_GR4_WLAN_SSID_HANDLE = 0x0138;
-constexpr uint16_t RICOH_BLE_GR4_WLAN_PASSPHRASE_HANDLE = 0x013A;
-constexpr uint16_t RICOH_BLE_GR4_WLAN_SECURITY_HANDLE = 0x013C;
-constexpr uint16_t RICOH_BLE_GR4_WLAN_FREQUENCY_HANDLE = 0x013E;
-constexpr uint16_t RICOH_BLE_GR4_WLAN_BSSID_HANDLE = 0x0140;
-
-// Verified from Android HCI logs captured on 2026-06-28.
-// 0x01: camera powered on / controllable, 0x00: power-off or shutting down.
-constexpr uint16_t RICOH_BLE_GR4_POWER_STATE_HANDLE = 0x00EB;
-constexpr uint16_t RICOH_BLE_GR4_POWER_STATE_CCCD_HANDLE = 0x00EC;
-constexpr uint8_t RICOH_BLE_GR4_POWER_STATE_ON_VALUE = 0x01;
-constexpr uint8_t RICOH_BLE_GR4_POWER_STATE_OFF_VALUE = 0x00;
-
-
-#ifndef RICOH_BLE_INFO_SERVICE_UUID
-#define RICOH_BLE_INFO_SERVICE_UUID "9A5ED1C5-74CC-4C50-B5B6-66A48E7CCFF1"
-#endif
-#ifndef RICOH_BLE_CAMERA_SERVICE_UUID
-#define RICOH_BLE_CAMERA_SERVICE_UUID "4B445988-CAA0-4DD3-941D-37B4F52ACA86"
-#endif
-#ifndef RICOH_BLE_OPERATION_MODE_UUID
-#define RICOH_BLE_OPERATION_MODE_UUID "1452335A-EC7F-4877-B8AB-0F72E18BB295"
-#endif
-#ifndef RICOH_BLE_SHOOTING_SERVICE_UUID
-#define RICOH_BLE_SHOOTING_SERVICE_UUID "9F00F387-8345-4BBC-8B92-B87B52E3091A"
-#endif
-#ifndef RICOH_BLE_SHOOTING_FLAVOR_UUID
-#define RICOH_BLE_SHOOTING_FLAVOR_UUID "B29E6DE3-1AEC-48C1-9D05-02CEA57CE664"
-#endif
-#ifndef RICOH_BLE_OPERATION_REQUEST_UUID
-#define RICOH_BLE_OPERATION_REQUEST_UUID "559644B8-E0BC-4011-929B-5CF9199851E7"
-#endif
-#ifndef RICOH_BLE_CONTROL_SERVICE_UUID
-#define RICOH_BLE_CONTROL_SERVICE_UUID "0F291746-0C80-4726-87A7-3C501FD3B4B6"
-#endif
-#ifndef RICOH_BLE_CAMERA_POWER_UUID
-#define RICOH_BLE_CAMERA_POWER_UUID "B58CE84C-0666-4DE9-BEC8-2D27B27B3211"
-#endif
-#ifndef RICOH_BLE_GR3_WLAN_SERVICE_UUID
-#define RICOH_BLE_GR3_WLAN_SERVICE_UUID "F37F568F-9071-445D-A938-5441F2E82399"
-#endif
-#ifndef RICOH_BLE_GR3_WLAN_NETWORK_TYPE_UUID
-#define RICOH_BLE_GR3_WLAN_NETWORK_TYPE_UUID "9111CDD0-9F01-45C4-A2D4-E09E8FB0424D"
-#endif
-constexpr uint8_t RICOH_BLE_GR3_WLAN_OFF_VALUE = 0x00;
-constexpr uint8_t RICOH_BLE_GR3_WLAN_AP_VALUE = 0x01;
-#ifndef RICOH_BLE_GR3_WLAN_SSID_UUID
-#define RICOH_BLE_GR3_WLAN_SSID_UUID "90638E5A-E77D-409D-B550-78F7E1CA5AB4"
-#endif
-#ifndef RICOH_BLE_GR3_WLAN_PASSPHRASE_UUID
-#define RICOH_BLE_GR3_WLAN_PASSPHRASE_UUID "0F38279C-FE9E-461B-8596-81287E8C9A81"
-#endif
-#ifndef RICOH_BLE_GR3_WLAN_CHANNEL_UUID
-#define RICOH_BLE_GR3_WLAN_CHANNEL_UUID "51DE6EBC-0F22-4357-87E4-B1FA1D385AB8"
-#endif
+#include "brands/ricoh/common/RicohBleUuids.h"
+#include "brands/ricoh/gr3/Gr3BleConfig.h"
+#include "brands/ricoh/gr4/Gr4BleConfig.h"
 
 #ifndef RICOH_BLE_GATT_DIAGNOSTICS
 #define RICOH_BLE_GATT_DIAGNOSTICS 0

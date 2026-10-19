@@ -127,7 +127,7 @@ GR III Family 使用相机屏幕显示的动态六位 Passkey：
 - B 短按：确认当前数字并移动到下一位。
 - A 长按：直接提交当前六位数字。
 - B 长按 3 秒：取消本次输入并进入清除配对流程。
-- 输入窗口：45 秒。
+- 输入窗口：28 秒，屏幕显示剩余秒数（最后 10 秒变红）。相机约 30 秒后会放弃本次配对，超时后重新进入相机配对页面即可。
 
 ### GR IV / GR IV HDF
 
@@ -260,7 +260,7 @@ pio run -e m5stack-sticks3
 - [src/ui/](src/ui/)：配对引导、按键、姿态、动画、声音和场景协调。
 - [src/camera_profile_store.cpp](src/camera_profile_store.cpp)：相机 Profile、显示设置和 Wi-Fi 缓存持久化。
 - [src/jpeg_decoder.cpp](src/jpeg_decoder.cpp) 与 [src/mjpeg_stream.cpp](src/mjpeg_stream.cpp)：JPEG 解码和 MJPEG 切帧。
-- [test/test_native/](test/test_native/)：Host Native 自动化测试。
+- [test/](test/)：Host Native 自动化测试（`test_native_*` 按功能区分套件）。
 - [docs/](docs/)：协议、状态机、硬件验证和测试资料。
 - [cad/](cad/)：StickS3 热靴安装配件及可编辑模型。
 

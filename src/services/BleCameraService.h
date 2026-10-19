@@ -35,16 +35,26 @@ public:
     Result connectCamera(const RicohBleDeviceInfo& info, const RicohBleConnectOptions& options);
 
     void disconnect();
+    Result applyConnParams(const BleConnParams& params, const char* reason);
+    bool readConnParams(BleConnParams& params) const;
+    uint32_t peerConnParamRequests() const;
+    uint32_t connectionSerial() const;
     bool isConnected() const;
     bool shutterReady() const;
 
     Result shoot(bool autofocus = true);
-    Result openWifi();
+    Result openWifi(bool startupModeProbe = false);
     Result closeWifi();
     Result readPowerState(RicohCameraPowerState& state);
     Result readOperationMode(RicohCameraOperationMode& mode);
+    Result requestCaptureOperationMode();
     Result enablePowerStateNotify();
     bool consumePowerOffNotification();
+    Result enableCameraStatusNotify();
+    bool statusNotifyAttempted() const;
+    uint32_t shotEventSequence() const;
+    bool shotNotifyActive() const;
+    int batteryLevel() const;
     Result waitForWifiCredentials(RicohBleWifiCredentials& credentials, uint32_t timeoutMs);
 
     int consumeDisconnectReason();

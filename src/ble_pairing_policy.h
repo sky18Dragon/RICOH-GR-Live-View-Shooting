@@ -65,6 +65,8 @@ public:
   PasskeyEntryStatus confirmDigit();
   PasskeyEntryStatus submit();
   PasskeyEntryStatus status(uint32_t nowMs) const;
+  // Time left in the entry window; 0 when inactive, complete or expired.
+  uint32_t remainingMs(uint32_t nowMs) const;
   int32_t code() const;
   uint8_t activeIndex() const { return _index; }
   const uint8_t* digits() const { return _digits; }

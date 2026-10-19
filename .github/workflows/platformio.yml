@@ -19,6 +19,10 @@ jobs:
       matrix:
         environment:
           - m5stack-sticks3
+          # Single-model firmware; building them is the per-model coupling check.
+          - sticks3-ricoh-gr2
+          - sticks3-ricoh-gr3
+          - sticks3-ricoh-gr4
 
     steps:
       - name: Checkout
@@ -48,3 +52,46 @@ jobs:
       - name: Build RicohViewfinder
         run: |
           platformio run -e ${{ matrix.environment }}
+
+  native-test:
+    name: native tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cache/pip
+            ~/.platformio/.cache
+          key: ${{ runner.os }}-pio-native-${{ hashFiles('platformio.ini') }}
+          restore-keys: |
+            ${{ runner.os }}-pio-native-
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install PlatformIO
+        run: |
+          python -m pip install --upgrade pip
+          pip install platformio==6.1.18
+
+      - name: Check per-model include rules
+        run: |
+          python scripts/check_model_includes.py
+
+      - name: Run native tests
+        run: |
+          platformio test -e native
+
+      - name: Run model-selection tests on single-model builds
+        run: |
+          platformio test -e native-gr2
+          platformio test -e native-gr3
+          platformio test -e native-gr4

@@ -23,7 +23,8 @@ public:
     void showStatus(const String& line1, const String& line2, const String& line3, const String& line4);
     void showError(const char* message, const char* detail = nullptr);
     void showError(const String& message, const String& detail = String());
-    void showPasskeyEntry(const uint8_t digits[6], uint8_t activeIndex);
+    // remainingSec > 0 draws the entry-window countdown.
+    void showPasskeyEntry(const uint8_t digits[6], uint8_t activeIndex, uint8_t remainingSec = 0);
     int16_t width() const { return _width; }
     int16_t height() const { return _height; }
     void setMirrored(bool mirrored);

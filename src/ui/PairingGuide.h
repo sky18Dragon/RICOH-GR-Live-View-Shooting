@@ -1,7 +1,9 @@
 #pragma once
 
+#include <cstddef>
+
 #include "ButtonInput.h"
-#include "../camera_protocol_profile.h"
+#include "../camera/CameraRegistry.h"
 
 namespace rvf {
 
@@ -11,11 +13,14 @@ enum class PairingGuideAction : uint8_t {
     Confirmed,
 };
 
+// Model picker shown before pairing; the options come from CameraRegistry.
 class PairingGuide {
 public:
-    void activate(RicohProtocolGeneration selection = RicohProtocolGeneration::Gr3Family) {
+    void activate() { activate(cameraModelAt(defaultCameraModelIndex()).id); }
+
+    void activate(CameraModelId selection) {
         _active = true;
-        _selection = selection;
+        _selectedIndex = cameraModelIndex(selection);
     }
 
     void dismiss() { _active = false; }
@@ -32,18 +37,7 @@ public:
         // Inside the guide both mean exactly one model-selection step. A long
         // B press emits resetPairing and is deliberately consumed as no-op.
         if (events.buttonBClicked || events.buttonBDoubleClicked) {
-            switch (_selection) {
-                case RicohProtocolGeneration::Gr2Family:
-                    _selection = RicohProtocolGeneration::Gr3Family;
-                    break;
-                case RicohProtocolGeneration::Gr3Family:
-                    _selection = RicohProtocolGeneration::Gr4Family;
-                    break;
-                case RicohProtocolGeneration::Gr4Family:
-                case RicohProtocolGeneration::Unknown:
-                    _selection = RicohProtocolGeneration::Gr2Family;
-                    break;
-            }
+            _selectedIndex = (_selectedIndex + 1) % cameraModelCount();
             return PairingGuideAction::SelectionChanged;
         }
 
@@ -51,11 +45,12 @@ public:
     }
 
     bool active() const { return _active; }
-    RicohProtocolGeneration selection() const { return _selection; }
+    size_t selectedIndex() const { return _selectedIndex; }
+    CameraModelId selection() const { return cameraModelAt(_selectedIndex).id; }
 
 private:
     bool _active = false;
-    RicohProtocolGeneration _selection = RicohProtocolGeneration::Gr3Family;
+    size_t _selectedIndex = defaultCameraModelIndex();
 };
 
 }  // namespace rvf

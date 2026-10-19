@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 enum class RicohProtocolGeneration : uint8_t {
@@ -88,9 +89,17 @@ struct CameraCapabilities {
   bool supportsHttpLiveView = false;
   // POST /v1/camera/shoot, confirmed on the camera rather than assumed.
   bool supportsHttpShutter = false;
-  // RF scheduling policy, intentionally separate from HTTP functionality.
-  // A generation must opt in explicitly before LiveView can release BLE.
+  // PUT /v1/params/lens body focusSetting=<enum> before LiveView opens.
+  // GR III/IV share this GR Remote write shape; GR II uses shoot?af=camera.
+  bool supportsHttpFocusSetting = false;
+  // Landscape is Wi-Fi only: BLE brings the camera AP up and is released once
+  // the preview streams, so the shutter must work over HTTP. A generation must
+  // opt in explicitly; one that does not keeps BLE through the preview.
   bool allowBlePreviewParking = false;
+  // The camera AP may come back on a different channel after each WLAN ON,
+  // so the cached channel is only a guess: keep the channel-hinted join short
+  // and fall back to a full scan quickly.
+  bool wifiChannelChangesOnRestart = false;
 };
 
 struct CameraProtocolProfile {
@@ -106,6 +115,31 @@ struct CameraProtocolProfile {
   bool requiresLegacyShutterFlavorWrite = false;
   bool standbyModeRequiresFreshReconnect = false;
   uint32_t standbyProbeIntervalMs = 0;
+  // Security profile a binding of this model uses.
+  RicohSecurityProfileId securityProfile = RicohSecurityProfileId::Unknown;
+  // Wi-Fi may only be raised after a successful operation-mode read; when
+  // false an unreadable mode defers to the power-state gate.
+  bool wifiRequiresOperationModeRead = false;
+  // A powered-on camera reporting BLE_STARTUP is still starting: keep the
+  // link and wait rather than treating it as standby.
+  bool waitsInBleStartupMode = false;
+  // Raising Wi-Fi needs an encrypted, authenticated link.
+  bool wifiRequiresAuthenticatedLink = false;
+  // A read-only discovery connection made with the default security baseline
+  // can be promoted to this model in place, without reconnecting.
+  bool discoveryConnectionPromotable = false;
+  // HTTP quirks of the GR II firmware; the defaults are GR III/IV behaviour.
+  // GET /v1/liveview goes out bare, without ?maxfps=.
+  bool liveViewWithoutMaxFps = false;
+  // No /v1/props (GR Remote reads /v1/params/device instead). When set, props
+  // are never fetched and this model label is shown.
+  const char* fixedModelLabel = nullptr;
+  // The shutter is GR Remote's one-shot (start + finish fallback) sequence
+  // with af=camera, not POST /v1/camera/shoot af=on.
+  bool httpShutterUsesGrRemoteSequence = false;
+  // The HTTP WLAN finish endpoint powers the camera off rather than handing
+  // its access point back, so it is never sent.
+  bool httpWlanFinishPowersOff = false;
   uint16_t capabilityVersion = 1;
 };
 
@@ -129,7 +163,6 @@ struct ProtocolDetectionEvidence {
 };
 
 const CameraProtocolProfile& cameraProtocolProfile(RicohProtocolGeneration generation);
-RicohProtocolGeneration detectRicohProtocol(const ProtocolDetectionEvidence& evidence);
 const char* ricohProtocolGenerationName(RicohProtocolGeneration generation);
 RicohSecurityProfileId securityProfileForGeneration(RicohProtocolGeneration generation);
 bool canPromoteDiscoveryConnectionInPlace(RicohSecurityProfileId activeProfile,
@@ -137,9 +170,26 @@ bool canPromoteDiscoveryConnectionInPlace(RicohSecurityProfileId activeProfile,
 const RicohSecurityProfile& ricohSecurityProfile(RicohSecurityProfileId id);
 const char* ricohSecurityProfileName(RicohSecurityProfileId id);
 
+// No BLE at all: the user enables the camera AP on the body and the
+// controller joins it with manually configured credentials.
+bool cameraIsWifiOnly(const CameraProtocolProfile& profile);
+bool cameraNeedsManualWifiProvisioning(const CameraProtocolProfile& profile);
 bool protocolAllowsBleSideEffect(const CameraProtocolProfile& profile, BleSideEffect effect);
 bool operationModeAllowsWifi(const CameraProtocolProfile& profile,
                              RicohCameraOperationMode mode,
                              bool operationModeReadSucceeded);
-bool validGr3WifiChannel(uint8_t channel);
-bool validGr3WifiCredentials(const char* ssid, const char* passphrase, uint8_t channel);
+// A powered-on GR III family camera that reports bleStartup is not shutting
+// down: the caller should keep the link and wait instead of entering the
+// camera sleep guard.
+bool operationModeWaitsForCameraReady(const CameraProtocolProfile& profile,
+                                      RicohCameraOperationMode mode,
+                                      bool operationModeReadSucceeded);
+// Whether an explicit NetworkType probe may be sent despite the mode gate.
+// The camera arbitrates NetworkType writes itself and rejects them with a
+// GATT write error, so a probe cannot raise WLAN against the camera's will.
+bool operationModeAllowsWifiProbe(const CameraProtocolProfile& profile,
+                                  RicohCameraOperationMode mode,
+                                  bool operationModeReadSucceeded);
+// OperationModeList payload: byte 0 is the entry count, followed by one byte
+// per mode the camera currently accepts.
+bool operationModeListContains(const uint8_t* data, size_t length, RicohCameraOperationMode mode);

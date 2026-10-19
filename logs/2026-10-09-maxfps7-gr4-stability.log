@@ -1,0 +1,54 @@
+0.0s [I][FRAME] buffer storage=psram cap=262144 stream=1858 rendered=1858 dropped=0 last=30628 max=36195 current=0 free_int=76664 largest_int=65524 free_psram=8046459
+0.5s [I][PREVIEW] [I][PREVIEW] stats fps=7.0 rate=212.4KiB/s jpeg=720x480 decode=37.5/39ms render=50.6/53ms read=0ms mjpeg_cb=0ms
+4.5s [I][FRAME] buffer storage=psram cap=262144 stream=1928 rendered=1928 dropped=0 last=30795 max=36195 current=22936 free_int=75824 largest_int=65524 free_psram=8046459
+5.5s [I][PREVIEW] stats fps=7.2 rate=214.9KiB/s jpeg=720x480 decode=37.2/38ms render=50.3/51ms read=1ms mjpeg_cb=51ms
+10.5s [I][PREVIEW] stats fps=7.0 rate=211.0KiB/s jpeg=720x480 decode=37.3/38ms render=50.3/51ms read=1ms mjpeg_cb=52ms
+14.5s [I][FRAME] buffer storage=psram cap=262144 stream=1999 rendered=1999 dropped=0 last=31214 max=36195 current=0 free_int=76664 largest_int=65524 free_psram=8046459
+15.5s [I][PREVIEW] stats fps=7.0 rate=215.4KiB/s jpeg=720x480 decode=37.2/38ms render=50.3/51ms read=0ms mjpeg_cb=1ms
+20.6s [I][PREVIEW] stats fps=7.1 rate=211.7KiB/s jpeg=720x480 decode=37.5/39ms render=50.8/52ms read=1ms mjpeg_cb=51ms
+24.5s [I][FRAME] buffer storage=psram cap=262144 stream=2069 rendered=2069 dropped=0 last=31551 max=36195 current=30055 free_int=76664 largest_int=65524 free_psram=8046459
+25.6s [I][PREVIEW] stats fps=7.0 rate=212.3KiB/s jpeg=720x480 decode=37.3/39ms render=50.4/52ms read=0ms mjpeg_cb=51ms
+26.2s [I][HTTP] props fetched in 506ms
+30.6s [I][PREVIEW] stats fps=6.6 rate=199.8KiB/s jpeg=720x480 decode=37.4/39ms render=50.5/52ms read=1ms mjpeg_cb=51ms
+34.6s [I][FRAME] buffer storage=psram cap=262144 stream=2138 rendered=2138 dropped=0 last=30903 max=36195 current=0 free_int=76664 largest_int=65524 free_psram=8046459
+35.6s [I][PREVIEW] stats fps=7.0 rate=216.4KiB/s jpeg=720x480 decode=37.1/38ms render=50.2/51ms read=0ms mjpeg_cb=2ms
+40.7s [I][PREVIEW] stats fps=7.1 rate=212.8KiB/s jpeg=720x480 decode=37.2/38ms render=50.3/51ms read=2ms mjpeg_cb=51ms
+44.6s [I][FRAME] buffer storage=psram cap=262144 stream=2208 rendered=2208 dropped=0 last=30995 max=36195 current=22936 free_int=76364 largest_int=65524 free_psram=8041803
+45.7s [I][PREVIEW] stats fps=7.0 rate=212.8KiB/s jpeg=720x480 decode=37.3/38ms render=50.4/52ms read=0ms mjpeg_cb=51ms
+50.7s [I][PREVIEW] stats fps=7.2 rate=216.9KiB/s jpeg=720x480 decode=37.2/38ms render=50.3/51ms read=1ms mjpeg_cb=51ms
+54.6s [I][FRAME] buffer storage=psram cap=262144 stream=2278 rendered=2278 dropped=0 last=30689 max=36195 current=28680 free_int=76028 largest_int=65524 free_psram=8046459
+55.7s [I][PREVIEW] stats fps=7.0 rate=210.8KiB/s jpeg=720x480 decode=37.2/39ms render=50.4/52ms read=1ms mjpeg_cb=50ms
+60.7s [I][PREVIEW] stats fps=7.0 rate=213.7KiB/s jpeg=720x480 decode=37.5/39ms render=50.8/52ms read=0ms mjpeg_cb=51ms
+64.6s [I][FRAME] buffer storage=psram cap=262144 stream=2350 rendered=2350 dropped=0 last=30895 max=36195 current=0 free_int=76652 largest_int=65524 free_psram=8046459
+65.7s [I][PREVIEW] stats fps=7.1 rate=215.6KiB/s jpeg=720x480 decode=37.1/38ms render=50.3/51ms read=1ms mjpeg_cb=52ms
+70.7s [I][PREVIEW] stats fps=6.8 rate=212.1KiB/s jpeg=720x480 decode=37.6/39ms render=50.8/52ms read=0ms mjpeg_cb=1ms
+74.7s [I][FRAME] buffer storage=psram cap=262144 stream=2419 rendered=2419 dropped=0 last=32256 max=37785 current=0 free_int=76664 largest_int=65524 free_psram=8046459
+75.8s [I][PREVIEW] stats fps=7.0 rate=214.4KiB/s jpeg=720x480 decode=38.7/43ms render=51.8/56ms read=0ms mjpeg_cb=52ms
+80.8s [I][PREVIEW] stats fps=6.6 rate=212.9KiB/s jpeg=720x480 decode=38.8/40ms render=52.0/53ms read=0ms mjpeg_cb=2ms
+83.4s UI Canvas: switch landscape -> portrait heap=76664 psram=8046459
+83.4s UI Canvas: ready 135x240 storage=psram heap=141404 psram=7974655
+83.7s HTTP WLAN finish: request=SENT detail=camera disconnect expected
+87.1s Flow: CHECKING_CAMERA_POWER -> ACTIVATING_WIFI (BLE WiFi ON) uptime=378707ms
+87.3s Flow: ACTIVATING_WIFI -> CONNECTING_WIFI (landscape resumes cached WiFi params) uptime=378905ms
+90.8s WiFi: disconnected reason=201(NO_AP_FOUND) rssi=-128 elapsed=3411ms
+90.8s WiFi: AP not found; retrying scan in same budget retry=1/2
+91.1s WiFi: disconnected reason=49(INVALID_PMKID) rssi=-48 elapsed=118ms
+91.1s WiFi: invalid PMKID; resetting RAM-only STA security context and retrying
+91.1s E (389222) wifi:timeout when WiFi un-init, type=4
+92.8s WiFi: connect completed in 1533ms total=5506ms assoc=795ms got_ip=1442ms requested_channel=0 actual_channel=11 status=CONNECTED security_reset=1
+92.8s [I][WIFI] connected in 5506ms ip=192.168.0.3 rssi=-53
+92.8s WiFi cache: unchanged after cached connect; NVS write skipped
+92.8s Flow: CONNECTING_WIFI -> PREVIEW_STARTING (WiFi connected) uptime=384414ms
+92.8s HTTP: opening LiveView path=/v1/liveview?maxfps=7
+95.9s [I][PREVIEW] liveview opened in 3093ms
+95.9s Flow: PREVIEW_STARTING -> PREVIEW_RUNNING (LiveView opened) uptime=387508ms
+95.9s UI Canvas: switch portrait -> landscape heap=140892 psram=7975503
+95.9s UI Canvas: ready 240x135 storage=internal heap=76072 psram=8040323
+95.9s [I][FRAME] buffer storage=psram cap=262144 stream=2478 rendered=0 dropped=0 last=0 max=0 current=5546 free_int=76232 largest_int=63476 free_psram=8046595
+98.0s [I][HTTP] props fetched in 647ms
+100.9s [I][PREVIEW] stats fps=4.2 rate=153.4KiB/s jpeg=720x480 decode=41.8/44ms render=55.0/57ms read=0ms mjpeg_cb=2ms
+106.7s [I][PREVIEW] stats fps=3.9 rate=127.2KiB/s jpeg=720x480 decode=39.0/40ms render=52.2/53ms read=1ms mjpeg_cb=2ms
+106.7s [I][FRAME] buffer storage=psram cap=262144 stream=2522 rendered=44 dropped=0 last=32807 max=39103 current=8498 free_int=75460 largest_int=63476 free_psram=8046459
+111.7s [I][PREVIEW] stats fps=4.8 rate=170.5KiB/s jpeg=720x480 decode=41.8/45ms render=55.0/58ms read=0ms mjpeg_cb=2ms
+116.7s [I][PREVIEW] stats fps=5.5 rate=204.4KiB/s jpeg=720x480 decode=43.4/44ms render=56.5/57ms read=2ms mjpeg_cb=58ms
+116.8s [I][FRAME] buffer storage=psram cap=262144 stream=2574 rendered=96 dropped=0 last=38938 max=39103 current=1330 free_int=75668 largest_int=63476 free_psram=8046459
